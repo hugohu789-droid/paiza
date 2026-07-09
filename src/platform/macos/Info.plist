@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- InputMethodKit registration. The bundle must be installed under
+     ~/Library/Input Methods/ (per user) or /Library/Input Methods/.
+     InputMethodConnectionName must match the IMKServer created in
+     main.mm; InputMethodServerControllerClass is our controller. -->
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleExecutable</key>
+  <string>PaizaMongolian</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.paiza.inputmethod.mongolian</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>Paiza Mongolian</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.1.0</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>12.0</string>
+  <key>LSBackgroundOnly</key>
+  <true/>
+  <key>InputMethodConnectionName</key>
+  <string>Paiza_Mongolian_Connection</string>
+  <key>InputMethodServerControllerClass</key>
+  <string>PaizaInputController</string>
+  <key>tsInputMethodCharacterRepertoireKey</key>
+  <array>
+    <string>Mong</string>
+  </array>
+  <key>ComponentInputModeDict</key>
+  <dict>
+    <key>tsInputModeListKey</key>
+    <dict>
+      <key>com.paiza.inputmethod.mongolian.mong</key>
+      <dict>
+        <key>TISInputSourceID</key>
+        <string>com.paiza.inputmethod.mongolian.mong</string>
+        <key>TISIntendedLanguage</key>
+        <string>mn</string>
+        <key>tsInputModeDefaultStateKey</key>
+        <true/>
+        <key>tsInputModeIsVisibleKey</key>
+        <true/>
+        <key>tsInputModeScriptKey</key>
+        <string>smUnicodeScript</string>
+        <key>tsInputModePrimaryInScriptKey</key>
+        <true/>
+      </dict>
+    </dict>
+    <key>tsVisibleInputModeOrderedArrayKey</key>
+    <array>
+      <string>com.paiza.inputmethod.mongolian.mong</string>
+    </array>
+  </dict>
+</dict>
+</plist>

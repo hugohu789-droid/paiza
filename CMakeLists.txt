@@ -55,6 +55,7 @@ endif()
 add_library(paiza_core STATIC
   src/core/candidate_engine.cc
   src/core/cloud_candidate_source.cc
+  src/core/input_session.cc
   src/core/key_mapping.cc
   src/core/key_mapping_store.cc
   src/core/local_dictionary_source.cc
@@ -133,6 +134,37 @@ if(WIN32)
   )
 endif()
 
+# --------------------------------------------------------- macOS platform ---
+# InputMethodKit front-end (.app bundle for ~/Library/Input Methods).
+# Thin ObjC++ adapter around paiza::InputSession; see docs/macos-port.md.
+if(APPLE)
+  enable_language(OBJCXX)
+  set(CMAKE_OBJCXX_STANDARD 20)
+  set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
+
+  add_executable(PaizaIMK MACOSX_BUNDLE
+    src/platform/macos/main.mm
+    src/platform/macos/paiza_input_controller.mm
+    src/platform/macos/candidate_panel.mm
+    data/dictionary.txt
+  )
+  set_target_properties(PaizaIMK PROPERTIES
+    OUTPUT_NAME "PaizaMongolian"
+    MACOSX_BUNDLE_INFO_PLIST ${CMAKE_SOURCE_DIR}/src/platform/macos/Info.plist
+  )
+  set_source_files_properties(data/dictionary.txt PROPERTIES
+    MACOSX_PACKAGE_LOCATION Resources
+  )
+  target_include_directories(PaizaIMK PRIVATE src/platform/macos)
+  target_compile_options(PaizaIMK PRIVATE -fobjc-arc)
+  target_link_libraries(PaizaIMK PRIVATE
+    paiza_core
+    "-framework Cocoa"
+    "-framework InputMethodKit"
+    "-framework CoreText"
+  )
+endif()
+
 # ------------------------------------------------------------------ tests ---
 if(PAIZA_BUILD_TESTS)
   include(FetchContent)
@@ -149,6 +181,7 @@ if(PAIZA_BUILD_TESTS)
   # Portable tests: run on every platform in CI (feature-parity guard).
   set(PAIZA_TEST_SOURCES
     tests/candidate_engine_test.cc
+    tests/input_session_test.cc
     tests/key_mapping_test.cc
     tests/local_dictionary_source_test.cc
     tests/localization_test.cc
