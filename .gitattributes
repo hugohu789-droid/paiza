@@ -1,0 +1,7 @@
+# Normalize line endings: store LF in the repository, let each platform
+# check out its native endings. Keeps diffs clean across the Windows /
+# macOS / Linux CI matrix.
+* text=auto
+*.def text
+*.yml text
+*.txt text

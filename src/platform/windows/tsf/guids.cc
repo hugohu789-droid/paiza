@@ -1,0 +1,28 @@
+// Copyright 2026 Paiza. All rights reserved.
+
+#include "tsf/guids.h"
+
+namespace paiza::tsf {
+
+// {B87D18C4-4E31-4B98-9E4D-6A2B3C7A9F01}
+const CLSID kClsidTextService = {
+    0xb87d18c4,
+    0x4e31,
+    0x4b98,
+    {0x9e, 0x4d, 0x6a, 0x2b, 0x3c, 0x7a, 0x9f, 0x01}};
+
+// {C5E37F82-91D0-4E0A-8E14-52B8D9A6C3B2}
+const GUID kGuidProfile = {
+    0xc5e37f82,
+    0x91d0,
+    0x4e0a,
+    {0x8e, 0x14, 0x52, 0xb8, 0xd9, 0xa6, 0xc3, 0xb2}};
+
+// {D7A94E63-3C58-4F21-A0BD-7E9F1B2C4D5E}
+const GUID kGuidDisplayAttributeInput = {
+    0xd7a94e63,
+    0x3c58,
+    0x4f21,
+    {0xa0, 0xbd, 0x7e, 0x9f, 0x1b, 0x2c, 0x4d, 0x5e}};
+
+}  // namespace paiza::tsf

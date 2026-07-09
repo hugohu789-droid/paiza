@@ -1,0 +1,29 @@
+# Cross-platform CI: the platform-neutral core (transliterator, key
+# mapping, candidate engine, localization, dictionary) must build and pass
+# its tests on all three target OSes — this is the feature-parity guard
+# for the future macOS/Linux front-ends. Windows additionally builds the
+# full IME (TSF DLL, service, UI) and its extra tests.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build
+        run: cmake --build build --config Debug
+
+      - name: Test
+        run: ctest --test-dir build -C Debug --output-on-failure

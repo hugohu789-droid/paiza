@@ -1,0 +1,38 @@
+# Paiza Mongolian IME sample dictionary.
+# Format: <latin_key>\t<mongolian_word_utf8>\t<frequency>
+# Encoding: UTF-8, tab-separated. Lines starting with '#' are comments.
+sain	ᠰᠠᠶᠢᠨ	100
+sain	ᠰᠠᠢᠨ	40
+bainuu	ᠪᠠᠶᠢᠨᠠ ᠤᠤ	80
+mongol	ᠮᠣᠩᠭᠣᠯ	100
+mongol	ᠮᠣᠩᠭᠣᠯᠴᠤᠳ	30
+bichig	ᠪᠢᠴᠢᠭ	90
+hele	ᠬᠡᠯᠡ	85
+ulus	ᠤᠯᠤᠰ	80
+hot	ᠬᠣᠲᠠ	75
+bagsi	ᠪᠠᠭᠰᠢ	70
+surguuli	ᠰᠤᠷᠭᠠᠭᠤᠯᠢ	70
+nom	ᠨᠣᠮ	65
+usu	ᠤᠰᠤ	60
+gal	ᠭᠠᠯ	60
+gazar	ᠭᠠᠵᠠᠷ	60
+tengri	ᠲᠩᠷᠢ	55
+mori	ᠮᠣᠷᠢ	55
+temee	ᠲᠡᠮᠡᠭᠡ	50
+honi	ᠬᠣᠨᠢ	50
+uker	ᠦᠬᠡᠷ	45
+naran	ᠨᠠᠷᠠᠨ	45
+saran	ᠰᠠᠷᠠᠨ	45
+odo	ᠣᠳᠣ	40
+salkin	ᠰᠠᠯᠬᠢᠨ	40
+boroo	ᠪᠣᠷᠣᠭᠠᠨ	40
+tsas	ᠴᠠᠰ	35
+ger	ᠭᠡᠷ	80
+aav	ᠠᠪᠤ	60
+eej	ᠡᠵᠢ	60
+ah	ᠠᠬᠠ	50
+egch	ᠡᠭᠡᠴᠢ	50
+duu	ᠳᠡᠭᠦᠦ	50
+nair	ᠨᠠᠶᠢᠷ	40
+bayar	ᠪᠠᠶᠠᠷ	55
+amgalan	ᠠᠮᠤᠭᠤᠯᠠᠩ	35

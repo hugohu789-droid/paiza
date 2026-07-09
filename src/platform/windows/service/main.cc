@@ -1,0 +1,211 @@
+// Copyright 2026 Paiza. All rights reserved.
+//
+// Candidate service process (spec items 10-12, 14):
+//   * hosts the extensible CandidateEngine (local dictionary + cloud stub)
+//   * serves TSF clients over the named pipe
+//   * owns the settings dialog, woken by Ctrl+Alt+P or an IPC request
+//   * single instance; "PaizaService.exe --settings" opens the dialog of
+//     the running instance
+
+#include <windows.h>
+
+#include <memory>
+#include <string>
+
+#include "common/logging.h"
+#include "core/candidate_engine.h"
+#include "core/cloud_candidate_source.h"
+#include "core/local_dictionary_source.h"
+#include "ipc/ime_client.h"
+#include "ipc/named_pipe_server.h"
+#include "service/candidate_service.h"
+#include "service/settings_store.h"
+#include "service/settings_window.h"
+#include "ui/candidate_window.h"
+#include "ui/font_stem_config.h"
+
+namespace paiza::service {
+namespace {
+
+constexpr wchar_t kSingletonMutexName[] = L"PaizaImeServiceSingleton";
+constexpr wchar_t kMessageWindowClass[] = L"PaizaServiceMessageWindow";
+constexpr UINT kMsgShowSettings = WM_APP + 1;
+constexpr int kHotkeyId = 1;
+
+SettingsWindow* g_settings_window = nullptr;
+CloudCandidateSource* g_cloud_source = nullptr;
+
+std::wstring ExecutableDirectory() {
+  wchar_t path[MAX_PATH] = {};
+  ::GetModuleFileNameW(nullptr, path, MAX_PATH);
+  std::wstring dir(path);
+  const size_t slash = dir.find_last_of(L'\\');
+  return slash == std::wstring::npos ? dir : dir.substr(0, slash);
+}
+
+void ApplySettings(const Settings& settings) {
+  if (g_cloud_source != nullptr) {
+    g_cloud_source->set_enabled(settings.cloud_source_enabled);
+  }
+}
+
+LRESULT CALLBACK MessageWindowProc(HWND hwnd, UINT message, WPARAM wparam,
+                                   LPARAM lparam) {
+  switch (message) {
+    case WM_HOTKEY:
+      if (wparam == kHotkeyId && g_settings_window != nullptr) {
+        g_settings_window->ShowDialog();
+      }
+      return 0;
+    case kMsgShowSettings:
+      if (g_settings_window != nullptr) g_settings_window->ShowDialog();
+      return 0;
+    case WM_DESTROY:
+      ::PostQuitMessage(0);
+      return 0;
+    default:
+      return ::DefWindowProcW(hwnd, message, wparam, lparam);
+  }
+}
+
+HWND CreateMessageWindow() {
+  WNDCLASSEXW wc = {};
+  wc.cbSize = sizeof(wc);
+  wc.lpfnWndProc = MessageWindowProc;
+  wc.hInstance = ::GetModuleHandleW(nullptr);
+  wc.lpszClassName = kMessageWindowClass;
+  ::RegisterClassExW(&wc);
+  return ::CreateWindowExW(0, kMessageWindowClass, L"", 0, 0, 0, 0, 0,
+                           HWND_MESSAGE, nullptr, wc.hInstance, nullptr);
+}
+
+// Developer aid ("--preview-candidates"): shows the candidate window with
+// sample data (including long words) so its layout can be checked without
+// registering the TSF DLL and typing in a host application.
+int RunCandidatePreview() {
+  ui::CandidateWindow window;
+  if (!window.EnsureCreated()) return 1;
+  window.SetFontFamily(SettingsStore::Load().candidate_font);
+
+  std::vector<Candidate> samples;
+  const wchar_t* words[] = {
+      L"\x1820\x180A\x1820",                          // A NIRUGU A (spine)
+      L"\x182E\x180A\x182E",                          // MA NIRUGU MA (spine)
+      L"\x1830\x1820\x1836\x1822\x1828",              // sain
+      L"\x182E\x1823\x1829\x182D\x1823\x182F",        // monggol
+      L"\x1830\x1824\x1837\x182D\x1820\x182D\x1824\x182F\x1822",  // long
+      L"\x182A\x1822\x1834\x1822\x182D",              // bichig
+      L"\x1820\x182E\x1824\x182D\x1824\x182F\x1820\x1829",        // long
+      L"\x1832\x1821\x182E\x1821\x182D\x1821",        // temee
+      L"\x182A\x1820\x182D\x1830\x1822",              // bagsi
+      L"\x182C\x1823\x1832\x1820",                    // hota
+  };
+  for (const wchar_t* word : words) {
+    Candidate candidate;
+    candidate.text = word;
+    samples.push_back(std::move(candidate));
+  }
+  window.SetCandidates(std::move(samples));
+  const RECT caret = {320, 240, 324, 264};
+  window.MoveNearCaret(caret);
+
+  MSG msg = {};
+  while (::GetMessageW(&msg, nullptr, 0, 0) > 0) {
+    ::TranslateMessage(&msg);
+    ::DispatchMessageW(&msg);
+  }
+  return 0;
+}
+
+int Run(bool show_settings_on_start) {
+  // Build the engine with all available candidate sources. Adding a new
+  // source type (AI, speech, handwriting) is one AddSource call here.
+  auto engine = std::make_shared<CandidateEngine>();
+
+  auto dictionary = std::make_unique<LocalDictionarySource>();
+  dictionary->LoadFromFile(ExecutableDirectory() + L"\\dictionary.txt");
+  engine->AddSource(std::move(dictionary));
+
+  auto cloud = std::make_unique<CloudCandidateSource>(L"");
+  g_cloud_source = cloud.get();
+  engine->AddSource(std::move(cloud));
+
+  ApplySettings(SettingsStore::Load());
+
+  HWND message_window = CreateMessageWindow();
+  if (message_window == nullptr) return 1;
+
+  SettingsWindow settings_window(ApplySettings);
+  g_settings_window = &settings_window;
+
+  // IPC callbacks arrive on worker threads; hop to the UI thread.
+  CandidateService service(engine, [message_window] {
+    ::PostMessageW(message_window, kMsgShowSettings, 0, 0);
+  });
+  ipc::NamedPipeServer server(
+      [&service](const ipc::Message& request) {
+        return service.HandleMessage(request);
+      });
+  if (!server.Start()) {
+    PAIZA_LOG_ERROR(L"Failed to start pipe server");
+    return 1;
+  }
+
+  // Global wake-up hotkey for the settings dialog (spec item 14).
+  if (!::RegisterHotKey(message_window, kHotkeyId, MOD_CONTROL | MOD_ALT,
+                        'P')) {
+    PAIZA_LOG_WARN(L"RegisterHotKey Ctrl+Alt+P failed (already taken?)");
+  }
+
+  if (show_settings_on_start) settings_window.ShowDialog();
+
+  MSG msg = {};
+  while (::GetMessageW(&msg, nullptr, 0, 0) > 0) {
+    ::TranslateMessage(&msg);
+    ::DispatchMessageW(&msg);
+  }
+
+  ::UnregisterHotKey(message_window, kHotkeyId);
+  server.Stop();
+  g_settings_window = nullptr;
+  g_cloud_source = nullptr;
+  return 0;
+}
+
+}  // namespace
+}  // namespace paiza::service
+
+int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR command_line, int) {
+  // Native-pixel rendering on high-DPI displays (fixes blurry text; the
+  // UI library scales its logical layout by the window DPI).
+  ::SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
+  // Materialise the per-font stem calibration file (built-in defaults) so
+  // users can discover and edit it; host processes only ever read it.
+  paiza::ui::EnsureFontStemConfigFile();
+
+  const std::wstring args =
+      command_line != nullptr ? std::wstring(command_line) : std::wstring();
+  if (args.find(L"--preview-candidates") != std::wstring::npos) {
+    return paiza::service::RunCandidatePreview();
+  }
+  const bool wants_settings =
+      args.find(L"--settings") != std::wstring::npos;
+
+  // Single instance: a second launch either forwards --settings to the
+  // running instance or just exits.
+  HANDLE mutex =
+      ::CreateMutexW(nullptr, TRUE, paiza::service::kSingletonMutexName);
+  if (mutex != nullptr && ::GetLastError() == ERROR_ALREADY_EXISTS) {
+    if (wants_settings) {
+      paiza::ipc::ImeClient client;
+      client.ShowSettings();
+    }
+    ::CloseHandle(mutex);
+    return 0;
+  }
+
+  const int result = paiza::service::Run(wants_settings);
+  if (mutex != nullptr) ::CloseHandle(mutex);
+  return result;
+}
