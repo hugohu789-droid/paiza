@@ -45,7 +45,8 @@ Key differences from Windows:
 | dictionary + fallback candidate | CandidateEngine (bundle `Resources/dictionary.txt`) | wired |
 | cloud candidate source (toggle) | CloudCandidateSource | wired (registered on the shared engine, toggled from Settings) |
 | vertical candidate rendering, stem-centred | fontstems.txt calibration (core/font_stem_config) | **done** (CoreText columns, 90° CW, stem-centred; paging footer + ‹ › buttons) |
-| settings dialog (page size, cloud, font, language, key mapping) | core Settings semantics | **done** (NSUserDefaults store + native AppKit window; UiStrings from core/localization) |
+| settings dialog (page size, cloud, font, language, key mapping) | core Settings semantics | **done** (NSUserDefaults store + native AppKit window; clamped to the screen's visible frame — content in an NSScrollView, Save/Close pinned in a footer strip) |
+| keymap.txt validation (reject bad edits, restore file, error label) | core ValidateKeyMapFile + KeyMappingStore | wired (1 s refresh timer while the window is open) |
 | en/zh/mn-Cyrillic UI strings | core/localization | wired (settings window relabels live) |
 | input source name + menu icon | Info.plist + InfoPlist.strings + Resources/MenuIcon.tiff | done ("Paiza Mongolian", black badge / white "MN") |
 

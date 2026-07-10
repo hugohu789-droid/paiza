@@ -21,10 +21,12 @@ namespace {
 
 // Client-area layout constants (points), mirroring the Windows dialog.
 constexpr CGFloat kClientWidth = 520;
-constexpr CGFloat kClientHeight = 600;
 constexpr CGFloat kMargin = 20;
 constexpr CGFloat kCardPadding = 16;
 constexpr CGFloat kRowHeight = 30;
+// Fixed footer strip hosting Save/Close: always visible even when the
+// content above it scrolls (small screens).
+constexpr CGFloat kFooterHeight = 56;
 
 NSString* Ns(const wchar_t* w) {
   const std::string s = paiza::WideToUtf8(std::wstring(w ? w : L""));
@@ -151,6 +153,7 @@ bool FontSupportsMongolian(NSString* family) {
   for (NSValue* value :
        @[ [NSValue valueWithRect:_generalCard],
           [NSValue valueWithRect:_mappingCard] ]) {
+    if (NSIsEmptyRect(value.rectValue)) continue;  // Footer instance.
     NSBezierPath* card =
         [NSBezierPath bezierPathWithRoundedRect:value.rectValue
                                         xRadius:10
@@ -174,7 +177,12 @@ bool FontSupportsMongolian(NSString* family) {
   std::vector<std::wstring> _fontFamilies;  // Popup index -> family.
 
   NSWindow* _window;
-  PaizaSettingsBackgroundView* _background;
+  NSScrollView* _scrollView;
+  PaizaSettingsBackgroundView* _background;   // Scrollable content.
+  PaizaSettingsBackgroundView* _footerView;   // Pinned Save/Close strip.
+  NSTimer* _refreshTimer;
+  uint64_t _shownMappingRevision;
+  uint64_t _shownStatusRevision;
 
   NSTextField* _titleLabel;
   NSTextField* _subtitleLabel;
@@ -192,6 +200,7 @@ bool FontSupportsMongolian(NSString* family) {
   NSButton* _editMappingButton;
   NSTextField* _mappingPreview;
   NSTextField* _mappingHint;
+  NSTextField* _mappingErrorLabel;
   PaizaVerticalSampleView* _verticalSample;
   NSButton* _saveButton;
   NSButton* _closeButton;
@@ -220,8 +229,17 @@ bool FontSupportsMongolian(NSString* family) {
   // without adding a Dock icon.
   [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
   [NSApp activateIgnoringOtherApps:YES];
+  [_background scrollPoint:NSMakePoint(0, 0)];  // Flipped: (0,0) = top.
   [_window center];
   [_window makeKeyAndOrderFront:nil];
+  if (_refreshTimer == nil) {
+    _refreshTimer =
+        [NSTimer scheduledTimerWithTimeInterval:1.0
+                                         target:self
+                                       selector:@selector(mappingRefreshTick:)
+                                       userInfo:nil
+                                        repeats:YES];
+  }
   PAIZA_LOG_INFO(L"settings window shown");
 
   // Debug aid: PAIZA_SETTINGS_SNAPSHOT=<path.png> writes a self-render of
@@ -243,19 +261,12 @@ bool FontSupportsMongolian(NSString* family) {
 // Layout -------------------------------------------------------------------
 
 - (void)buildWindow {
-  const NSRect content = NSMakeRect(0, 0, kClientWidth, kClientHeight);
-  _window = [[NSWindow alloc]
-      initWithContentRect:content
-                styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
-                  backing:NSBackingStoreBuffered
-                    defer:YES];
-  _window.releasedWhenClosed = NO;
-  _window.titlebarAppearsTransparent = NO;
-  _window.delegate = self;  // Red close button routes to windowWillClose:.
-
-  _background = [[PaizaSettingsBackgroundView alloc] initWithFrame:content];
-  _background.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-  _window.contentView = _background;
+  // The scrollable content view is built first (its height is derived
+  // from the layout below); the window is sized afterwards, clamped to
+  // the screen's visible frame, with the Save/Close footer pinned
+  // outside the scroll view so it is always visible.
+  _background = [[PaizaSettingsBackgroundView alloc]
+      initWithFrame:NSMakeRect(0, 0, kClientWidth, 10)];
 
   const CGFloat content_width = kClientWidth - 2 * kMargin;
   CGFloat y = kMargin;
@@ -394,29 +405,82 @@ bool FontSupportsMongolian(NSString* family) {
                            size:11
                            bold:NO
                           color:[NSColor tertiaryLabelColor]];
-  row += 30 + 10;
+  row += 30 + 6;
+
+  // Validation error for rejected keymap.txt edits; hidden while valid.
+  _mappingErrorLabel =
+      [self addLabel:NSMakeRect(card2_x, row,
+                                content_width - 2 * kCardPadding, 16)
+                size:11
+                bold:NO
+               color:[NSColor systemRedColor]];
+  _mappingErrorLabel.hidden = YES;
+  row += 16 + 10;
   _background.mappingCard =
       NSMakeRect(kMargin, card2_top, content_width, row - card2_top);
 
-  // ---- Footer ----------------------------------------------------------
-  const CGFloat footer_y = kClientHeight - kMargin - 32;
+  // ---- Window: scrollable content + pinned footer ----------------------
+  const CGFloat document_height = row + kMargin;
+  _background.frame = NSMakeRect(0, 0, kClientWidth, document_height);
+
+  // Never taller than the screen's visible frame (menu bar/Dock aside);
+  // when clamped, the content scrolls and the footer stays visible.
+  NSScreen* screen = [NSScreen mainScreen];
+  const CGFloat max_client_height =
+      screen != nil ? screen.visibleFrame.size.height - 28 : 760;
+  const CGFloat client_height =
+      std::min(document_height + kFooterHeight, max_client_height);
+
+  const NSRect content = NSMakeRect(0, 0, kClientWidth, client_height);
+  _window = [[NSWindow alloc]
+      initWithContentRect:content
+                styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
+                  backing:NSBackingStoreBuffered
+                    defer:YES];
+  _window.releasedWhenClosed = NO;
+  _window.titlebarAppearsTransparent = NO;
+  _window.delegate = self;  // Red close button routes to windowWillClose:.
+
+  NSView* content_root = [[NSView alloc] initWithFrame:content];
+  _window.contentView = content_root;
+
+  _scrollView = [[NSScrollView alloc]
+      initWithFrame:NSMakeRect(0, kFooterHeight, kClientWidth,
+                               client_height - kFooterHeight)];
+  _scrollView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+  _scrollView.hasVerticalScroller = YES;
+  _scrollView.autohidesScrollers = YES;
+  _scrollView.drawsBackground = NO;
+  _scrollView.documentView = _background;
+  [content_root addSubview:_scrollView];
+
+  // Footer strip: same window background (a card-less background view),
+  // Save/Close bottom-right — matches the Windows/Linux dialogs.
+  _footerView = [[PaizaSettingsBackgroundView alloc]
+      initWithFrame:NSMakeRect(0, 0, kClientWidth, kFooterHeight)];
+  _footerView.autoresizingMask = NSViewWidthSizable | NSViewMaxYMargin;
+  [content_root addSubview:_footerView];
+
+  const CGFloat button_y = (kFooterHeight - 32) / 2;
   _saveButton = [[NSButton alloc]
-      initWithFrame:NSMakeRect(kClientWidth - kMargin - 100, footer_y, 100,
+      initWithFrame:NSMakeRect(kClientWidth - kMargin - 100, button_y, 100,
                                32)];
   _saveButton.bezelStyle = NSBezelStyleRounded;
   _saveButton.keyEquivalent = @"\r";  // Default button (Return).
   _saveButton.target = self;
   _saveButton.action = @selector(save:);
-  [_background addSubview:_saveButton];
+  _saveButton.autoresizingMask = NSViewMinXMargin;
+  [_footerView addSubview:_saveButton];
 
   _closeButton = [[NSButton alloc]
       initWithFrame:NSMakeRect(kClientWidth - kMargin - 100 - 10 - 100,
-                               footer_y, 100, 32)];
+                               button_y, 100, 32)];
   _closeButton.bezelStyle = NSBezelStyleRounded;
   _closeButton.keyEquivalent = @"\033";  // Escape.
   _closeButton.target = self;
   _closeButton.action = @selector(closeWindow:);
-  [_background addSubview:_closeButton];
+  _closeButton.autoresizingMask = NSViewMinXMargin;
+  [_footerView addSubview:_closeButton];
 }
 
 - (NSTextField*)addLabel:(NSRect)frame
@@ -540,13 +604,45 @@ bool FontSupportsMongolian(NSString* family) {
 
 - (void)refreshMappingPreview {
   const paiza::KeyMapping& mapping = _mappingStore.Get();
-  _mappingPreview.stringValue = NsW(paiza::BuildMappingPreview(
-      mapping, paiza::GetStrings(_settings.ui_language)));
+  if (_mappingStore.revision() != _shownMappingRevision) {
+    _shownMappingRevision = _mappingStore.revision();
+    _mappingPreview.stringValue = NsW(paiza::BuildMappingPreview(
+        mapping, paiza::GetStrings(_settings.ui_language)));
+  }
+  [self refreshMappingStatus];
 }
 
 - (void)forceRefreshMappingPreview {
-  _mappingPreview.stringValue = NsW(paiza::BuildMappingPreview(
-      _mappingStore.Get(), paiza::GetStrings(_settings.ui_language)));
+  _shownMappingRevision = 0;
+  _shownStatusRevision = 0;
+  [self refreshMappingPreview];
+}
+
+// Shows/hides the localized "invalid format, file restored" error from
+// the store's validation of the last keymap.txt edit.
+- (void)refreshMappingStatus {
+  if (_mappingStore.status_revision() == _shownStatusRevision) return;
+  _shownStatusRevision = _mappingStore.status_revision();
+  const paiza::KeyMapFileStatus& status = _mappingStore.file_status();
+  if (status.valid) {
+    _mappingErrorLabel.hidden = YES;
+    return;
+  }
+  std::wstring message =
+      paiza::GetStrings(_settings.ui_language).mapping_error_restored;
+  const size_t placeholder = message.find(L"%ls");
+  if (placeholder != std::wstring::npos) {
+    message.replace(placeholder, 3, std::to_wstring(status.error_line));
+  }
+  _mappingErrorLabel.stringValue = NsW(message);
+  _mappingErrorLabel.hidden = NO;
+}
+
+// Polls for external edits of the mapping file while the window is
+// visible (parity with the Windows/Linux dialogs' 1 s refresh).
+- (void)mappingRefreshTick:(NSTimer*)timer {
+  (void)timer;
+  [self refreshMappingPreview];
 }
 
 // Actions ------------------------------------------------------------------
@@ -603,6 +699,8 @@ bool FontSupportsMongolian(NSString* family) {
 
 - (void)closeWindow:(id)sender {
   (void)sender;
+  [_refreshTimer invalidate];
+  _refreshTimer = nil;
   [_window orderOut:nil];
   // Return to the background-agent policy so no stray Dock icon lingers.
   [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited];
@@ -612,6 +710,8 @@ bool FontSupportsMongolian(NSString* family) {
 // The title bar's red close button: same cleanup as the Close button.
 - (void)windowWillClose:(NSNotification*)notification {
   (void)notification;
+  [_refreshTimer invalidate];
+  _refreshTimer = nil;
   [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited];
   if (_onClosed != nil) _onClosed();
 }

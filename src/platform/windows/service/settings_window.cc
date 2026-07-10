@@ -17,10 +17,13 @@ namespace {
 // size is derived with AdjustWindowRectEx (fix: the caption bar used to be
 // subtracted from the content, clipping the bottom controls).
 constexpr int kClientWidth = 520;
-constexpr int kClientHeight = 640;
 constexpr int kMargin = 20;
 constexpr int kCardPadding = 16;
 constexpr int kRowHeight = 30;
+// Fixed footer strip hosting Save/Close: always visible; the content
+// above scrolls when the dialog is clamped to a small work area.
+constexpr int kFooterHeight = 54;
+constexpr int kWheelStep = 48;  // Logical px per wheel notch.
 
 constexpr uint32_t kColorWindowBg = 0xFFF3F4F6;
 constexpr uint32_t kColorCardBg = 0xFFFFFFFF;
@@ -31,6 +34,20 @@ constexpr uint32_t kColorSection = 0xFF5F6368;
 constexpr uint32_t kColorBody = 0xFF3C4043;
 constexpr uint32_t kColorPreview = 0xFF3C4043;
 constexpr uint32_t kColorHint = 0xFF9AA0A6;
+constexpr uint32_t kColorError = 0xFFC5221F;
+
+// Opaque strip behind the pinned Save/Close buttons; painted after the
+// (scrolled) content widgets so nothing shows through underneath, and
+// hit-tested as a plain rectangle so clicks never reach content that
+// scrolled under it.
+class FooterStrip : public ui::Widget {
+ public:
+  void OnPaint(ui::RenderContext& context) override {
+    context.FillRect(bounds(), kColorWindowBg);
+    context.FillRect({bounds().x, bounds().y, bounds().width, 1},
+                     kColorCardBorder);
+  }
+};
 
 }  // namespace
 
@@ -41,33 +58,46 @@ SettingsWindow::SettingsWindow(
 void SettingsWindow::ShowDialog() {
   settings_ = SettingsStore::Load();
   if (hwnd() == nullptr) {
+    // Widgets first: they need no HWND and their layout determines
+    // content_height_, which the window size derives from.
+    BuildWidgets();
+
     CreateParams params;
     params.title = L"Paiza Mongolian IME Settings";
     // A regular (activatable) top-level window, unlike the IME popups.
-    params.style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU;
+    // WS_VSCROLL: the scrollbar auto-hides while the content fits.
+    params.style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_VSCROLL;
     params.ex_style = WS_EX_TOOLWINDOW | WS_EX_TOPMOST;
 
     // Compute the OUTER size in physical pixels from the logical client
     // size (the service process is per-monitor-V2 DPI aware, so all
-    // Win32 coordinates here are physical), then centre it on the primary
-    // work area.
+    // Win32 coordinates here are physical), clamp it to the work area —
+    // the content then scrolls under the pinned footer — and centre it.
     const UINT dpi = ::GetDpiForSystem();
     const float scale = dpi / 96.0f;
+    const int desired_client_height = content_height_ + kFooterHeight;
     RECT frame = {0, 0, static_cast<LONG>(kClientWidth * scale + 0.5f),
-                  static_cast<LONG>(kClientHeight * scale + 0.5f)};
+                  static_cast<LONG>(desired_client_height * scale + 0.5f)};
     ::AdjustWindowRectExForDpi(&frame, params.style, FALSE, params.ex_style,
                                dpi);
-    const int outer_width = frame.right - frame.left;
-    const int outer_height = frame.bottom - frame.top;
+    int outer_width = frame.right - frame.left;
+    int outer_height = frame.bottom - frame.top;
 
     RECT work = {};
     ::SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
+    if (outer_height > work.bottom - work.top) {
+      outer_height = work.bottom - work.top;
+      // The scrollbar will be visible; AdjustWindowRectEx does not
+      // account for it, so widen the window to keep the full logical
+      // client width for the content.
+      outer_width += ::GetSystemMetricsForDpi(SM_CXVSCROLL, dpi);
+    }
     params.bounds = {
         work.left + ((work.right - work.left) - outer_width) / 2,
         work.top + ((work.bottom - work.top) - outer_height) / 2,
         outer_width, outer_height};
     if (!Create(params)) return;
-    BuildWidgets();
+    ApplyScrollLayout();
   }
   ApplyStrings();
   RefreshLabels();
@@ -273,13 +303,28 @@ void SettingsWindow::BuildWidgets() {
   hint->set_bounds(
       {card2_x, row_y, content_width - 2 * kCardPadding, 16});
   mapping_hint_label_ = AddWidget(std::move(hint));
+  row_y += 16 + 6;
 
-  // ---- Footer buttons --------------------------------------------------
-  const int footer_y = kClientHeight - kMargin - 34;
+  // Validation error for rejected keymap.txt edits; hidden while valid.
+  auto mapping_error = std::make_unique<ui::Label>();
+  mapping_error->style().font_family = L"Segoe UI";
+  mapping_error->style().font_size = 11.0f;
+  mapping_error->style().color = kColorError;
+  mapping_error->set_bounds(
+      {card2_x, row_y, content_width - 2 * kCardPadding, 16});
+  mapping_error->set_visible(false);
+  mapping_error_label_ = AddWidget(std::move(mapping_error));
+  row_y += 16;
+
+  mapping_card_.height = row_y + 12 - mapping_card_.y;
+
+  // ---- Pinned footer (strip + Save/Close) --------------------------------
+  // Positioned by ApplyScrollLayout relative to the visible client area.
+  footer_strip_ = AddWidget(std::make_unique<FooterStrip>());
+
   auto save = std::make_unique<ui::Button>();
   save->style().font_family = L"Segoe UI";
   save->set_kind(ui::Button::Kind::kPrimary);
-  save->set_bounds({kClientWidth - kMargin - 96, footer_y, 96, 34});
   save->SetOnClick([this] {
     SettingsStore::Save(settings_);
     if (on_changed_) on_changed_(settings_);
@@ -290,13 +335,73 @@ void SettingsWindow::BuildWidgets() {
 
   auto close = std::make_unique<ui::Button>();
   close->style().font_family = L"Segoe UI";
-  close->set_bounds(
-      {kClientWidth - kMargin - 96 - 10 - 96, footer_y, 96, 34});
   close->SetOnClick([this] {
     if (font_popup_ != nullptr) font_popup_->Hide();
     ::ShowWindow(hwnd(), SW_HIDE);
   });
   close_button_ = AddWidget(std::move(close));
+
+  // Scroll bookkeeping: everything except the footer scrolls; the base
+  // (unscrolled) bounds recorded here are the single source of layout.
+  general_card_base_ = general_card_;
+  mapping_card_base_ = mapping_card_;
+  content_height_ = mapping_card_.bottom() + kMargin;
+  scrolled_widgets_.clear();
+  for (const auto& widget : widgets()) {
+    ui::Widget* raw = widget.get();
+    if (raw == footer_strip_ || raw == save_button_ ||
+        raw == close_button_) {
+      continue;
+    }
+    scrolled_widgets_.emplace_back(raw, raw->bounds());
+  }
+}
+
+void SettingsWindow::ApplyScrollLayout() {
+  if (hwnd() == nullptr) return;
+  const ui::Size client = logical_client_size();
+  const int viewport = client.height - kFooterHeight;
+  const int max_offset = std::max(0, content_height_ - viewport);
+  scroll_offset_ = std::clamp(scroll_offset_, 0, max_offset);
+
+  for (const auto& [widget, base] : scrolled_widgets_) {
+    widget->set_bounds(
+        {base.x, base.y - scroll_offset_, base.width, base.height});
+  }
+  general_card_ = {general_card_base_.x,
+                   general_card_base_.y - scroll_offset_,
+                   general_card_base_.width, general_card_base_.height};
+  mapping_card_ = {mapping_card_base_.x,
+                   mapping_card_base_.y - scroll_offset_,
+                   mapping_card_base_.width, mapping_card_base_.height};
+
+  footer_strip_->set_bounds(
+      {0, client.height - kFooterHeight, client.width, kFooterHeight});
+  const int button_y = client.height - kFooterHeight + (kFooterHeight - 34) / 2;
+  save_button_->set_bounds({kClientWidth - kMargin - 96, button_y, 96, 34});
+  close_button_->set_bounds(
+      {kClientWidth - kMargin - 96 - 10 - 96, button_y, 96, 34});
+
+  // Native scrollbar mirrors the offset (logical units); with
+  // page >= range Windows hides it automatically.
+  SCROLLINFO info = {};
+  info.cbSize = sizeof(info);
+  info.fMask = SIF_RANGE | SIF_PAGE | SIF_POS;
+  info.nMin = 0;
+  info.nMax = content_height_ - 1;
+  info.nPage = static_cast<UINT>(std::max(0, viewport));
+  info.nPos = scroll_offset_;
+  ::SetScrollInfo(hwnd(), SB_VERT, &info, TRUE);
+}
+
+void SettingsWindow::SetScrollOffset(int offset) {
+  scroll_offset_ = offset;
+  ApplyScrollLayout();
+  Invalidate();
+}
+
+void SettingsWindow::OnDpiChanged() {
+  ApplyScrollLayout();
 }
 
 void SettingsWindow::ApplyStrings() {
@@ -315,8 +420,10 @@ void SettingsWindow::ApplyStrings() {
   mapping_hint_label_->SetText(strings.mapping_hint);
   save_button_->SetCaption(strings.save);
   close_button_->SetCaption(strings.close);
-  // Force the mapping preview to rebuild with the localized row labels.
+  // Force the mapping preview and validation error to rebuild with the
+  // localized strings.
   shown_mapping_revision_ = 0;
+  shown_status_revision_ = 0;
   RefreshMappingPreview();
   Invalidate();
 }
@@ -380,11 +487,33 @@ void SettingsWindow::ApplyCandidateFont(const std::wstring& font) {
 
 void SettingsWindow::RefreshMappingPreview() {
   const KeyMapping& mapping = mapping_store_.Get();
-  if (mapping_store_.revision() == shown_mapping_revision_) return;
-  shown_mapping_revision_ = mapping_store_.revision();
-  mapping_preview_label_->SetText(
-      BuildMappingPreview(mapping, GetStrings(settings_.ui_language)));
-  Invalidate();
+  if (mapping_store_.revision() != shown_mapping_revision_) {
+    shown_mapping_revision_ = mapping_store_.revision();
+    mapping_preview_label_->SetText(
+        BuildMappingPreview(mapping, GetStrings(settings_.ui_language)));
+    Invalidate();
+  }
+
+  // Validation status: a rejected keymap.txt edit shows the localized
+  // error (the store already restored the file to the previous version).
+  if (mapping_store_.status_revision() != shown_status_revision_) {
+    shown_status_revision_ = mapping_store_.status_revision();
+    const KeyMapFileStatus& status = mapping_store_.file_status();
+    if (status.valid) {
+      mapping_error_label_->set_visible(false);
+    } else {
+      std::wstring message =
+          GetStrings(settings_.ui_language).mapping_error_restored;
+      const size_t placeholder = message.find(L"%ls");
+      if (placeholder != std::wstring::npos) {
+        message.replace(placeholder, 3,
+                        std::to_wstring(status.error_line));
+      }
+      mapping_error_label_->SetText(std::move(message));
+      mapping_error_label_->set_visible(true);
+    }
+    Invalidate();
+  }
 }
 
 void SettingsWindow::OpenMappingFileForEditing() {
@@ -411,6 +540,52 @@ bool SettingsWindow::OnMessage(UINT message, WPARAM wparam, LPARAM lparam,
                                LRESULT* result) {
   if (message == WM_TIMER && wparam == kMappingRefreshTimerId) {
     RefreshMappingPreview();
+    *result = 0;
+    return true;
+  }
+  if (message == WM_MOUSEWHEEL) {
+    if (font_popup_ != nullptr) font_popup_->Hide();
+    const int delta = GET_WHEEL_DELTA_WPARAM(wparam);
+    SetScrollOffset(scroll_offset_ - (delta / WHEEL_DELTA) * kWheelStep);
+    *result = 0;
+    return true;
+  }
+  if (message == WM_VSCROLL) {
+    if (font_popup_ != nullptr) font_popup_->Hide();
+    const int viewport = logical_client_size().height - kFooterHeight;
+    int offset = scroll_offset_;
+    switch (LOWORD(wparam)) {
+      case SB_LINEUP:
+        offset -= 24;
+        break;
+      case SB_LINEDOWN:
+        offset += 24;
+        break;
+      case SB_PAGEUP:
+        offset -= viewport;
+        break;
+      case SB_PAGEDOWN:
+        offset += viewport;
+        break;
+      case SB_TOP:
+        offset = 0;
+        break;
+      case SB_BOTTOM:
+        offset = content_height_;
+        break;
+      case SB_THUMBTRACK:
+      case SB_THUMBPOSITION: {
+        SCROLLINFO info = {};
+        info.cbSize = sizeof(info);
+        info.fMask = SIF_TRACKPOS;
+        ::GetScrollInfo(hwnd(), SB_VERT, &info);
+        offset = info.nTrackPos;
+        break;
+      }
+      default:
+        break;
+    }
+    SetScrollOffset(offset);
     *result = 0;
     return true;
   }

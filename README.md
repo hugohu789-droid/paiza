@@ -238,6 +238,20 @@ TSF module and the settings preview poll the file's timestamp
 (`KeyMappingStore`, 500 ms throttle), so saving the file takes effect on
 the next keystroke — no restart, no re-registration. Deleting the file
 restores the defaults. Dictionary lookup is case-sensitive accordingly.
+
+**Format validation (all platforms):** every reload first runs
+`ValidateKeyMapFile` (core/key_mapping). If any non-comment line fails to
+parse — bad key, bad hex codepoint, missing value — the edit is
+rejected as a whole: the in-memory mapping keeps its previous state, the
+file is restored to the last valid content, and the settings dialog
+shows a localized error with the offending line number
+(`KeyMappingStore::file_status()`). The unit tests cover
+accept/reject/restore (`tests/key_mapping_test.cc`).
+
+All three settings dialogs are also clamped to the monitor's work area:
+on small screens the content scrolls (native scrollbar / NSScrollView /
+GtkScrolledWindow) while the Save/Close footer stays pinned and visible
+at the bottom.
 Note: AppContainer-sandboxed hosts may not read `%APPDATA%`; they fall
 back to the built-in defaults.
 

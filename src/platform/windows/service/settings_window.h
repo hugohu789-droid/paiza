@@ -10,6 +10,7 @@
 
 #include <functional>
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "core/key_mapping_store.h"
@@ -36,11 +37,18 @@ class SettingsWindow : public ui::Window {
                  LRESULT* result) override;
   // Card-based visual: light background with white rounded section cards.
   void OnPaintBackground(ui::RenderContext& context) override;
+  void OnDpiChanged() override;
 
  private:
   static constexpr UINT_PTR kMappingRefreshTimerId = 2;
 
   void BuildWidgets();
+  // Positions the scrollable content at the current scroll offset and
+  // pins the footer (strip + Save/Close) to the bottom of the visible
+  // client area; also syncs the native scrollbar. Called after build,
+  // on scroll, and on DPI changes.
+  void ApplyScrollLayout();
+  void SetScrollOffset(int offset);
   // Re-applies every localized string (window caption, labels, buttons)
   // for the currently selected UI language.
   void ApplyStrings();
@@ -81,10 +89,22 @@ class SettingsWindow : public ui::Window {
   ui::Label* mapping_title_label_ = nullptr;
   ui::Label* mapping_preview_label_ = nullptr;
   ui::Label* mapping_hint_label_ = nullptr;
+  ui::Label* mapping_error_label_ = nullptr;
   ui::Button* edit_mapping_button_ = nullptr;
   ui::Button* save_button_ = nullptr;
   ui::Button* close_button_ = nullptr;
   ui::Label* vertical_preview_ = nullptr;
+  uint64_t shown_status_revision_ = 0;
+
+  // Scrolling: the dialog never exceeds the work area; content scrolls
+  // under a pinned footer. Content widgets keep their layout ("base")
+  // bounds here and are shifted by scroll_offset_ (logical units).
+  ui::Widget* footer_strip_ = nullptr;
+  std::vector<std::pair<ui::Widget*, ui::Rect>> scrolled_widgets_;
+  ui::Rect general_card_base_;
+  ui::Rect mapping_card_base_;
+  int content_height_ = 0;
+  int scroll_offset_ = 0;
 };
 
 }  // namespace paiza::service

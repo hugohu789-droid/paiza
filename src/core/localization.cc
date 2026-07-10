@@ -34,6 +34,9 @@ constexpr UiStrings kEnglishStrings = {
     L"next keystroke.",
     /*mapping_hint_generic=*/
     L"Saved to %ls — changes apply on the next keystroke.",
+    /*mapping_error_restored=*/
+    L"Invalid format at line %ls — the file was restored to the previous "
+    L"version.",
     /*menu_settings=*/L"Paiza Settings…",
     /*save=*/L"Save",
     /*close=*/L"Close",
@@ -58,6 +61,8 @@ constexpr UiStrings kChineseStrings = {
     /*mapping_hint=*/
     L"保存于 %APPDATA%\\PaizaIME\\keymap.txt —— 保存后下一次按键即生效。",
     /*mapping_hint_generic=*/L"保存于 %ls —— 保存后下一次按键即生效。",
+    /*mapping_error_restored=*/
+    L"第 %ls 行格式错误 —— 文件已恢复为修改前的版本。",
     /*menu_settings=*/L"Paiza 设置…",
     /*save=*/L"保存",
     /*close=*/L"关闭",
@@ -85,6 +90,8 @@ constexpr UiStrings kCyrillicStrings = {
     L"даралтаас хүчинтэй.",
     /*mapping_hint_generic=*/
     L"%ls — хадгалсны дараа дараагийн даралтаас хүчинтэй.",
+    /*mapping_error_restored=*/
+    L"%ls-р мөрийн формат буруу — файлыг өмнөх хувилбарт нь сэргээлээ.",
     /*menu_settings=*/L"Paiza тохиргоо…",
     /*save=*/L"Хадгалах",
     /*close=*/L"Хаах",

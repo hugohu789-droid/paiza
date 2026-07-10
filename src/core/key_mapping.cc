@@ -83,7 +83,45 @@ bool IsValidKey(const std::string& key) {
   return true;
 }
 
+// Parses one mapping-file line (already stripped of the trailing '\r').
+// kBlank covers empty and comment lines. The single parser is shared by
+// LoadFromFile and ValidateKeyMapFile so the two can never drift.
+enum class LineParse { kBlank, kEntry, kInvalid };
+
+LineParse ParseKeyMapLine(const std::string& line, std::string* key,
+                          std::wstring* value) {
+  if (line.empty() || line[0] == '#') return LineParse::kBlank;
+  // Whitespace-only lines are blank too.
+  if (line.find_first_not_of(" \t") == std::string::npos) {
+    return LineParse::kBlank;
+  }
+  std::istringstream stream(line);
+  stream >> *key;
+  if (!IsValidKey(*key)) return LineParse::kInvalid;
+  *value = ParseCodepoints(&stream);
+  if (value->empty()) return LineParse::kInvalid;
+  return LineParse::kEntry;
+}
+
 }  // namespace
+
+std::optional<KeyMapFileError> ValidateKeyMapFile(const std::wstring& path) {
+  std::ifstream file(std::filesystem::path(path), std::ios::binary);
+  if (!file.is_open()) return std::nullopt;  // Missing file = defaults.
+
+  std::string line;
+  size_t line_number = 0;
+  while (std::getline(file, line)) {
+    ++line_number;
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    std::string key;
+    std::wstring value;
+    if (ParseKeyMapLine(line, &key, &value) == LineParse::kInvalid) {
+      return KeyMapFileError{line_number, line};
+    }
+  }
+  return std::nullopt;
+}
 
 // static
 KeyMapping KeyMapping::CreateDefault() {
@@ -173,14 +211,12 @@ bool KeyMapping::LoadFromFile(const std::wstring& path) {
   size_t loaded = 0;
   while (std::getline(file, line)) {
     if (!line.empty() && line.back() == '\r') line.pop_back();
-    if (line.empty() || line[0] == '#') continue;
-
-    std::istringstream stream(line);
     std::string key;
-    stream >> key;
-    if (!IsValidKey(key)) continue;
-    std::wstring value = ParseCodepoints(&stream);
-    if (value.empty()) continue;  // Malformed codepoints: skip the line.
+    std::wstring value;
+    // Malformed lines are skipped defensively here; KeyMappingStore
+    // validates with ValidateKeyMapFile *before* applying a file, which
+    // is where errors are reported and the file is restored.
+    if (ParseKeyMapLine(line, &key, &value) != LineParse::kEntry) continue;
     Set(key, std::move(value));
     ++loaded;
   }

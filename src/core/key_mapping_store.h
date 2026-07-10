@@ -23,6 +23,18 @@ namespace paiza {
 // store silently keeps the built-in defaults there.
 std::wstring KeyMappingFilePath();
 
+// Outcome of the store's last look at the mapping file. When the user
+// saves a file that fails ValidateKeyMapFile, the store keeps the
+// previous mapping, writes the last valid content back over the broken
+// file (spec: 验证失败会提示错误并恢复修改前的) and reports the error
+// here so the settings dialogs can show it.
+struct KeyMapFileStatus {
+  bool valid = true;
+  size_t error_line = 0;    // 1-based line of the first bad entry.
+  std::string error_text;   // That line's raw text.
+  bool restored = false;    // Previous valid content was written back.
+};
+
 class KeyMappingStore {
  public:
   // Uses KeyMappingFilePath().
@@ -35,9 +47,18 @@ class KeyMappingStore {
   // thread-safe; each consumer owns its store.
   const KeyMapping& Get();
 
+  // Bypasses the throttle (settings dialogs on show; tests).
+  void ReloadNow();
+
   // Increments every time a file change is picked up; lets UI consumers
   // cheaply detect "something changed" without comparing mappings.
   uint64_t revision() const { return revision_; }
+
+  // Validation outcome of the most recent (re)load; status_revision()
+  // increments whenever it changes, so UIs can refresh an error label
+  // cheaply. Call Get() (or ReloadNow()) first to pick up fresh edits.
+  const KeyMapFileStatus& file_status() const { return file_status_; }
+  uint64_t status_revision() const { return status_revision_; }
 
   const std::wstring& path() const { return path_; }
 
@@ -46,10 +67,16 @@ class KeyMappingStore {
 
   std::wstring path_;
   KeyMapping mapping_ = KeyMapping::CreateDefault();
+  // Raw bytes of the last file content that passed validation; written
+  // back when a later edit fails validation. Empty = no valid file seen
+  // (missing file, or invalid since the store started).
+  std::string last_good_content_;
+  KeyMapFileStatus file_status_;
   std::filesystem::file_time_type last_write_ =
       std::filesystem::file_time_type::min();
   std::chrono::steady_clock::time_point next_check_{};
   uint64_t revision_ = 1;
+  uint64_t status_revision_ = 1;
 };
 
 }  // namespace paiza

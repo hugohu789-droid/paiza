@@ -18,12 +18,29 @@
 #define PAIZA_CORE_KEY_MAPPING_H_
 
 #include <array>
+#include <cstddef>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
 namespace paiza {
+
+// First format error of a mapping file (1-based line number + the line's
+// text), reported by ValidateKeyMapFile.
+struct KeyMapFileError {
+  size_t line_number = 0;
+  std::string line;
+};
+
+// Validates the mapping file's format without applying it: every
+// non-blank, non-comment line must be `<key> <hex codepoint>...` with a
+// valid key (ASCII, no spaces/'#', at most 8 chars) and at least one
+// valid codepoint. Returns the first offending line, or nullopt when the
+// file is well-formed. A missing/unreadable file is valid (the built-in
+// defaults apply then).
+std::optional<KeyMapFileError> ValidateKeyMapFile(const std::wstring& path);
 
 class KeyMapping {
  public:

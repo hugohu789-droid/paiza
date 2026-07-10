@@ -42,6 +42,10 @@ struct UiStrings {
   // Platform-neutral variant of mapping_hint: "%ls" is replaced with the
   // real mapping file path at runtime (macOS settings window).
   const wchar_t* mapping_hint_generic;
+  // Shown when a keymap.txt edit fails format validation; "%ls" is
+  // replaced with the 1-based line number of the first bad line. The
+  // store keeps the previous mapping and restores the file.
+  const wchar_t* mapping_error_restored;
   // Caption of the "open settings" entry in the platform's input menu
   // (macOS menu-bar input menu; Windows has the hotkey/tray instead).
   const wchar_t* menu_settings;
