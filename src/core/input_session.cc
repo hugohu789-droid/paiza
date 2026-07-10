@@ -23,6 +23,11 @@ size_t InputSession::page_count() const {
   return (candidates_.size() + config_.page_size - 1) / config_.page_size;
 }
 
+void InputSession::set_page_size(size_t page_size) {
+  config_.page_size = std::clamp<size_t>(page_size, 1, 9);
+  page_ = selected_ / config_.page_size;
+}
+
 void InputSession::PageRange(size_t* first, size_t* last) const {
   *first = page_ * config_.page_size;
   *last = std::min(*first + config_.page_size, candidates_.size());

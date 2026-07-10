@@ -1,0 +1,413 @@
+// Copyright 2026 Paiza. All rights reserved.
+//
+// GTK3 settings dialog — the Linux equivalent of the Windows settings
+// dialog and the macOS settings window, with exactly the same options:
+// candidates per page, cloud candidates, UI language, candidate font,
+// and the editable key mapping (live preview + hint). Localized through
+// core/localization's UiStrings; persisted by the INI SettingsStore
+// (hot-reloaded by the running engine within a second of Save).
+//
+// Also registered as the IBus component's <setup>, so GNOME Settings
+// shows a settings button next to the input source.
+
+#include <gtk/gtk.h>
+
+#include <algorithm>
+#include <optional>
+#include <string>
+
+#include "common/string_utils.h"
+#include "core/font_stem_config.h"
+#include "core/key_mapping_store.h"
+#include "core/localization.h"
+#include "core/mapping_preview.h"
+#include "settings_store.h"
+
+namespace {
+
+using paiza::linux_ime::Settings;
+using paiza::linux_ime::SettingsStore;
+
+std::string Utf8(const wchar_t* wide) {
+  return paiza::WideToUtf8(std::wstring(wide != nullptr ? wide : L""));
+}
+
+// All dialog state in one bundle for the GTK callbacks.
+struct Dialog {
+  Settings settings;
+  paiza::KeyMappingStore mapping_store;
+  guint64 shown_mapping_revision = 0;
+
+  GtkWidget* window = nullptr;
+  GtkWidget* title_label = nullptr;
+  GtkWidget* subtitle_label = nullptr;
+  GtkWidget* general_section = nullptr;
+  GtkWidget* page_size_label = nullptr;
+  GtkWidget* page_size_spin = nullptr;
+  GtkWidget* cloud_label = nullptr;
+  GtkWidget* cloud_switch = nullptr;
+  GtkWidget* language_label = nullptr;
+  GtkWidget* language_combo = nullptr;
+  GtkWidget* font_label = nullptr;
+  GtkWidget* font_button = nullptr;
+  GtkWidget* mapping_section = nullptr;
+  GtkWidget* edit_mapping_button = nullptr;
+  GtkWidget* mapping_preview = nullptr;
+  GtkWidget* mapping_hint = nullptr;
+  GtkWidget* vertical_sample = nullptr;
+  GtkWidget* save_button = nullptr;
+  GtkWidget* close_button = nullptr;
+  gulong language_changed_handler = 0;
+};
+
+// Vertical Mongolian sample: shapes the word horizontally with Pango
+// (letters connect properly) and rotates it 90° clockwise into a
+// top-to-bottom column, stem-centred via fontstems.txt — the same
+// technique as the Windows/macOS candidate windows, and the exact
+// drawing the v2 Linux candidate window will use.
+gboolean DrawVerticalSample(GtkWidget* widget, cairo_t* cr, gpointer data) {
+  Dialog* dialog = static_cast<Dialog*>(data);
+  const std::string family = paiza::WideToUtf8(
+      dialog->settings.candidate_font);
+  constexpr double kFontSize = 24.0;
+
+  PangoLayout* layout = pango_cairo_create_layout(cr);
+  pango_layout_set_text(layout, "ᠮᠣᠩᠭᠣᠯ", -1);
+  PangoFontDescription* description = pango_font_description_new();
+  pango_font_description_set_family(description, family.c_str());
+  pango_font_description_set_absolute_size(description,
+                                           kFontSize * PANGO_SCALE);
+  pango_layout_set_font_description(layout, description);
+  pango_font_description_free(description);
+
+  int width = 0;
+  int height = 0;
+  pango_layout_get_pixel_size(layout, &width, &height);
+
+  GtkStyleContext* style = gtk_widget_get_style_context(widget);
+  GdkRGBA color;
+  gtk_style_context_get_color(style, gtk_style_context_get_state(style),
+                              &color);
+  color.alpha *= 0.55;  // Subtle, like the secondary label on macOS.
+  gdk_cairo_set_source_rgba(cr, &color);
+
+  const double view_width = gtk_widget_get_allocated_width(widget);
+  const double view_height = gtk_widget_get_allocated_height(widget);
+  const double cx = view_width / 2;
+  // After the +90° rotation the layout's top edge lands at the transform
+  // origin's x and its bottom edge `height` to the left; stem-calibrated
+  // fonts put the stem font_size*ratio right of the left (bottom) edge.
+  const std::optional<float> ratio =
+      paiza::GetFontStemRatio(dialog->settings.candidate_font);
+  const double origin_x = ratio.has_value()
+                              ? cx - kFontSize * *ratio + height
+                              : cx + height / 2.0;
+  const double y_top = std::max(0.0, (view_height - width) / 2);
+
+  cairo_save(cr);
+  cairo_translate(cr, origin_x, y_top);
+  cairo_rotate(cr, G_PI_2);
+  pango_cairo_show_layout(cr, layout);
+  cairo_restore(cr);
+  g_object_unref(layout);
+  return TRUE;
+}
+
+void RefreshMappingPreview(Dialog* dialog, bool force) {
+  const paiza::KeyMapping& mapping = dialog->mapping_store.Get();
+  if (!force &&
+      dialog->mapping_store.revision() == dialog->shown_mapping_revision) {
+    return;
+  }
+  dialog->shown_mapping_revision = dialog->mapping_store.revision();
+  const std::string preview = paiza::WideToUtf8(paiza::BuildMappingPreview(
+      mapping, paiza::GetStrings(dialog->settings.ui_language)));
+  gchar* escaped = g_markup_escape_text(preview.c_str(), -1);
+  gchar* markup = g_strdup_printf("<tt>%s</tt>", escaped);
+  gtk_label_set_markup(GTK_LABEL(dialog->mapping_preview), markup);
+  g_free(markup);
+  g_free(escaped);
+}
+
+// Re-applies every localized string for the currently selected language.
+void ApplyStrings(Dialog* dialog) {
+  const paiza::UiStrings& s = paiza::GetStrings(dialog->settings.ui_language);
+  gtk_window_set_title(GTK_WINDOW(dialog->window),
+                       Utf8(s.window_title).c_str());
+
+  auto set_bold = [](GtkWidget* label, const std::string& text,
+                     const char* size) {
+    gchar* escaped = g_markup_escape_text(text.c_str(), -1);
+    gchar* markup = g_strdup_printf(
+        "<span weight='bold' size='%s'>%s</span>", size, escaped);
+    gtk_label_set_markup(GTK_LABEL(label), markup);
+    g_free(markup);
+    g_free(escaped);
+  };
+  set_bold(dialog->title_label, Utf8(s.app_title), "x-large");
+  gtk_label_set_text(GTK_LABEL(dialog->subtitle_label),
+                     Utf8(s.subtitle).c_str());
+  set_bold(dialog->general_section, Utf8(s.section_general), "small");
+  gtk_label_set_text(GTK_LABEL(dialog->page_size_label),
+                     Utf8(s.candidates_per_page).c_str());
+  gtk_label_set_text(GTK_LABEL(dialog->cloud_label),
+                     Utf8(s.cloud_candidates).c_str());
+  gtk_label_set_text(GTK_LABEL(dialog->language_label),
+                     Utf8(s.language_label).c_str());
+  gtk_label_set_text(GTK_LABEL(dialog->font_label),
+                     Utf8(s.candidate_font_label).c_str());
+  set_bold(dialog->mapping_section, Utf8(s.section_key_mapping), "small");
+  gtk_button_set_label(GTK_BUTTON(dialog->edit_mapping_button),
+                       Utf8(s.edit_mapping_file).c_str());
+  gtk_button_set_label(GTK_BUTTON(dialog->save_button),
+                       Utf8(s.save).c_str());
+  gtk_button_set_label(GTK_BUTTON(dialog->close_button),
+                       Utf8(s.close).c_str());
+
+  // Localized hint with the real keymap.txt path substituted for "%ls".
+  std::wstring hint = s.mapping_hint_generic;
+  const size_t placeholder = hint.find(L"%ls");
+  if (placeholder != std::wstring::npos) {
+    hint.replace(placeholder, 3, paiza::KeyMappingFilePath());
+  }
+  gtk_label_set_text(GTK_LABEL(dialog->mapping_hint),
+                     paiza::WideToUtf8(hint).c_str());
+
+  RefreshMappingPreview(dialog, /*force=*/true);
+}
+
+// Callbacks ------------------------------------------------------------------
+
+void OnPageSizeChanged(GtkSpinButton* spin, gpointer data) {
+  Dialog* dialog = static_cast<Dialog*>(data);
+  dialog->settings.candidates_per_page =
+      static_cast<uint32_t>(gtk_spin_button_get_value_as_int(spin));
+}
+
+gboolean OnCloudToggled(GtkSwitch* toggle, gboolean state, gpointer data) {
+  (void)toggle;
+  Dialog* dialog = static_cast<Dialog*>(data);
+  dialog->settings.cloud_source_enabled = state != FALSE;
+  return FALSE;  // Let the switch update its visual state.
+}
+
+void OnLanguageChanged(GtkComboBox* combo, gpointer data) {
+  Dialog* dialog = static_cast<Dialog*>(data);
+  dialog->settings.ui_language = paiza::UiLanguageFromValue(
+      static_cast<uint32_t>(gtk_combo_box_get_active(combo)));
+  ApplyStrings(dialog);
+}
+
+void OnFontSet(GtkFontButton* button, gpointer data) {
+  Dialog* dialog = static_cast<Dialog*>(data);
+  gchar* font = gtk_font_chooser_get_font(GTK_FONT_CHOOSER(button));
+  if (font == nullptr) return;
+  PangoFontDescription* description =
+      pango_font_description_from_string(font);
+  const char* family = pango_font_description_get_family(description);
+  if (family != nullptr && *family != '\0') {
+    dialog->settings.candidate_font = paiza::Utf8ToWide(family);
+  }
+  pango_font_description_free(description);
+  g_free(font);
+  gtk_widget_queue_draw(dialog->vertical_sample);
+}
+
+void OnEditMapping(GtkButton* button, gpointer data) {
+  (void)button;
+  Dialog* dialog = static_cast<Dialog*>(data);
+  const std::wstring path = paiza::KeyMappingFilePath();
+  if (path.empty()) return;
+  const std::string utf8 = paiza::WideToUtf8(path);
+  // First use: materialise the default mapping so the user edits a
+  // complete, commented file rather than starting from scratch.
+  if (!g_file_test(utf8.c_str(), G_FILE_TEST_EXISTS)) {
+    dialog->mapping_store.Get().SaveToFile(path);
+  }
+  gchar* command = g_strdup_printf("xdg-open \"%s\"", utf8.c_str());
+  g_spawn_command_line_async(command, nullptr);
+  g_free(command);
+}
+
+void OnSave(GtkButton* button, gpointer data) {
+  (void)button;
+  Dialog* dialog = static_cast<Dialog*>(data);
+  SettingsStore::Save(dialog->settings);
+  gtk_main_quit();
+}
+
+void OnClose(GtkButton* button, gpointer data) {
+  (void)button;
+  (void)data;
+  gtk_main_quit();
+}
+
+// Polls for external edits of the mapping file while visible (mirrors
+// the Windows dialog's refresh timer).
+gboolean OnMappingRefreshTick(gpointer data) {
+  RefreshMappingPreview(static_cast<Dialog*>(data), /*force=*/false);
+  return G_SOURCE_CONTINUE;
+}
+
+GtkWidget* MakeLeftLabel() {
+  GtkWidget* label = gtk_label_new("");
+  gtk_widget_set_halign(label, GTK_ALIGN_START);
+  return label;
+}
+
+void BuildDialog(Dialog* dialog) {
+  dialog->window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+  gtk_window_set_default_size(GTK_WINDOW(dialog->window), 560, -1);
+  gtk_window_set_position(GTK_WINDOW(dialog->window), GTK_WIN_POS_CENTER);
+  gtk_container_set_border_width(GTK_CONTAINER(dialog->window), 18);
+  g_signal_connect(dialog->window, "destroy", G_CALLBACK(gtk_main_quit),
+                   nullptr);
+
+  GtkWidget* root = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+  gtk_container_add(GTK_CONTAINER(dialog->window), root);
+
+  // ---- Header ----------------------------------------------------------
+  dialog->title_label = MakeLeftLabel();
+  dialog->subtitle_label = MakeLeftLabel();
+  gtk_box_pack_start(GTK_BOX(root), dialog->title_label, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(root), dialog->subtitle_label, FALSE, FALSE, 0);
+
+  // ---- Card 1: General (a framed grid) ---------------------------------
+  GtkWidget* general_frame = gtk_frame_new(nullptr);
+  GtkWidget* general_grid = gtk_grid_new();
+  gtk_grid_set_row_spacing(GTK_GRID(general_grid), 10);
+  gtk_grid_set_column_spacing(GTK_GRID(general_grid), 12);
+  gtk_container_set_border_width(GTK_CONTAINER(general_grid), 14);
+  gtk_container_add(GTK_CONTAINER(general_frame), general_grid);
+  gtk_box_pack_start(GTK_BOX(root), general_frame, FALSE, FALSE, 6);
+
+  dialog->general_section = MakeLeftLabel();
+  gtk_grid_attach(GTK_GRID(general_grid), dialog->general_section, 0, 0, 2,
+                  1);
+
+  dialog->page_size_label = MakeLeftLabel();
+  gtk_widget_set_hexpand(dialog->page_size_label, TRUE);
+  dialog->page_size_spin = gtk_spin_button_new_with_range(1, 9, 1);
+  gtk_grid_attach(GTK_GRID(general_grid), dialog->page_size_label, 0, 1, 1,
+                  1);
+  gtk_grid_attach(GTK_GRID(general_grid), dialog->page_size_spin, 1, 1, 1,
+                  1);
+
+  dialog->cloud_label = MakeLeftLabel();
+  dialog->cloud_switch = gtk_switch_new();
+  gtk_widget_set_halign(dialog->cloud_switch, GTK_ALIGN_END);
+  gtk_grid_attach(GTK_GRID(general_grid), dialog->cloud_label, 0, 2, 1, 1);
+  gtk_grid_attach(GTK_GRID(general_grid), dialog->cloud_switch, 1, 2, 1, 1);
+
+  dialog->language_label = MakeLeftLabel();
+  dialog->language_combo = gtk_combo_box_text_new();
+  for (uint32_t i = 0; i < paiza::kUiLanguageCount; ++i) {
+    gtk_combo_box_text_append_text(
+        GTK_COMBO_BOX_TEXT(dialog->language_combo),
+        Utf8(paiza::GetStrings(paiza::UiLanguageFromValue(i)).language_name)
+            .c_str());
+  }
+  gtk_grid_attach(GTK_GRID(general_grid), dialog->language_label, 0, 3, 1,
+                  1);
+  gtk_grid_attach(GTK_GRID(general_grid), dialog->language_combo, 1, 3, 1,
+                  1);
+
+  dialog->font_label = MakeLeftLabel();
+  dialog->font_button = gtk_font_button_new();
+  gtk_grid_attach(GTK_GRID(general_grid), dialog->font_label, 0, 4, 1, 1);
+  gtk_grid_attach(GTK_GRID(general_grid), dialog->font_button, 1, 4, 1, 1);
+
+  // ---- Card 2: Key mapping ---------------------------------------------
+  GtkWidget* mapping_frame = gtk_frame_new(nullptr);
+  GtkWidget* mapping_grid = gtk_grid_new();
+  gtk_grid_set_row_spacing(GTK_GRID(mapping_grid), 8);
+  gtk_grid_set_column_spacing(GTK_GRID(mapping_grid), 12);
+  gtk_container_set_border_width(GTK_CONTAINER(mapping_grid), 14);
+  gtk_container_add(GTK_CONTAINER(mapping_frame), mapping_grid);
+  gtk_box_pack_start(GTK_BOX(root), mapping_frame, TRUE, TRUE, 6);
+
+  dialog->mapping_section = MakeLeftLabel();
+  gtk_widget_set_hexpand(dialog->mapping_section, TRUE);
+  dialog->edit_mapping_button = gtk_button_new_with_label("");
+  gtk_grid_attach(GTK_GRID(mapping_grid), dialog->mapping_section, 0, 0, 1,
+                  1);
+  gtk_grid_attach(GTK_GRID(mapping_grid), dialog->edit_mapping_button, 1, 0,
+                  1, 1);
+
+  dialog->mapping_preview = MakeLeftLabel();
+  gtk_label_set_line_wrap(GTK_LABEL(dialog->mapping_preview), TRUE);
+  gtk_widget_set_valign(dialog->mapping_preview, GTK_ALIGN_START);
+  gtk_widget_set_hexpand(dialog->mapping_preview, TRUE);
+  gtk_grid_attach(GTK_GRID(mapping_grid), dialog->mapping_preview, 0, 1, 1,
+                  1);
+
+  // Vertical script sample on the card's right edge (same drawing the v2
+  // candidate window will use).
+  dialog->vertical_sample = gtk_drawing_area_new();
+  gtk_widget_set_size_request(dialog->vertical_sample, 44, 190);
+  g_signal_connect(dialog->vertical_sample, "draw",
+                   G_CALLBACK(DrawVerticalSample), dialog);
+  gtk_grid_attach(GTK_GRID(mapping_grid), dialog->vertical_sample, 1, 1, 1,
+                  1);
+
+  dialog->mapping_hint = MakeLeftLabel();
+  gtk_label_set_line_wrap(GTK_LABEL(dialog->mapping_hint), TRUE);
+  gtk_grid_attach(GTK_GRID(mapping_grid), dialog->mapping_hint, 0, 2, 2, 1);
+
+  // ---- Footer ----------------------------------------------------------
+  GtkWidget* footer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+  gtk_widget_set_halign(footer, GTK_ALIGN_END);
+  dialog->close_button = gtk_button_new_with_label("");
+  dialog->save_button = gtk_button_new_with_label("");
+  gtk_style_context_add_class(
+      gtk_widget_get_style_context(dialog->save_button),
+      "suggested-action");
+  gtk_box_pack_start(GTK_BOX(footer), dialog->close_button, FALSE, FALSE,
+                     0);
+  gtk_box_pack_start(GTK_BOX(footer), dialog->save_button, FALSE, FALSE, 0);
+  gtk_box_pack_end(GTK_BOX(root), footer, FALSE, FALSE, 0);
+
+  // ---- Signals + initial values -----------------------------------------
+  gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->page_size_spin),
+                            dialog->settings.candidates_per_page);
+  gtk_switch_set_active(GTK_SWITCH(dialog->cloud_switch),
+                        dialog->settings.cloud_source_enabled);
+  gtk_combo_box_set_active(
+      GTK_COMBO_BOX(dialog->language_combo),
+      static_cast<gint>(dialog->settings.ui_language));
+  const std::string font_spec =
+      paiza::WideToUtf8(dialog->settings.candidate_font) + " 16";
+  gtk_font_chooser_set_font(GTK_FONT_CHOOSER(dialog->font_button),
+                            font_spec.c_str());
+
+  g_signal_connect(dialog->page_size_spin, "value-changed",
+                   G_CALLBACK(OnPageSizeChanged), dialog);
+  g_signal_connect(dialog->cloud_switch, "state-set",
+                   G_CALLBACK(OnCloudToggled), dialog);
+  g_signal_connect(dialog->language_combo, "changed",
+                   G_CALLBACK(OnLanguageChanged), dialog);
+  g_signal_connect(dialog->font_button, "font-set", G_CALLBACK(OnFontSet),
+                   dialog);
+  g_signal_connect(dialog->edit_mapping_button, "clicked",
+                   G_CALLBACK(OnEditMapping), dialog);
+  g_signal_connect(dialog->save_button, "clicked", G_CALLBACK(OnSave),
+                   dialog);
+  g_signal_connect(dialog->close_button, "clicked", G_CALLBACK(OnClose),
+                   dialog);
+  g_timeout_add_seconds(1, OnMappingRefreshTick, dialog);
+}
+
+}  // namespace
+
+int main(int argc, char* argv[]) {
+  gtk_init(&argc, &argv);
+
+  Dialog dialog;
+  dialog.settings = SettingsStore::Load();
+  BuildDialog(&dialog);
+  ApplyStrings(&dialog);
+
+  gtk_widget_show_all(dialog.window);
+  gtk_main();
+  return 0;
+}

@@ -5,13 +5,18 @@
 #include <memory>
 #include <string>
 
+#include "common/logging.h"
 #include "common/string_utils.h"
 #include "core/candidate_engine.h"
+#include "core/cloud_candidate_source.h"
 #include "core/input_session.h"
 #include "core/key_mapping_store.h"
 #include "core/local_dictionary_source.h"
+#include "core/localization.h"
 
 #import "candidate_panel.h"
+#import "settings_store.h"
+#import "settings_window.h"
 
 namespace {
 
@@ -33,6 +38,10 @@ NSString* WideToNSString(const std::wstring& wide) {
   return [NSString stringWithUTF8String:utf8.c_str()] ?: @"";
 }
 
+// Process-wide cloud candidate source (registered with the shared engine,
+// toggled from the settings window); mirrors the Windows service wiring.
+paiza::CloudCandidateSource* g_cloud_source = nullptr;
+
 // The engine and key-mapping store are process-wide (the input method app
 // serves every client through one process); sessions are per client.
 paiza::CandidateEngine* SharedEngine() {
@@ -45,6 +54,10 @@ paiza::CandidateEngine* SharedEngine() {
       dictionary->LoadFromFile(paiza::Utf8ToWide([path UTF8String]));
     }
     built->AddSource(std::move(dictionary));
+    // Cloud stub, disabled until enabled in settings (same as Windows).
+    auto cloud = std::make_unique<paiza::CloudCandidateSource>(L"");
+    g_cloud_source = cloud.get();
+    built->AddSource(std::move(cloud));
     return built;
   }();
   return engine;
@@ -55,6 +68,31 @@ paiza::KeyMappingStore* SharedMappings() {
   // common/paths.cc) — same file format as Windows.
   static paiza::KeyMappingStore* store = new paiza::KeyMappingStore();
   return store;
+}
+
+// Always reads NSUserDefaults (cheap: cfprefsd caches the domain), so a
+// Save from the in-process settings window AND from a standalone settings
+// instance (double-clicking the app while the IME runs) both take effect
+// on the next keystroke without extra plumbing.
+paiza::mac::Settings CurrentSettings() {
+  return paiza::mac::SettingsStore::Load();
+}
+
+void ApplySettings(const paiza::mac::Settings& settings) {
+  SharedEngine();  // Ensure g_cloud_source is created.
+  if (g_cloud_source != nullptr) {
+    g_cloud_source->set_enabled(settings.cloud_source_enabled);
+  }
+}
+
+// One settings window for the whole process.
+PaizaSettingsWindowController* SharedSettingsWindow() {
+  static PaizaSettingsWindowController* controller =
+      [[PaizaSettingsWindowController alloc]
+          initWithOnChanged:^(const paiza::mac::Settings& settings) {
+            ApplySettings(settings);
+          }];
+  return controller;
 }
 
 }  // namespace
@@ -69,11 +107,78 @@ paiza::KeyMappingStore* SharedMappings() {
                         client:(id)inputClient {
   self = [super initWithServer:server delegate:delegate client:inputClient];
   if (self != nil) {
+    ApplySettings(CurrentSettings());  // Applies the cloud toggle once.
     _session = std::make_unique<paiza::InputSession>(SharedEngine(),
                                                      SharedMappings());
     _panel = [[PaizaCandidatePanel alloc] init];
+
+    // Mouse interaction on the panel drives the same session the keyboard
+    // does; the state is mirrored back to the client afterwards.
+    __weak PaizaInputController* weak_self = self;
+    _panel.onCandidateChosen = ^(size_t index) {
+      PaizaInputController* strong_self = weak_self;
+      if (strong_self == nil) return;
+      [strong_self applyResult:strong_self->_session->CommitCandidate(index)
+                        client:strong_self.client];
+    };
+    _panel.onPageBackward = ^{
+      PaizaInputController* strong_self = weak_self;
+      if (strong_self == nil || !strong_self->_session->composing()) return;
+      strong_self->_session->PageBackward();
+      [strong_self syncStateWithClient:strong_self.client];
+    };
+    _panel.onPageForward = ^{
+      PaizaInputController* strong_self = weak_self;
+      if (strong_self == nil || !strong_self->_session->composing()) return;
+      strong_self->_session->PageForward();
+      [strong_self syncStateWithClient:strong_self.client];
+    };
   }
   return self;
+}
+
+// The input-source menu (shown from the menu-bar input icon). A single
+// "Paiza Settings…" item opens the settings window — the macOS equivalent
+// of the Windows settings dialog / wake-up hotkey.
+- (NSMenu*)menu {
+  PAIZA_LOG_INFO(L"menu requested");
+  NSMenu* menu = [[NSMenu alloc] initWithTitle:@"Paiza"];
+  const paiza::UiStrings& strings =
+      paiza::GetStrings(CurrentSettings().ui_language);
+  const std::string title = paiza::WideToUtf8(std::wstring(
+      strings.menu_settings ? strings.menu_settings : L"Settings…"));
+  NSMenuItem* item = [[NSMenuItem alloc]
+      initWithTitle:[NSString stringWithUTF8String:title.c_str()] ?: @"Settings…"
+             action:@selector(showSettings:)
+      keyEquivalent:@""];
+  item.target = self;
+  [menu addItem:item];
+  return menu;
+}
+
+// Opens the shared settings window. Reached from the input menu item above
+// and from IMK's "Open Keyboard Settings…" (showPreferences override).
+- (void)showSettings:(id)sender {
+  (void)sender;
+  PAIZA_LOG_INFO(L"showSettings");
+  [SharedSettingsWindow() showSettings];
+}
+
+- (void)showPreferences:(id)sender {
+  [self showSettings:sender];
+}
+
+// Pushes the current settings into this client's session and panel. Cheap
+// and idempotent, so it is called on every sync — a Save in the settings
+// window then takes effect on the next keystroke without extra plumbing.
+- (void)applyCurrentSettings {
+  const paiza::mac::Settings settings = CurrentSettings();
+  ApplySettings(settings);  // Cloud toggle picks up external saves too.
+  _session->set_page_size(settings.candidates_per_page);
+  [_panel setCandidateFontFamily:
+              [NSString stringWithUTF8String:
+                            paiza::WideToUtf8(settings.candidate_font).c_str()]
+                  ?: @"Noto Sans Mongolian"];
 }
 
 - (NSUInteger)recognizedEvents:(id)sender {
@@ -83,6 +188,7 @@ paiza::KeyMappingStore* SharedMappings() {
 
 // Mirrors the session state into the client: marked text + panel.
 - (void)syncStateWithClient:(id)sender {
+  [self applyCurrentSettings];
   if (_session->composing()) {
     NSString* preedit = WideToNSString(_session->preedit());
     NSDictionary* attributes = @{
@@ -101,6 +207,13 @@ paiza::KeyMappingStore* SharedMappings() {
     } @catch (NSException* exception) {
       caret = NSZeroRect;  // Some hosts refuse; the panel centres itself.
     }
+    paiza::Logf(paiza::LogLevel::kInfo,
+                L"sync: %zu candidates, page %zu/%zu (size %zu), caret "
+                L"(%.0f,%.0f %.0fx%.0f)",
+                _session->candidates().size(), _session->current_page() + 1,
+                _session->page_count(), _session->page_size(),
+                caret.origin.x, caret.origin.y, caret.size.width,
+                caret.size.height);
     [_panel updateFromSession:_session.get()];
     [_panel showNearRect:caret];
   } else {

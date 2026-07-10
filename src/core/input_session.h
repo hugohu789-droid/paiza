@@ -88,6 +88,9 @@ class InputSession {
   size_t current_page() const { return page_; }
   size_t page_count() const;
   size_t page_size() const { return config_.page_size; }
+  // Applies the "candidates per page" setting to a live session (clamped
+  // to 1..9, the digit-selectable range); the page follows the selection.
+  void set_page_size(size_t page_size);
   // Candidates visible on the current page: [first, last).
   void PageRange(size_t* first, size_t* last) const;
 

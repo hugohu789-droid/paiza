@@ -1,0 +1,4 @@
+/* 在「系统设置 › 键盘 › 输入法」及菜单栏输入菜单中显示的名称。
+   保持英文品牌名 "Paiza Mongolian"，与 Windows 版一致。 */
+"CFBundleName" = "Paiza Mongolian";
+"com.paiza.inputmethod.mongolian.mong" = "Paiza Mongolian";

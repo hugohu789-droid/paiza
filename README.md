@@ -40,8 +40,10 @@ candidate service process and an extensible candidate-source architecture.
 src/
   common/, core/        platform-neutral C++ (builds on Windows/macOS/Linux)
   platform/windows/     TSF DLL, D2D/DWrite UI, named-pipe IPC, service
-  platform/macos/       (planned) InputMethodKit front-end
-  platform/linux/       (planned) IBus/Fcitx5 engine + GTK candidate window
+  platform/macos/       InputMethodKit app: vertical candidate panel,
+                        settings window (see docs/macos-port.md)
+  platform/linux/       IBus engine + GTK settings dialog; custom vertical
+                        candidate window is v2 (see docs/linux-port.md)
 tests/                  portable tests run on all three OSes in CI;
                         IPC/registry tests are Windows-only
 data/                   dictionary and default configs, shared by all OSes

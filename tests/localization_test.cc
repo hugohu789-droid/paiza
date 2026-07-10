@@ -27,11 +27,21 @@ TEST(LocalizationTest, AllStringTablesComplete) {
           strings.language_label, strings.candidate_font_label,
           strings.section_key_mapping,
           strings.edit_mapping_file, strings.shift_label,
-          strings.digraphs_label, strings.mapping_hint, strings.save,
+          strings.digraphs_label, strings.mapping_hint,
+          strings.mapping_hint_generic, strings.menu_settings, strings.save,
           strings.close, strings.language_name}) {
       ASSERT_NE(field, nullptr);
       EXPECT_NE(field[0], L'\0');
     }
+  }
+}
+
+TEST(LocalizationTest, GenericMappingHintHasPathPlaceholder) {
+  // The macOS settings window substitutes the real file path for %ls.
+  for (const UiLanguage language : kAllLanguages) {
+    EXPECT_NE(std::wstring(GetStrings(language).mapping_hint_generic)
+                  .find(L"%ls"),
+              std::wstring::npos);
   }
 }
 

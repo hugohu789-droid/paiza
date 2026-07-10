@@ -56,10 +56,12 @@ add_library(paiza_core STATIC
   src/core/candidate_engine.cc
   src/core/cloud_candidate_source.cc
   src/core/input_session.cc
+  src/core/font_stem_config.cc
   src/core/key_mapping.cc
   src/core/key_mapping_store.cc
   src/core/local_dictionary_source.cc
   src/core/localization.cc
+  src/core/mapping_preview.cc
   src/core/transliterator.cc
 )
 target_link_libraries(paiza_core PUBLIC paiza_common)
@@ -84,7 +86,6 @@ if(WIN32)
     ${PAIZA_WIN}/ui/candidate_window.cc
     ${PAIZA_WIN}/ui/dropdown.cc
     ${PAIZA_WIN}/ui/event_dispatcher.cc
-    ${PAIZA_WIN}/ui/font_stem_config.cc
     ${PAIZA_WIN}/ui/image_view.cc
     ${PAIZA_WIN}/ui/label.cc
     ${PAIZA_WIN}/ui/render_context.cc
@@ -142,19 +143,33 @@ if(APPLE)
   set(CMAKE_OBJCXX_STANDARD 20)
   set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
 
+  set(PAIZA_MAC src/platform/macos)
   add_executable(PaizaIMK MACOSX_BUNDLE
-    src/platform/macos/main.mm
-    src/platform/macos/paiza_input_controller.mm
-    src/platform/macos/candidate_panel.mm
+    ${PAIZA_MAC}/main.mm
+    ${PAIZA_MAC}/paiza_input_controller.mm
+    ${PAIZA_MAC}/candidate_panel.mm
+    ${PAIZA_MAC}/settings_store.mm
+    ${PAIZA_MAC}/settings_window.mm
     data/dictionary.txt
+    ${PAIZA_MAC}/resources/MenuIcon.tiff
+    ${PAIZA_MAC}/en.lproj/InfoPlist.strings
+    ${PAIZA_MAC}/zh-Hans.lproj/InfoPlist.strings
   )
   set_target_properties(PaizaIMK PROPERTIES
     OUTPUT_NAME "PaizaMongolian"
     MACOSX_BUNDLE_INFO_PLIST ${CMAKE_SOURCE_DIR}/src/platform/macos/Info.plist
   )
-  set_source_files_properties(data/dictionary.txt PROPERTIES
-    MACOSX_PACKAGE_LOCATION Resources
+  # Bundle resources: dictionary + candidate-window icon at Resources root,
+  # the InfoPlist.strings under their .lproj folders (localized name).
+  set_source_files_properties(
+    data/dictionary.txt
+    ${PAIZA_MAC}/resources/MenuIcon.tiff
+    PROPERTIES MACOSX_PACKAGE_LOCATION Resources
   )
+  set_source_files_properties(${PAIZA_MAC}/en.lproj/InfoPlist.strings
+    PROPERTIES MACOSX_PACKAGE_LOCATION Resources/en.lproj)
+  set_source_files_properties(${PAIZA_MAC}/zh-Hans.lproj/InfoPlist.strings
+    PROPERTIES MACOSX_PACKAGE_LOCATION Resources/zh-Hans.lproj)
   target_include_directories(PaizaIMK PRIVATE src/platform/macos)
   target_compile_options(PaizaIMK PRIVATE -fobjc-arc)
   target_link_libraries(PaizaIMK PRIVATE
@@ -163,6 +178,79 @@ if(APPLE)
     "-framework InputMethodKit"
     "-framework CoreText"
   )
+
+  # Developer tool: offscreen candidate-panel preview (PNG snapshots, no
+  # install needed). See docs/macos-port.md "Developer commands".
+  add_executable(paiza_panel_preview
+    tools/macos/panel_preview.mm
+    ${PAIZA_MAC}/candidate_panel.mm
+  )
+  target_include_directories(paiza_panel_preview PRIVATE src/platform/macos)
+  target_compile_options(paiza_panel_preview PRIVATE -fobjc-arc)
+  target_link_libraries(paiza_panel_preview PRIVATE
+    paiza_core
+    "-framework Cocoa"
+    "-framework CoreText"
+  )
+endif()
+
+# --------------------------------------------------------- Linux platform ---
+# IBus engine + GTK settings dialog; see docs/linux-port.md. Auto-skipped
+# when the dev packages are missing so plain core builds keep working
+# (CI's ubuntu job installs libibus-1.0-dev + libgtk-3-dev).
+if(UNIX AND NOT APPLE)
+  find_package(PkgConfig QUIET)
+  if(PkgConfig_FOUND)
+    pkg_check_modules(IBUS IMPORTED_TARGET ibus-1.0)
+    pkg_check_modules(GTK3 IMPORTED_TARGET gtk+-3.0)
+  endif()
+  if(IBUS_FOUND AND GTK3_FOUND)
+    set(PAIZA_LINUX src/platform/linux)
+    set(PAIZA_INSTALL_BIN_DIR ${CMAKE_INSTALL_PREFIX}/bin)
+    set(PAIZA_INSTALL_DATA_DIR ${CMAKE_INSTALL_PREFIX}/share/ibus-paiza)
+
+    add_executable(ibus-engine-paiza
+      ${PAIZA_LINUX}/main.cc
+      ${PAIZA_LINUX}/engine.cc
+      ${PAIZA_LINUX}/settings_store.cc
+    )
+    target_include_directories(ibus-engine-paiza PRIVATE ${PAIZA_LINUX})
+    target_compile_definitions(ibus-engine-paiza PRIVATE
+      PAIZA_DATA_DIR="${PAIZA_INSTALL_DATA_DIR}")
+    target_link_libraries(ibus-engine-paiza PRIVATE
+      paiza_core PkgConfig::IBUS)
+
+    add_executable(paiza-ime-settings
+      ${PAIZA_LINUX}/settings_main.cc
+      ${PAIZA_LINUX}/settings_store.cc
+    )
+    target_include_directories(paiza-ime-settings PRIVATE ${PAIZA_LINUX})
+    target_link_libraries(paiza-ime-settings PRIVATE
+      paiza_core PkgConfig::GTK3)
+
+    # Component XML with the install paths baked in.
+    configure_file(${PAIZA_LINUX}/paiza.xml.in
+                   ${CMAKE_BINARY_DIR}/paiza.xml @ONLY)
+
+    # Build-tree runs find the dictionary next to the binary.
+    add_custom_command(TARGET ibus-engine-paiza POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              ${CMAKE_SOURCE_DIR}/data/dictionary.txt
+              $<TARGET_FILE_DIR:ibus-engine-paiza>/dictionary.txt
+    )
+
+    install(TARGETS ibus-engine-paiza paiza-ime-settings
+            RUNTIME DESTINATION bin)
+    install(FILES ${CMAKE_BINARY_DIR}/paiza.xml
+            DESTINATION share/ibus/component)
+    install(FILES data/dictionary.txt
+                  ${PAIZA_LINUX}/resources/paiza-mn.png
+            DESTINATION share/ibus-paiza)
+  else()
+    message(STATUS
+      "Paiza: ibus-1.0/gtk+-3.0 dev packages not found — "
+      "skipping the Linux IME front-end (core + tests still build)")
+  endif()
 endif()
 
 # ------------------------------------------------------------------ tests ---
@@ -179,10 +267,14 @@ if(PAIZA_BUILD_TESTS)
   enable_testing()
 
   # Portable tests: run on every platform in CI (feature-parity guard).
+  # The Linux INI settings store is pure standard C++, so its tests run
+  # everywhere too — Windows/macOS CI guards the Linux settings logic.
   set(PAIZA_TEST_SOURCES
+    src/platform/linux/settings_store.cc
     tests/candidate_engine_test.cc
     tests/input_session_test.cc
     tests/key_mapping_test.cc
+    tests/linux_settings_store_test.cc
     tests/local_dictionary_source_test.cc
     tests/localization_test.cc
     tests/string_utils_test.cc
@@ -199,6 +291,7 @@ if(PAIZA_BUILD_TESTS)
   endif()
 
   add_executable(paiza_tests ${PAIZA_TEST_SOURCES})
+  target_include_directories(paiza_tests PRIVATE src/platform/linux)
   target_link_libraries(paiza_tests PRIVATE paiza_core gtest gtest_main)
   if(WIN32)
     target_include_directories(paiza_tests PRIVATE src/platform/windows)

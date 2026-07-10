@@ -32,6 +32,9 @@ constexpr UiStrings kEnglishStrings = {
     /*mapping_hint=*/
     L"Saved to %APPDATA%\\PaizaIME\\keymap.txt — changes apply on the "
     L"next keystroke.",
+    /*mapping_hint_generic=*/
+    L"Saved to %ls — changes apply on the next keystroke.",
+    /*menu_settings=*/L"Paiza Settings…",
     /*save=*/L"Save",
     /*close=*/L"Close",
     /*language_name=*/L"English",
@@ -54,6 +57,8 @@ constexpr UiStrings kChineseStrings = {
     /*digraphs_label=*/L"组合键:",
     /*mapping_hint=*/
     L"保存于 %APPDATA%\\PaizaIME\\keymap.txt —— 保存后下一次按键即生效。",
+    /*mapping_hint_generic=*/L"保存于 %ls —— 保存后下一次按键即生效。",
+    /*menu_settings=*/L"Paiza 设置…",
     /*save=*/L"保存",
     /*close=*/L"关闭",
     /*language_name=*/L"中文",
@@ -78,6 +83,9 @@ constexpr UiStrings kCyrillicStrings = {
     /*mapping_hint=*/
     L"%APPDATA%\\PaizaIME\\keymap.txt — хадгалсны дараа дараагийн "
     L"даралтаас хүчинтэй.",
+    /*mapping_hint_generic=*/
+    L"%ls — хадгалсны дараа дараагийн даралтаас хүчинтэй.",
+    /*menu_settings=*/L"Paiza тохиргоо…",
     /*save=*/L"Хадгалах",
     /*close=*/L"Хаах",
     /*language_name=*/L"Монгол кирилл",

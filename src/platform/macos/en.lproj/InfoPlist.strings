@@ -1,0 +1,4 @@
+/* Display name shown in System Settings › Keyboard › Input Sources and the
+   menu-bar input menu. Keyed by the bundle name and the input-mode id. */
+"CFBundleName" = "Paiza Mongolian";
+"com.paiza.inputmethod.mongolian.mong" = "Paiza Mongolian";

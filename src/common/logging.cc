@@ -9,6 +9,10 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+#elif defined(__APPLE__)
+#include <os/log.h>
+
+#include "common/string_utils.h"
 #endif
 
 namespace paiza {
@@ -37,6 +41,11 @@ void Log(LogLevel level, const std::wstring& message) {
 #if defined(_WIN32)
   // Visible in DebugView / the VS output window from any host process.
   ::OutputDebugStringW(line.c_str());
+#elif defined(__APPLE__)
+  // The input method runs as a launchd agent whose stderr is discarded;
+  // os_log makes the lines visible in Console.app and in
+  // `log show --predicate 'eventMessage CONTAINS "PaizaIME"'`.
+  os_log(OS_LOG_DEFAULT, "%{public}s", WideToUtf8(line).c_str());
 #else
   std::fputws(line.c_str(), stderr);
 #endif

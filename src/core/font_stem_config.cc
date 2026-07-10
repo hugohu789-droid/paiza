@@ -1,6 +1,6 @@
 // Copyright 2026 Paiza. All rights reserved.
 
-#include "ui/font_stem_config.h"
+#include "core/font_stem_config.h"
 
 #include <chrono>
 #include <cwctype>
@@ -13,7 +13,7 @@
 #include "common/paths.h"
 #include "common/string_utils.h"
 
-namespace paiza::ui {
+namespace paiza {
 namespace {
 
 struct BuiltinEntry {
@@ -141,4 +141,4 @@ std::optional<float> GetFontStemRatio(const std::wstring& family) {
   return Store().Get(family);
 }
 
-}  // namespace paiza::ui
+}  // namespace paiza

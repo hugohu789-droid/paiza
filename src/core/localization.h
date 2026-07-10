@@ -39,6 +39,12 @@ struct UiStrings {
   const wchar_t* shift_label;
   const wchar_t* digraphs_label;
   const wchar_t* mapping_hint;
+  // Platform-neutral variant of mapping_hint: "%ls" is replaced with the
+  // real mapping file path at runtime (macOS settings window).
+  const wchar_t* mapping_hint_generic;
+  // Caption of the "open settings" entry in the platform's input menu
+  // (macOS menu-bar input menu; Windows has the hotkey/tray instead).
+  const wchar_t* menu_settings;
   const wchar_t* save;
   const wchar_t* close;
   // The language's own display name ("English", "中文", ...), used as the

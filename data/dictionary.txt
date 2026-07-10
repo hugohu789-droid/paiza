@@ -36,3 +36,31 @@ duu	ᠳᠡᠭᠦᠦ	50
 nair	ᠨᠠᠶᠢᠷ	40
 bayar	ᠪᠠᠶᠠᠷ	55
 amgalan	ᠠᠮᠤᠭᠤᠯᠠᠩ	35
+# --- demo lexicon expansion (common words; sample data, not a full IME
+# --- dictionary — verify orthography before shipping to end users) ---
+bi	ᠪᠢ	90
+chi	ᠴᠢ	85
+ta	ᠲᠠ	85
+ene	ᠡᠨᠡ	80
+ter	ᠲᠡᠷᠡ	80
+hun	ᠬᠦᠮᠦᠨ	75
+sar	ᠰᠠᠷᠠ	70
+saihan	ᠰᠠᠶᠢᠬᠠᠨ	68
+sanaa	ᠰᠠᠨᠠᠭᠠ	42
+sam	ᠰᠠᠮ	20
+salbar	ᠰᠠᠯᠪᠤᠷᠢ	22
+edur	ᠡᠳᠦᠷ	60
+soni	ᠰᠥᠨᠢ	45
+baina	ᠪᠠᠶᠢᠨᠠ	78
+baishin	ᠪᠠᠶᠢᠰᠢᠩ	40
+bulag	ᠪᠤᠯᠠᠭ	30
+mod	ᠮᠣᠳᠣ	55
+mah	ᠮᠢᠬᠠ	45
+nohor	ᠨᠥᠬᠥᠷ	52
+ail	ᠠᠶᠢᠯ	40
+am	ᠠᠮᠠ	38
+neg	ᠨᠢᠭᠡ	70
+hoyor	ᠬᠣᠶᠠᠷ	65
+gurav	ᠭᠤᠷᠪᠠ	60
+tav	ᠲᠠᠪᠤ	58
+arav	ᠠᠷᠪᠠ	50

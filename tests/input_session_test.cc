@@ -190,6 +190,34 @@ TEST_F(InputSessionTest, SelectionWrapsAndPageFollows) {
   EXPECT_EQ(session.current_page(), 0u);
 }
 
+TEST_F(InputSessionTest, PageSizeSettingAppliesToLiveSession) {
+  for (int i = 0; i < 12; ++i) {
+    auto extra = std::make_unique<LocalDictionarySource>();
+    extra->AddEntry("ba", std::wstring(1, static_cast<wchar_t>(0x1820 + i)),
+                    100 - i);
+    engine_.AddSource(std::move(extra));
+  }
+  InputSession session = MakeSession();
+  Type(session, "ba");
+  EXPECT_EQ(session.page_count(), 2u);  // 12 candidates / 7 per page.
+
+  session.set_page_size(3);
+  EXPECT_EQ(session.page_size(), 3u);
+  EXPECT_EQ(session.page_count(), 4u);
+
+  // The page follows the selection when the geometry changes.
+  session.MoveSelection(-1);  // Select index 11.
+  EXPECT_EQ(session.current_page(), 3u);
+  session.set_page_size(9);
+  EXPECT_EQ(session.current_page(), 1u);
+  EXPECT_EQ(session.selected_index(), 11u);
+
+  session.set_page_size(0);  // Clamped to the valid 1..9 range.
+  EXPECT_EQ(session.page_size(), 1u);
+  session.set_page_size(50);
+  EXPECT_EQ(session.page_size(), 9u);
+}
+
 TEST_F(InputSessionTest, ClickCommitsCandidate) {
   InputSession session = MakeSession();
   Type(session, "sain");
