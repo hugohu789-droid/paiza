@@ -2,16 +2,19 @@
 //
 // Hot-reloading provider for the user key mapping. Both the input-method
 // module (per keystroke) and the settings dialog (preview) call Get(); the
-// file's last-write time is polled with a small throttle, so edits to the
-// config file take effect on the next keystroke without restarting
-// anything. Platform-neutral (std::filesystem / std::chrono).
+// file is polled with a small throttle, so edits to the config file take
+// effect on the next keystroke without restarting anything. Change
+// detection compares the file CONTENT, not the mtime: successive writes
+// within the filesystem timestamp granularity (a real path here, because
+// the store itself writes the file when restoring after a rejected edit)
+// would be missed by an mtime check. keymap.txt is tiny, so reading it on
+// the throttled poll is negligible. Platform-neutral.
 
 #ifndef PAIZA_CORE_KEY_MAPPING_STORE_H_
 #define PAIZA_CORE_KEY_MAPPING_STORE_H_
 
 #include <chrono>
 #include <cstdint>
-#include <filesystem>
 #include <string>
 
 #include "core/key_mapping.h"
@@ -72,8 +75,10 @@ class KeyMappingStore {
   // (missing file, or invalid since the store started).
   std::string last_good_content_;
   KeyMapFileStatus file_status_;
-  std::filesystem::file_time_type last_write_ =
-      std::filesystem::file_time_type::min();
+  // Snapshot of the file as of the last poll (existence + raw bytes);
+  // the change detector compares against this.
+  bool last_exists_ = false;
+  std::string last_content_;
   std::chrono::steady_clock::time_point next_check_{};
   uint64_t revision_ = 1;
   uint64_t status_revision_ = 1;

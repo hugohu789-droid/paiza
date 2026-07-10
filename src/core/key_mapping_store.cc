@@ -2,6 +2,7 @@
 
 #include "core/key_mapping_store.h"
 
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 
@@ -13,19 +14,15 @@ namespace {
 
 constexpr std::chrono::milliseconds kCheckInterval{500};
 
-// Last-write time, or file_time_type::min() when the file is inaccessible.
-std::filesystem::file_time_type QueryLastWrite(const std::wstring& path) {
-  std::error_code ec;
-  const auto time = std::filesystem::last_write_time(path, ec);
-  return ec ? std::filesystem::file_time_type::min() : time;
-}
-
-std::string ReadFileBytes(const std::wstring& path) {
+// Reads the whole file; returns false when it cannot be opened (missing
+// or inaccessible).
+bool ReadFileBytes(const std::wstring& path, std::string* bytes) {
   std::ifstream file(std::filesystem::path(path), std::ios::binary);
-  if (!file.is_open()) return {};
+  if (!file.is_open()) return false;
   std::ostringstream buffer;
   buffer << file.rdbuf();
-  return buffer.str();
+  *bytes = buffer.str();
+  return true;
 }
 
 bool WriteFileBytes(const std::wstring& path, const std::string& bytes) {
@@ -67,11 +64,13 @@ void KeyMappingStore::ReloadNow() {
 
 void KeyMappingStore::ReloadIfChanged() {
   if (path_.empty()) return;
-  const auto current = QueryLastWrite(path_);
-  if (current == last_write_) return;
-  last_write_ = current;
-
-  const bool exists = current != std::filesystem::file_time_type::min();
+  // Content-based change detection (see the header comment): immune to
+  // writes landing within the filesystem timestamp granularity.
+  std::string bytes;
+  const bool exists = ReadFileBytes(path_, &bytes);
+  if (exists == last_exists_ && bytes == last_content_) return;
+  last_exists_ = exists;
+  last_content_ = bytes;
 
   // Validate before applying: a botched edit must never silently drop
   // half the user's mapping. On failure keep the current mapping,
@@ -88,8 +87,9 @@ void KeyMappingStore::ReloadIfChanged() {
           !last_good_content_.empty() &&
           WriteFileBytes(path_, last_good_content_);
       if (status.restored) {
-        // Don't treat our own restore write as a fresh edit.
-        last_write_ = QueryLastWrite(path_);
+        // Don't treat our own restore write as a fresh edit; the user's
+        // next save differs from this content and is picked up normally.
+        last_content_ = last_good_content_;
       }
       file_status_ = std::move(status);
       ++status_revision_;
@@ -105,7 +105,7 @@ void KeyMappingStore::ReloadIfChanged() {
   KeyMapping fresh = KeyMapping::CreateDefault();
   if (exists) {
     fresh.LoadFromFile(path_);
-    last_good_content_ = ReadFileBytes(path_);
+    last_good_content_ = bytes;
   } else {
     last_good_content_.clear();
   }
