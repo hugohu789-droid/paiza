@@ -37,6 +37,7 @@ struct Dialog {
   Settings settings;
   paiza::KeyMappingStore mapping_store;
   guint64 shown_mapping_revision = 0;
+  guint64 shown_status_revision = 0;
 
   GtkWidget* window = nullptr;
   GtkWidget* title_label = nullptr;
@@ -54,6 +55,7 @@ struct Dialog {
   GtkWidget* edit_mapping_button = nullptr;
   GtkWidget* mapping_preview = nullptr;
   GtkWidget* mapping_hint = nullptr;
+  GtkWidget* mapping_error = nullptr;
   GtkWidget* vertical_sample = nullptr;
   GtkWidget* save_button = nullptr;
   GtkWidget* close_button = nullptr;
@@ -115,18 +117,45 @@ gboolean DrawVerticalSample(GtkWidget* widget, cairo_t* cr, gpointer data) {
 
 void RefreshMappingPreview(Dialog* dialog, bool force) {
   const paiza::KeyMapping& mapping = dialog->mapping_store.Get();
-  if (!force &&
-      dialog->mapping_store.revision() == dialog->shown_mapping_revision) {
-    return;
+  if (force ||
+      dialog->mapping_store.revision() != dialog->shown_mapping_revision) {
+    dialog->shown_mapping_revision = dialog->mapping_store.revision();
+    const std::string preview = paiza::WideToUtf8(paiza::BuildMappingPreview(
+        mapping, paiza::GetStrings(dialog->settings.ui_language)));
+    gchar* escaped = g_markup_escape_text(preview.c_str(), -1);
+    gchar* markup = g_strdup_printf("<tt>%s</tt>", escaped);
+    gtk_label_set_markup(GTK_LABEL(dialog->mapping_preview), markup);
+    g_free(markup);
+    g_free(escaped);
   }
-  dialog->shown_mapping_revision = dialog->mapping_store.revision();
-  const std::string preview = paiza::WideToUtf8(paiza::BuildMappingPreview(
-      mapping, paiza::GetStrings(dialog->settings.ui_language)));
-  gchar* escaped = g_markup_escape_text(preview.c_str(), -1);
-  gchar* markup = g_strdup_printf("<tt>%s</tt>", escaped);
-  gtk_label_set_markup(GTK_LABEL(dialog->mapping_preview), markup);
-  g_free(markup);
-  g_free(escaped);
+
+  // Validation status: a rejected keymap.txt edit shows the localized
+  // error (the store already restored the file to the previous version).
+  if (force || dialog->mapping_store.status_revision() !=
+                   dialog->shown_status_revision) {
+    dialog->shown_status_revision = dialog->mapping_store.status_revision();
+    const paiza::KeyMapFileStatus& status =
+        dialog->mapping_store.file_status();
+    if (status.valid) {
+      gtk_widget_hide(dialog->mapping_error);
+    } else {
+      std::wstring message = paiza::GetStrings(dialog->settings.ui_language)
+                                 .mapping_error_restored;
+      const size_t placeholder = message.find(L"%ls");
+      if (placeholder != std::wstring::npos) {
+        message.replace(placeholder, 3,
+                        std::to_wstring(status.error_line));
+      }
+      const std::string utf8 = paiza::WideToUtf8(message);
+      gchar* escaped = g_markup_escape_text(utf8.c_str(), -1);
+      gchar* markup = g_strdup_printf(
+          "<span foreground='#c01c28'>%s</span>", escaped);
+      gtk_label_set_markup(GTK_LABEL(dialog->mapping_error), markup);
+      g_free(markup);
+      g_free(escaped);
+      gtk_widget_show(dialog->mapping_error);
+    }
+  }
 }
 
 // Re-applies every localized string for the currently selected language.
@@ -266,11 +295,38 @@ void BuildDialog(Dialog* dialog) {
   GtkWidget* root = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
   gtk_container_add(GTK_CONTAINER(dialog->window), root);
 
+  // Everything except the footer lives in a scrolled area so the dialog
+  // never exceeds the monitor's work area: on small screens the content
+  // scrolls while Save/Close stay pinned and visible at the bottom.
+  GtkWidget* scroller = gtk_scrolled_window_new(nullptr, nullptr);
+  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller),
+                                 GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+  gtk_scrolled_window_set_propagate_natural_height(
+      GTK_SCROLLED_WINDOW(scroller), TRUE);
+  gtk_scrolled_window_set_propagate_natural_width(
+      GTK_SCROLLED_WINDOW(scroller), TRUE);
+  GdkDisplay* display = gdk_display_get_default();
+  GdkMonitor* monitor =
+      display != nullptr ? gdk_display_get_primary_monitor(display) : nullptr;
+  if (monitor == nullptr && display != nullptr) {
+    monitor = gdk_display_get_monitor(display, 0);
+  }
+  GdkRectangle work = {0, 0, 1920, 1080};
+  if (monitor != nullptr) gdk_monitor_get_workarea(monitor, &work);
+  // Leave room for the window frame, dialog margins and the footer row.
+  gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(scroller),
+                                             std::max(320, work.height - 170));
+  gtk_box_pack_start(GTK_BOX(root), scroller, TRUE, TRUE, 0);
+
+  GtkWidget* content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+  gtk_container_add(GTK_CONTAINER(scroller), content);
+
   // ---- Header ----------------------------------------------------------
   dialog->title_label = MakeLeftLabel();
   dialog->subtitle_label = MakeLeftLabel();
-  gtk_box_pack_start(GTK_BOX(root), dialog->title_label, FALSE, FALSE, 0);
-  gtk_box_pack_start(GTK_BOX(root), dialog->subtitle_label, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(content), dialog->title_label, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(content), dialog->subtitle_label, FALSE, FALSE,
+                     0);
 
   // ---- Card 1: General (a framed grid) ---------------------------------
   GtkWidget* general_frame = gtk_frame_new(nullptr);
@@ -279,7 +335,7 @@ void BuildDialog(Dialog* dialog) {
   gtk_grid_set_column_spacing(GTK_GRID(general_grid), 12);
   gtk_container_set_border_width(GTK_CONTAINER(general_grid), 14);
   gtk_container_add(GTK_CONTAINER(general_frame), general_grid);
-  gtk_box_pack_start(GTK_BOX(root), general_frame, FALSE, FALSE, 6);
+  gtk_box_pack_start(GTK_BOX(content), general_frame, FALSE, FALSE, 6);
 
   dialog->general_section = MakeLeftLabel();
   gtk_grid_attach(GTK_GRID(general_grid), dialog->general_section, 0, 0, 2,
@@ -324,7 +380,7 @@ void BuildDialog(Dialog* dialog) {
   gtk_grid_set_column_spacing(GTK_GRID(mapping_grid), 12);
   gtk_container_set_border_width(GTK_CONTAINER(mapping_grid), 14);
   gtk_container_add(GTK_CONTAINER(mapping_frame), mapping_grid);
-  gtk_box_pack_start(GTK_BOX(root), mapping_frame, TRUE, TRUE, 6);
+  gtk_box_pack_start(GTK_BOX(content), mapping_frame, TRUE, TRUE, 6);
 
   dialog->mapping_section = MakeLeftLabel();
   gtk_widget_set_hexpand(dialog->mapping_section, TRUE);
@@ -353,6 +409,13 @@ void BuildDialog(Dialog* dialog) {
   dialog->mapping_hint = MakeLeftLabel();
   gtk_label_set_line_wrap(GTK_LABEL(dialog->mapping_hint), TRUE);
   gtk_grid_attach(GTK_GRID(mapping_grid), dialog->mapping_hint, 0, 2, 2, 1);
+
+  // Validation error for rejected keymap.txt edits; hidden while valid
+  // (no-show-all keeps gtk_widget_show_all from revealing it).
+  dialog->mapping_error = MakeLeftLabel();
+  gtk_label_set_line_wrap(GTK_LABEL(dialog->mapping_error), TRUE);
+  gtk_widget_set_no_show_all(dialog->mapping_error, TRUE);
+  gtk_grid_attach(GTK_GRID(mapping_grid), dialog->mapping_error, 0, 3, 2, 1);
 
   // ---- Footer ----------------------------------------------------------
   GtkWidget* footer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);

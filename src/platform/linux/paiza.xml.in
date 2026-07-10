@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- IBus component registration. Installed to
-     <prefix>/share/ibus/component/paiza.xml; ibus-daemon spawns <exec>
-     on demand. Paths are filled in by CMake at configure time. -->
+<!-- IBus component registration. Must be installed into the one
+     directory ibus-daemon scans: <ibus pkgdatadir>/component (usually
+     /usr/share/ibus/component — NOT relative to our install prefix);
+     ibus-daemon spawns <exec> on demand. Paths are filled in by CMake
+     at configure time. -->
 <component>
   <name>com.paiza.inputmethod.mongolian</name>
   <description>Paiza Mongolian IME</description>

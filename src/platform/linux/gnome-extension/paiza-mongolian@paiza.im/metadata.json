@@ -1,0 +1,7 @@
+{
+  "uuid": "paiza-mongolian@paiza.im",
+  "name": "Paiza Mongolian Vertical Candidates",
+  "description": "Lays GNOME Shell's IBus candidate popup out as traditional vertical Mongolian (words rotated top-to-bottom, columns left-to-right, selection number above each word) while the Paiza Mongolian engine is active. Other input methods are untouched.",
+  "shell-version": ["48", "49", "50"],
+  "url": "https://github.com/hugohu789-droid/paiza"
+}

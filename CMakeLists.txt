@@ -209,16 +209,48 @@ if(UNIX AND NOT APPLE)
     set(PAIZA_INSTALL_BIN_DIR ${CMAKE_INSTALL_PREFIX}/bin)
     set(PAIZA_INSTALL_DATA_DIR ${CMAKE_INSTALL_PREFIX}/share/ibus-paiza)
 
+    # ibus-daemon scans exactly one directory for component XML: its own
+    # pkgdatadir/component (usually /usr/share/ibus/component), or
+    # $IBUS_COMPONENT_PATH when set. It does NOT scan
+    # <prefix>/share/ibus/component, so with the default /usr/local
+    # prefix the engine would never appear in `ibus list-engine` or
+    # GNOME Settings. Ask ibus itself where it looks.
+    pkg_get_variable(PAIZA_IBUS_PKGDATADIR ibus-1.0 pkgdatadir)
+    if(NOT PAIZA_IBUS_PKGDATADIR)
+      set(PAIZA_IBUS_PKGDATADIR "/usr/share/ibus")
+    endif()
+    set(PAIZA_IBUS_COMPONENT_DIR "${PAIZA_IBUS_PKGDATADIR}/component"
+        CACHE PATH "Directory ibus-daemon scans for component XML files")
+
     add_executable(ibus-engine-paiza
       ${PAIZA_LINUX}/main.cc
       ${PAIZA_LINUX}/engine.cc
+      ${PAIZA_LINUX}/candidate_renderer.cc
+      ${PAIZA_LINUX}/candidate_window.cc
       ${PAIZA_LINUX}/settings_store.cc
     )
     target_include_directories(ibus-engine-paiza PRIVATE ${PAIZA_LINUX})
     target_compile_definitions(ibus-engine-paiza PRIVATE
       PAIZA_DATA_DIR="${PAIZA_INSTALL_DATA_DIR}")
+    # GTK3: the v2 custom vertical candidate window (X11; Wayland falls
+    # back to the system IBusLookupTable panel — see docs/linux-port.md).
     target_link_libraries(ibus-engine-paiza PRIVATE
-      paiza_core PkgConfig::IBUS)
+      paiza_core PkgConfig::IBUS PkgConfig::GTK3)
+
+    # Offscreen candidate-window preview: renders PNGs with a plain cairo
+    # image surface (no display needed), for iterating on the visuals in
+    # CI/containers. pangocairo is a GTK3 dependency, so it is present.
+    pkg_check_modules(PANGOCAIRO IMPORTED_TARGET pangocairo)
+    if(PANGOCAIRO_FOUND)
+      add_executable(paiza_candidate_preview
+        tools/linux/candidate_preview.cc
+        ${PAIZA_LINUX}/candidate_renderer.cc
+      )
+      target_include_directories(paiza_candidate_preview PRIVATE
+        ${PAIZA_LINUX})
+      target_link_libraries(paiza_candidate_preview PRIVATE
+        paiza_core PkgConfig::PANGOCAIRO)
+    endif()
 
     add_executable(paiza-ime-settings
       ${PAIZA_LINUX}/settings_main.cc
@@ -227,6 +259,12 @@ if(UNIX AND NOT APPLE)
     target_include_directories(paiza-ime-settings PRIVATE ${PAIZA_LINUX})
     target_link_libraries(paiza-ime-settings PRIVATE
       paiza_core PkgConfig::GTK3)
+
+    # End-to-end typing smoke test: an IBus client that types through a
+    # (private) daemon + the engine process and checks the committed
+    # Mongolian text — the no-GUI stand-in for real desktop typing.
+    add_executable(paiza_typing_smoke tools/linux/typing_smoke.cc)
+    target_link_libraries(paiza_typing_smoke PRIVATE PkgConfig::IBUS)
 
     # Component XML with the install paths baked in.
     configure_file(${PAIZA_LINUX}/paiza.xml.in
@@ -242,10 +280,16 @@ if(UNIX AND NOT APPLE)
     install(TARGETS ibus-engine-paiza paiza-ime-settings
             RUNTIME DESTINATION bin)
     install(FILES ${CMAKE_BINARY_DIR}/paiza.xml
-            DESTINATION share/ibus/component)
+            DESTINATION ${PAIZA_IBUS_COMPONENT_DIR})
     install(FILES data/dictionary.txt
                   ${PAIZA_LINUX}/resources/paiza-mn.png
             DESTINATION share/ibus-paiza)
+    # GNOME Shell extension: vertical Mongolian in the shell's IBus
+    # candidate popup (the Wayland rendering path). <prefix>/share is on
+    # XDG_DATA_DIRS, so the shell finds it after the next login; per-user
+    # installs can copy it to ~/.local/share/gnome-shell/extensions.
+    install(DIRECTORY ${PAIZA_LINUX}/gnome-extension/paiza-mongolian@paiza.im
+            DESTINATION share/gnome-shell/extensions)
   else()
     message(STATUS
       "Paiza: ibus-1.0/gtk+-3.0 dev packages not found — "

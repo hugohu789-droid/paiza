@@ -13,6 +13,7 @@
 #include "core/key_mapping_store.h"
 #include "core/local_dictionary_source.h"
 #include "core/localization.h"
+#include "candidate_window.h"
 #include "settings_store.h"
 
 namespace {
@@ -71,6 +72,11 @@ struct EngineState {
   SettingsWatcher settings;
   IBusLookupTable* table = nullptr;   // Owned (ref_sink'ed).
   IBusPropList* properties = nullptr; // Owned (ref_sink'ed).
+  // v2 custom vertical candidate window (X11 only; nullptr on Wayland or
+  // when no display is reachable — the system lookup table then draws
+  // the candidates as in v1). Created lazily on the first composition.
+  std::unique_ptr<paiza::linux_ime::CandidateWindow> window;
+  bool window_checked = false;
 };
 
 }  // namespace
@@ -105,12 +111,48 @@ void ApplyCurrentSettings(PaizaEngine* engine) {
   }
 }
 
-// Mirrors the session state into the client: preedit + lookup table
-// (the system panel draws the candidate window in v1).
+gboolean ApplyResultForward(PaizaEngine* engine,
+                            paiza::InputSession::KeyResult result);
+void SyncState(PaizaEngine* engine);
+
+// Lazily creates the v2 custom candidate window (X11 only). Returns
+// nullptr when the platform cannot host it — v1 lookup-table path then.
+paiza::linux_ime::CandidateWindow* CustomWindow(PaizaEngine* engine) {
+  EngineState* state = engine->state;
+  if (!state->window_checked) {
+    state->window_checked = true;
+    if (paiza::linux_ime::CandidateWindow::Available()) {
+      state->window =
+          std::make_unique<paiza::linux_ime::CandidateWindow>();
+      state->window->on_candidate_chosen = [engine](size_t index) {
+        ApplyResultForward(
+            engine, engine->state->session->CommitCandidate(index));
+      };
+      state->window->on_page_backward = [engine] {
+        engine->state->session->PageBackward();
+        SyncState(engine);
+      };
+      state->window->on_page_forward = [engine] {
+        engine->state->session->PageForward();
+        SyncState(engine);
+      };
+      PAIZA_LOG_INFO(L"custom candidate window enabled (X11)");
+    } else {
+      PAIZA_LOG_INFO(L"custom candidate window unavailable, "
+                     L"using the system lookup table");
+    }
+  }
+  return state->window.get();
+}
+
+// Mirrors the session state into the client: preedit + candidates. The
+// candidates go to the custom vertical window on X11 (v2) and to the
+// system IBusLookupTable panel elsewhere (v1).
 void SyncState(PaizaEngine* engine) {
   ApplyCurrentSettings(engine);
   IBusEngine* base = IBUS_ENGINE(engine);
   paiza::InputSession* session = engine->state->session.get();
+  paiza::linux_ime::CandidateWindow* window = CustomWindow(engine);
 
   if (session->composing()) {
     const std::string preedit = paiza::WideToUtf8(session->preedit());
@@ -121,6 +163,17 @@ void SyncState(PaizaEngine* engine) {
                                static_cast<guint>(length));
     ibus_engine_update_preedit_text(base, text,
                                     static_cast<guint>(length), TRUE);
+
+    if (window != nullptr) {
+      window->SetFont(paiza::WideToUtf8(
+          engine->state->settings.Get().candidate_font));
+      window->UpdateFromSession(session);
+      // cursor_area holds the caret rectangle in root coordinates,
+      // refreshed by the client through set-cursor-location.
+      window->ShowNear(base->cursor_area.x, base->cursor_area.y,
+                       base->cursor_area.width, base->cursor_area.height);
+      return;
+    }
 
     IBusLookupTable* table = engine->state->table;
     ibus_lookup_table_clear(table);
@@ -138,6 +191,7 @@ void SyncState(PaizaEngine* engine) {
     ibus_engine_update_lookup_table(base, table, TRUE);
   } else {
     ibus_engine_hide_preedit_text(base);
+    if (window != nullptr) window->Hide();
     ibus_engine_hide_lookup_table(base);
   }
 }
@@ -153,6 +207,13 @@ gboolean ApplyResult(PaizaEngine* engine,
   }
   SyncState(engine);
   return result.handled ? TRUE : FALSE;
+}
+
+// Out-of-line so the candidate-window callbacks (declared before
+// ApplyResult) can reach it.
+gboolean ApplyResultForward(PaizaEngine* engine,
+                            paiza::InputSession::KeyResult result) {
+  return ApplyResult(engine, result);
 }
 
 // Launches the settings dialog (sibling binary; falls back to $PATH).
@@ -342,6 +403,18 @@ static void paiza_engine_cursor_up(IBusEngine* base) {
   SyncState(engine);
 }
 
+static void paiza_engine_set_cursor_location(IBusEngine* base, gint x,
+                                             gint y, gint w, gint h) {
+  PaizaEngine* engine = reinterpret_cast<PaizaEngine*>(base);
+  // Keep the public field current whether or not the dispatcher already
+  // wrote it, then follow the caret while a composition is showing.
+  base->cursor_area = {x, y, w, h};
+  if (engine->state->window != nullptr &&
+      engine->state->session->composing()) {
+    engine->state->window->ShowNear(x, y, w, h);
+  }
+}
+
 static void paiza_engine_property_activate(IBusEngine* base,
                                            const gchar* name, guint state) {
   (void)base;
@@ -365,6 +438,7 @@ static void paiza_engine_class_init(PaizaEngineClass* klass) {
   engine_class->page_down = paiza_engine_page_down_button;
   engine_class->cursor_up = paiza_engine_cursor_up;
   engine_class->cursor_down = paiza_engine_cursor_down;
+  engine_class->set_cursor_location = paiza_engine_set_cursor_location;
   engine_class->property_activate = paiza_engine_property_activate;
 }
 
