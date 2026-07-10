@@ -299,32 +299,38 @@ void RenderContext::DrawVerticalCentredOnStem(
                          D2D1_DRAW_TEXT_OPTIONS_CLIP);
     }
   } else {
+    // Calibrated fonts use a NEAR (leading) vertical layout: all letters
+    // of a word share the stem, so NEAR keeps the stems within the word
+    // aligned regardless of where the box sits. The box is then placed
+    // so the word's INK is centred in the column — equal margins on both
+    // sides keep the columns snug (the teeth/tails are asymmetric around
+    // the stem; centring the stem instead would pad the narrow side and
+    // make every column look bloated).
     ComPtr<IDWriteTextFormat> format = CreateVerticalLeadingFormat(
         factory, physical_style.font_family, physical_style.font_size,
         physical_style.bold);
-    if (format != nullptr) {
-      // In a NEAR (leading) vertical layout the glyph stem sits a fixed
-      // distance from the box's leading edge — the same for every word,
-      // since all Mongolian letters share the stem. Placing the box so
-      // that distance lands on the column centre puts every candidate's
-      // stem on the same vertical.
-      const float stem = physical_style.font_size * *ratio;
-      const float column_centre = (rect.x + rect.width * 0.5f) * scale_;
-      const float box_left = column_centre - stem;
-      const float box_width = rect.width * scale_ * 3.0f;  // Clipped below.
+    ComPtr<IDWriteTextLayout> layout;
+    if (format != nullptr &&
+        SUCCEEDED(factory->CreateTextLayout(
+            text.c_str(), static_cast<UINT32>(text.size()), format.Get(),
+            4096.0f, bottom - top, layout.GetAddressOf()))) {
+      DWRITE_TEXT_METRICS metrics = {};
+      if (SUCCEEDED(layout->GetMetrics(&metrics))) {
+        const float column_centre =
+            (rect.x + rect.width * 0.5f) * scale_;
+        const float box_left =
+            column_centre - (metrics.left + metrics.width * 0.5f);
 
-      // Clip to the physical column so a stem-centred word can't spill
-      // into its neighbours (the column is measured wide enough for the
-      // word, see MeasureText, so nothing visible is lost).
-      const D2D1_RECT_F clip = D2D1::RectF(rect.x * scale_, top,
-                                           rect.right() * scale_, bottom);
-      target_->PushAxisAlignedClip(clip, D2D1_ANTIALIAS_MODE_ALIASED);
-      const D2D1_RECT_F layout_rect =
-          D2D1::RectF(box_left, top, box_left + box_width, bottom);
-      target_->DrawTextW(text.c_str(), static_cast<UINT32>(text.size()),
-                         format.Get(), layout_rect, brush,
-                         D2D1_DRAW_TEXT_OPTIONS_NONE);
-      target_->PopAxisAlignedClip();
+        // Clip to the physical column so the word can't spill into its
+        // neighbours (the column is measured for the ink width, see
+        // MeasureText, so nothing visible is lost).
+        const D2D1_RECT_F clip = D2D1::RectF(rect.x * scale_, top,
+                                             rect.right() * scale_, bottom);
+        target_->PushAxisAlignedClip(clip, D2D1_ANTIALIAS_MODE_ALIASED);
+        target_->DrawTextLayout(D2D1::Point2F(box_left, top), layout.Get(),
+                                brush, D2D1_DRAW_TEXT_OPTIONS_NONE);
+        target_->PopAxisAlignedClip();
+      }
     }
   }
   target_->SetTransform(D2D1::Matrix3x2F::Scale(scale_, scale_));
@@ -423,10 +429,9 @@ Size RenderContext::MeasureText(const std::wstring& text,
   if (style.orientation == TextOrientation::kVertical) {
     const std::optional<float> ratio = GetFontStemRatio(style.font_family);
     if (ratio.has_value()) {
-      // Stem-centred display is horizontally asymmetric: the letters'
-      // teeth/tails usually extend further on one side of the stem. The
-      // column must be wide enough for TWICE the larger side, otherwise
-      // the wider side gets clipped at the column edge.
+      // Ink width: the display centres the ink in the column (see
+      // DrawVerticalCentredOnStem), so the column only needs the actual
+      // glyph extent — keeps the candidate columns snug.
       ComPtr<IDWriteTextFormat> format = CreateVerticalLeadingFormat(
           factory, style.font_family, style.font_size, style.bold);
       if (format == nullptr) return {};
@@ -438,12 +443,7 @@ Size RenderContext::MeasureText(const std::wstring& text,
       }
       DWRITE_TEXT_METRICS metrics = {};
       if (FAILED(layout->GetMetrics(&metrics))) return {};
-      const float stem = style.font_size * *ratio;
-      const float left_extent = std::max(stem - metrics.left, 0.0f);
-      const float right_extent =
-          std::max(metrics.left + metrics.width - stem, 0.0f);
-      const float width = 2.0f * std::max(left_extent, right_extent);
-      return {static_cast<int>(width + 0.999f),
+      return {static_cast<int>(metrics.width + 0.999f),
               static_cast<int>(metrics.height + 0.999f)};
     }
     // Fall through: unconfigured fonts measure like any other text.

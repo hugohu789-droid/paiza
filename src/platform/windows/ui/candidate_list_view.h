@@ -74,11 +74,11 @@ class CandidateListView : public Widget {
 
  private:
   static constexpr int kNumberBandHeight = 15;
-  static constexpr int kMinColumnWidth = 22;
+  static constexpr int kMinColumnWidth = 18;
   static constexpr int kMaxTextBandHeight = 340;
   // Snug horizontal padding added around each vertical glyph so columns
   // hug the text instead of floating in whitespace.
-  static constexpr int kColumnSidePadding = 3;
+  static constexpr int kColumnSidePadding = 2;
   static constexpr int kTextBandPadding = 4;
 
   // Candidates visible on the current page: [first, last).

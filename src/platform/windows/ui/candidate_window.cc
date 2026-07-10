@@ -9,7 +9,7 @@
 namespace paiza::ui {
 namespace {
 
-constexpr int kPadding = 6;
+constexpr int kPadding = 5;
 constexpr int kFooterHeight = 24;
 constexpr int kPageButtonWidth = 22;
 constexpr int kPageButtonHeight = 18;
@@ -40,8 +40,8 @@ bool CandidateWindow::EnsureCreated() {
   // the only place the preedit is guaranteed to shape correctly.
   auto preedit = std::make_unique<Label>();
   preedit->style().orientation = TextOrientation::kVertical;
-  preedit->style().font_size = 16.0f;
-  preedit->style().color = 0xFF6B7280;  // Dimmed vs. candidate ink.
+  preedit->style().font_size = 14.0f;  // Auxiliary info: smaller, dimmed.
+  preedit->style().color = 0xFF6B7280;
   preedit->style().center_horizontal = true;
   preedit->set_visible(false);
   preedit_label_ = AddWidget(std::move(preedit));
@@ -154,20 +154,21 @@ void CandidateWindow::Relayout() {
   // single page of candidates stays as tight as possible.
   has_footer_ = list_->page_count() > 1;
 
-  // Preedit strip: a dimmed vertical column left of the candidates.
+  // Preedit strip: a slim dimmed vertical column left of the candidates.
   int preedit_width = 0;
   const bool has_preedit =
       preedit_label_ != nullptr && !preedit_label_->text().empty();
   preedit_label_->set_visible(has_preedit);
   if (has_preedit) {
     const Size measured = preedit_label_->Measure({200, content.height});
-    preedit_width = std::max(24, measured.width + 10);
+    preedit_width = std::max(16, measured.width + 4);
   }
+  constexpr int kPreeditGap = 4;  // Strip <-> separator <-> candidates.
 
   const int footer_min_width = kPageLabelWidth + 2 * kPageButtonWidth + 12 +
                                2 * kPadding;
   const int content_width =
-      preedit_width + (has_preedit ? kPadding : 0) + content.width +
+      preedit_width + (has_preedit ? kPreeditGap : 0) + content.width +
       2 * kPadding;
   const int width = has_footer_
                         ? std::max(content_width, footer_min_width)
@@ -179,8 +180,8 @@ void CandidateWindow::Relayout() {
   if (has_preedit) {
     preedit_label_->set_bounds(
         {cursor_x, kPadding, preedit_width, content.height});
-    preedit_separator_x_ = cursor_x + preedit_width + kPadding / 2;
-    cursor_x += preedit_width + kPadding;
+    preedit_separator_x_ = cursor_x + preedit_width + kPreeditGap / 2;
+    cursor_x += preedit_width + kPreeditGap;
   } else {
     preedit_separator_x_ = 0;
   }

@@ -204,10 +204,10 @@ void CandidateListView::OnPaint(RenderContext& context) {
     // A slim rounded pill hugs the column; the accent tint reads as a
     // premium highlight rather than a heavy block.
     if (selected) {
-      context.FillRoundedRect(column_rect.Inflated(-3, -1), 7.0f,
+      context.FillRoundedRect(column_rect.Inflated(-1, -1), 6.0f,
                               kColorSelectedBg);
     } else if (i == hovered_index_) {
-      context.FillRoundedRect(column_rect.Inflated(-3, -1), 7.0f,
+      context.FillRoundedRect(column_rect.Inflated(-1, -1), 6.0f,
                               kColorHoverBg);
     }
 
