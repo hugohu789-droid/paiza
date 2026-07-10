@@ -328,9 +328,11 @@ static gboolean paiza_engine_process_key_event(IBusEngine* base,
       break;
   }
 
-  if ((keyval >= 'a' && keyval <= 'z') || (keyval >= 'A' && keyval <= 'Z')) {
-    // The keyval already resolves Shift/Caps to the letter case, which is
-    // exactly the "second letter set" input the session wants.
+  // The keyval already resolves Shift/Caps, giving the session the
+  // case-resolved letter (second letter set) or the mapped punctuation
+  // (- _ @ # $ % * by default; keymap.txt-driven).
+  if (keyval < 128 &&
+      session->IsComposableChar(static_cast<char>(keyval))) {
     return ApplyResult(engine,
                        session->HandleLetter(static_cast<char>(keyval)));
   }

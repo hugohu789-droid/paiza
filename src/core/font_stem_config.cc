@@ -54,11 +54,24 @@ class StemConfigStore {
  private:
   void ReloadIfChanged() {
     if (path_.empty()) return;
-    std::error_code ec;
-    auto current = std::filesystem::last_write_time(path_, ec);
-    if (ec) current = std::filesystem::file_time_type::min();
-    if (current == last_write_) return;
-    last_write_ = current;
+    // Content-based change detection, same rationale as KeyMappingStore:
+    // mtime misses writes landing within the filesystem timestamp
+    // granularity. The file is tiny; reading it on the throttled poll is
+    // negligible.
+    std::string bytes;
+    bool exists = false;
+    {
+      std::ifstream file(std::filesystem::path(path_), std::ios::binary);
+      if (file.is_open()) {
+        exists = true;
+        std::ostringstream buffer;
+        buffer << file.rdbuf();
+        bytes = buffer.str();
+      }
+    }
+    if (exists == last_exists_ && bytes == last_content_) return;
+    last_exists_ = exists;
+    last_content_ = std::move(bytes);
     Reload();
   }
 
@@ -67,9 +80,8 @@ class StemConfigStore {
     for (const BuiltinEntry& entry : kBuiltinEntries) {
       table_[ToLower(entry.family)] = entry.ratio;
     }
-    if (path_.empty()) return;
-    std::ifstream file(std::filesystem::path(path_), std::ios::binary);
-    if (!file.is_open()) return;
+    if (!last_exists_) return;
+    std::istringstream file(last_content_);
     std::string line;
     while (std::getline(file, line)) {
       if (!line.empty() && line.back() == '\r') line.pop_back();
@@ -99,8 +111,9 @@ class StemConfigStore {
   std::mutex mutex_;
   std::wstring path_;
   std::map<std::wstring, float> table_;
-  std::filesystem::file_time_type last_write_ =
-      std::filesystem::file_time_type::min();
+  // Snapshot of the file as of the last poll (existence + raw bytes).
+  bool last_exists_ = false;
+  std::string last_content_;
   std::chrono::steady_clock::time_point next_check_{};
 };
 

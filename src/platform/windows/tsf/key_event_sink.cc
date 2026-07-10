@@ -3,16 +3,19 @@
 // ITfKeyEventSink implementation for TextService. Key policy:
 //   a..z          -> append to the Latin buffer, refresh composition
 //   Shift+a..z    -> upper-case key: the second (user-mappable) letter set
-//   1..9          -> commit that candidate on the current page
+//   - _ @ # $ % * -> mapped punctuation (MVS, NNBSP, FVS1-4, BIRGA by
+//                    default; any key present in keymap.txt composes)
+//   1..9          -> commit that candidate on the current page (unshifted)
 //   Space         -> commit the highlighted candidate (or the buffer)
 //   Enter         -> commit the transliterated buffer as-is
 //   Escape        -> cancel the composition
 //   Backspace     -> remove the last letter
-//   PgDn / =      -> next candidate page
-//   PgUp / -      -> previous candidate page
+//   PgDn / PgUp   -> candidate paging
 //   Arrows        -> move the candidate highlight
 // Everything else while composing commits the buffer first, then the key
 // goes through to the application.
+
+#include <string>
 
 #include "tsf/text_service.h"
 
@@ -93,9 +96,34 @@ HRESULT TextService::HandleKeyDown(ITfContext* context, WPARAM wparam,
   }
 
   const bool composing = IsComposing();
+  const bool shift = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
 
-  // ---- letters: start/extend the composition -----------------------------
+  // ---- composable characters: start/extend the composition ---------------
+  // Letters (Shift XOR CapsLock selects the upper-case second letter
+  // set), plus mapped punctuation: '-'/'_' on VK_OEM_MINUS and the
+  // Shift-digit symbols @ # $ % * (FVS1-4, BIRGA by default; whatever the
+  // user maps in keymap.txt participates automatically).
+  char composable = 0;
   if (IsLetterKey(wparam)) {
+    const bool caps = (::GetKeyState(VK_CAPITAL) & 1) != 0;
+    const bool upper = shift != caps;
+    composable = static_cast<char>((upper ? 'A' : 'a') + (wparam - 'A'));
+  } else {
+    char punctuation = 0;
+    if (wparam == VK_OEM_MINUS) {
+      punctuation = shift ? '_' : '-';
+    } else if (shift && wparam >= '0' && wparam <= '9') {
+      // US-layout Shift+digit symbols; only the mapped ones compose.
+      constexpr char kShiftDigit[10] = {')', '!', '@', '#', '$',
+                                        '%', '^', '&', '*', '('};
+      punctuation = kShiftDigit[wparam - '0'];
+    }
+    if (punctuation != 0 &&
+        !mapping_store_.Get().Lookup(std::string(1, punctuation)).empty()) {
+      composable = punctuation;
+    }
+  }
+  if (composable != 0) {
     *eaten = TRUE;
     if (!apply) return S_OK;
 
@@ -105,13 +133,7 @@ HRESULT TextService::HandleKeyDown(ITfContext* context, WPARAM wparam,
         return S_OK;
       }
     }
-    // Shift (XOR CapsLock) selects the upper-case key, which maps to the
-    // second Mongolian letter set (user-editable, e.g. N -> U+1829 ANG).
-    const bool shift = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
-    const bool caps = (::GetKeyState(VK_CAPITAL) & 1) != 0;
-    const bool upper = shift != caps;
-    latin_buffer_.push_back(static_cast<char>(
-        (upper ? 'A' : 'a') + (wparam - 'A')));
+    latin_buffer_.push_back(composable);
     // The composition always shows the mapped conversion; the dictionary
     // candidates go to the popup (spec item 3).
     UpdateComposition(ConvertBuffer());
@@ -124,8 +146,8 @@ HRESULT TextService::HandleKeyDown(ITfContext* context, WPARAM wparam,
   const bool has_candidates =
       candidate_window_ != nullptr && candidate_window_->HasCandidates();
 
-  // ---- digit selection ----------------------------------------------------
-  const int digit = DigitFromKey(wparam);
+  // ---- digit selection (unshifted digits only) ----------------------------
+  const int digit = shift ? 0 : DigitFromKey(wparam);
   if (digit > 0 && has_candidates) {
     size_t index = 0;
     if (candidate_window_->SelectByDigit(digit, &index)) {
@@ -166,12 +188,10 @@ HRESULT TextService::HandleKeyDown(ITfContext* context, WPARAM wparam,
       }
       return S_OK;
     case VK_NEXT:
-    case VK_OEM_PLUS:
       *eaten = TRUE;
       if (apply && has_candidates) candidate_window_->PageForward();
       return S_OK;
     case VK_PRIOR:
-    case VK_OEM_MINUS:
       *eaten = TRUE;
       if (apply && has_candidates) candidate_window_->PageBackward();
       return S_OK;

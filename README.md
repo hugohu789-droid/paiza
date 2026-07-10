@@ -136,13 +136,14 @@ popups never steal focus (`WS_EX_NOACTIVATE` + `MA_NOACTIVATE`).
 |----------------|---------------------------------------------------|
 | `a`–`z`        | extend composition (auto-transliterated preview)  |
 | `Shift+a`–`z`  | second letter set (upper-case key, user-mappable) |
-| `1`–`9`        | commit that candidate on the current page         |
+| `- _ @ # $ % *`| MVS, NNBSP, FVS1–4, Birga (user-mappable; any key in keymap.txt composes) |
+| `1`–`9`        | commit that candidate on the current page (unshifted) |
 | `Space`        | commit highlighted candidate                      |
 | `Enter`        | commit raw transliteration                        |
 | `Esc`          | cancel composition                                |
 | `Backspace`    | delete last letter                                |
-| `PgDn` / `=`   | next candidate page                               |
-| `PgUp` / `-`   | previous candidate page                           |
+| `PgDn`         | next candidate page                               |
+| `PgUp`         | previous candidate page                           |
 | arrows         | move candidate highlight                          |
 | `Ctrl+Alt+P`   | open settings dialog (global)                     |
 

@@ -63,10 +63,16 @@ void InputSession::RefreshCandidates() {
   page_ = 0;
 }
 
+bool InputSession::IsComposableChar(char c) {
+  if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) return true;
+  // Digits select candidates; never compose even if a user maps them.
+  if (c >= '0' && c <= '9') return false;
+  if (static_cast<unsigned char>(c) <= ' ') return false;
+  return !mappings_->Get().Lookup(std::string(1, c)).empty();
+}
+
 InputSession::KeyResult InputSession::HandleLetter(char letter) {
-  const bool lower = letter >= 'a' && letter <= 'z';
-  const bool upper = letter >= 'A' && letter <= 'Z';
-  if (!lower && !upper) return {};
+  if (!IsComposableChar(letter)) return {};
   latin_buffer_.push_back(letter);
   RefreshCandidates();
   return {.handled = true, .commit = std::nullopt};

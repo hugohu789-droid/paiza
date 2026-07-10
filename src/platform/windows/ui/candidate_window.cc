@@ -35,6 +35,17 @@ bool CandidateWindow::EnsureCreated() {
   });
   list_ = AddWidget(std::move(list));
 
+  // Preedit strip (leftmost vertical column, dimmed): the in-app
+  // composition is drawn by the host with the host's font, so this is
+  // the only place the preedit is guaranteed to shape correctly.
+  auto preedit = std::make_unique<Label>();
+  preedit->style().orientation = TextOrientation::kVertical;
+  preedit->style().font_size = 16.0f;
+  preedit->style().color = 0xFF6B7280;  // Dimmed vs. candidate ink.
+  preedit->style().center_horizontal = true;
+  preedit->set_visible(false);
+  preedit_label_ = AddWidget(std::move(preedit));
+
   auto page_label = std::make_unique<Label>();
   page_label->style().font_family = L"Segoe UI";
   page_label->style().font_size = 10.5f;
@@ -72,6 +83,13 @@ void CandidateWindow::SetCandidates(std::vector<Candidate> candidates) {
 
 bool CandidateWindow::HasCandidates() const {
   return list_ != nullptr && !list_->empty();
+}
+
+void CandidateWindow::SetPreedit(const std::wstring& preedit) {
+  if (!EnsureCreated()) return;
+  if (preedit_label_->text() == preedit) return;
+  preedit_label_->SetText(preedit);
+  if (!list_->empty()) Relayout();
 }
 
 bool CandidateWindow::SelectByDigit(int digit, size_t* chosen_index) {
@@ -119,6 +137,7 @@ void CandidateWindow::SetFontFamily(const std::wstring& font_family) {
   if (!EnsureCreated()) return;
   if (font_family.empty() || list_->font_family() == font_family) return;
   list_->set_font_family(font_family);
+  preedit_label_->style().font_family = font_family;
   if (!list_->empty()) Relayout();
 }
 
@@ -134,17 +153,41 @@ void CandidateWindow::Relayout() {
   // The paging footer only appears when there is more than one page, so a
   // single page of candidates stays as tight as possible.
   has_footer_ = list_->page_count() > 1;
+
+  // Preedit strip: a dimmed vertical column left of the candidates.
+  int preedit_width = 0;
+  const bool has_preedit =
+      preedit_label_ != nullptr && !preedit_label_->text().empty();
+  preedit_label_->set_visible(has_preedit);
+  if (has_preedit) {
+    const Size measured = preedit_label_->Measure({200, content.height});
+    preedit_width = std::max(24, measured.width + 10);
+  }
+
   const int footer_min_width = kPageLabelWidth + 2 * kPageButtonWidth + 12 +
                                2 * kPadding;
-  const int content_width = content.width + 2 * kPadding;
+  const int content_width =
+      preedit_width + (has_preedit ? kPadding : 0) + content.width +
+      2 * kPadding;
   const int width = has_footer_
                         ? std::max(content_width, footer_min_width)
                         : content_width;
   const int height = kPadding + content.height + kPadding +
                      (has_footer_ ? kFooterHeight : 0);
 
-  // Centre the candidate strip when the footer forces extra width.
-  const int list_x = (width - 2 * kPadding - content.width) / 2 + kPadding;
+  int cursor_x = kPadding;
+  if (has_preedit) {
+    preedit_label_->set_bounds(
+        {cursor_x, kPadding, preedit_width, content.height});
+    preedit_separator_x_ = cursor_x + preedit_width + kPadding / 2;
+    cursor_x += preedit_width + kPadding;
+  } else {
+    preedit_separator_x_ = 0;
+  }
+  // Centre the candidate strip in the remaining width (footer can force
+  // extra width).
+  const int list_x =
+      cursor_x + (width - cursor_x - kPadding - content.width) / 2;
   list_->set_bounds({list_x, kPadding, content.width, content.height});
 
   if (has_footer_) {
@@ -211,8 +254,16 @@ void CandidateWindow::MoveNearCaret(const RECT& caret_screen_rect) {
 
 void CandidateWindow::OnPaintBackground(RenderContext& context) {
   context.Clear(background_color());
-  if (!has_footer_) return;
   const Size client = logical_client_size();
+  const int body_bottom =
+      client.height - (has_footer_ ? kFooterHeight : 0);
+  if (preedit_separator_x_ > 0) {
+    // Hairline between the preedit strip and the candidates.
+    context.DrawLine({preedit_separator_x_, kPadding},
+                     {preedit_separator_x_, body_bottom - kPadding},
+                     kColorSeparator, 1.0f);
+  }
+  if (!has_footer_) return;
   // Light footer strip with a hairline separator above it.
   const Rect footer = {0, client.height - kFooterHeight, client.width,
                        kFooterHeight};

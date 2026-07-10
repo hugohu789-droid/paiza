@@ -283,9 +283,11 @@ PaizaSettingsWindowController* SharedSettingsWindow() {
   NSString* characters = event.characters;
   if (characters.length == 1) {
     const unichar c = [characters characterAtIndex:0];
-    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
-      // event.characters already resolves Shift/Caps to the letter case,
-      // which is exactly the "second letter set" input the session wants.
+    // event.characters already resolves Shift/Caps, giving the session
+    // the case-resolved letter (second letter set) or the mapped
+    // punctuation (- _ @ # $ % * by default; keymap.txt-driven).
+    if (c < 128 &&
+        _session->IsComposableChar(static_cast<char>(c))) {
       return [self applyResult:_session->HandleLetter(static_cast<char>(c))
                         client:sender];
     }

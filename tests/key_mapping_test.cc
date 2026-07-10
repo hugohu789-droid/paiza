@@ -33,6 +33,43 @@ TEST(KeyMappingTest, DefaultUppercaseSecondSet) {
   EXPECT_EQ(mapping.Lookup("Q"), L"\x1842");
 }
 
+TEST(KeyMappingTest, DefaultNiruguAndEeSpecials) {
+  const KeyMapping mapping = KeyMapping::CreateDefault();
+  EXPECT_EQ(mapping.Lookup("I"), L"\x180A");  // NIRUGU
+  EXPECT_EQ(mapping.Lookup("E"), L"\x1827");  // EE
+}
+
+TEST(KeyMappingTest, DefaultPunctuationMappings) {
+  const KeyMapping mapping = KeyMapping::CreateDefault();
+  EXPECT_EQ(mapping.Lookup("*"), L"\x1800");  // BIRGA
+  EXPECT_EQ(mapping.Lookup("@"), L"\x180B");  // FVS1
+  EXPECT_EQ(mapping.Lookup("#"), L"\x180C");  // FVS2
+  EXPECT_EQ(mapping.Lookup("$"), L"\x180D");  // FVS3
+  EXPECT_EQ(mapping.Lookup("%"), L"\x180F");  // FVS4
+  EXPECT_EQ(mapping.Lookup("-"), L"\x180E");  // MVS
+  EXPECT_EQ(mapping.Lookup("_"), L"\x202F");  // NNBSP
+  // Composes inline with letters: a + MVS + a.
+  EXPECT_EQ(mapping.Convert("a-a"), L"\x1820\x180E\x1820");
+}
+
+TEST(KeyMappingTest, HashKeyRoundTripsEscapedInFile) {
+  const std::wstring path = TempFilePath("paiza_keymap_hash.txt");
+  KeyMapping original = KeyMapping::CreateDefault();
+  ASSERT_TRUE(original.SaveToFile(path));
+
+  // The '#' key must be escaped, not written as a comment line.
+  {
+    std::ifstream file(std::filesystem::path(path), std::ios::binary);
+    std::string content((std::istreambuf_iterator<char>(file)),
+                        std::istreambuf_iterator<char>());
+    EXPECT_NE(content.find("\\#\t180C"), std::string::npos);
+  }
+  KeyMapping reloaded;
+  ASSERT_TRUE(reloaded.LoadFromFile(path));
+  EXPECT_EQ(reloaded.Lookup("#"), L"\x180C");
+  EXPECT_EQ(original.Entries().size(), reloaded.Entries().size());
+}
+
 TEST(KeyMappingTest, OtherUppercaseFollowsLowercase) {
   const KeyMapping mapping = KeyMapping::CreateDefault();
   EXPECT_EQ(mapping.Convert("A"), mapping.Convert("a"));

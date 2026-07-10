@@ -12,11 +12,14 @@ TEST(TransliteratorTest, EmptyInput) {
 }
 
 TEST(TransliteratorTest, SingleVowels) {
+  // Standard layout: o=OE, u=UE, v=U, q=O (E on Shift+E).
   EXPECT_EQ(Transliterator::Convert("a"), L"\x1820");
   EXPECT_EQ(Transliterator::Convert("e"), L"\x1821");
   EXPECT_EQ(Transliterator::Convert("i"), L"\x1822");
-  EXPECT_EQ(Transliterator::Convert("o"), L"\x1823");
-  EXPECT_EQ(Transliterator::Convert("u"), L"\x1824");
+  EXPECT_EQ(Transliterator::Convert("o"), L"\x1825");
+  EXPECT_EQ(Transliterator::Convert("u"), L"\x1826");
+  EXPECT_EQ(Transliterator::Convert("v"), L"\x1824");
+  EXPECT_EQ(Transliterator::Convert("q"), L"\x1823");
 }
 
 TEST(TransliteratorTest, Word) {
@@ -27,11 +30,11 @@ TEST(TransliteratorTest, Word) {
 
 TEST(TransliteratorTest, DigraphNg) {
   // "ng" collapses greedily to U+1829 (ANG): "mongol" has one g, so it
-  // yields m-o-ANG-o-l; ᠮᠣᠩᠭᠣᠯ (with GA) needs "monggol".
+  // yields m-o-ANG-o-l; ᠮᠣᠩᠭᠣᠯ (with GA and O on 'q') is "mqnggql".
   EXPECT_EQ(Transliterator::Convert("ng"), L"\x1829");
   EXPECT_EQ(Transliterator::Convert("mongol"),
-            L"\x182E\x1823\x1829\x1823\x182F");
-  EXPECT_EQ(Transliterator::Convert("monggol"),
+            L"\x182E\x1825\x1829\x1825\x182F");
+  EXPECT_EQ(Transliterator::Convert("mqnggql"),
             L"\x182E\x1823\x1829\x182D\x1823\x182F");
 }
 

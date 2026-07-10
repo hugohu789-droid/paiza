@@ -105,6 +105,8 @@ int RunCandidatePreview() {
     candidate.text = word;
     samples.push_back(std::move(candidate));
   }
+  // Preedit strip preview (the composition as typed, e.g. "sain").
+  window.SetPreedit(L"\x1830\x1820\x1822\x1828");
   window.SetCandidates(std::move(samples));
   const RECT caret = {320, 240, 324, 264};
   window.MoveNearCaret(caret);

@@ -28,6 +28,12 @@ class CandidateWindow : public Window {
   // Content ----------------------------------------------------------------
   void SetCandidates(std::vector<Candidate> candidates);
   bool HasCandidates() const;
+  // Preedit strip: shows the composition string inside the popup with the
+  // user's Mongolian font and correct shaping. The inline composition is
+  // rendered by the HOST application with the host's own font (TSF offers
+  // no way to set it), so hosts without a Mongolian font show isolated
+  // letter forms there — this strip is the reliable preview.
+  void SetPreedit(const std::wstring& preedit);
 
   // Keyboard plumbing from the TSF layer ------------------------------------
   bool SelectByDigit(int digit, size_t* chosen_index);
@@ -69,10 +75,14 @@ class CandidateWindow : public Window {
   void UpdatePageLabel();
 
   CandidateListView* list_ = nullptr;
+  Label* preedit_label_ = nullptr;
   Button* prev_button_ = nullptr;
   Button* next_button_ = nullptr;
   Label* page_label_ = nullptr;
   bool has_footer_ = false;
+  // Logical x of the hairline between the preedit strip and the list
+  // (0 = no preedit shown).
+  int preedit_separator_x_ = 0;
   std::function<void(size_t)> on_chosen_;
 };
 

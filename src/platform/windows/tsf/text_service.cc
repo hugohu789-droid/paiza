@@ -341,10 +341,15 @@ std::wstring TextService::ConvertBuffer() {
 }
 
 void TextService::RefreshCandidates() {
+  const std::wstring converted = ConvertBuffer();
   candidates_ = engine_.QueryCandidates(latin_buffer_, 27,  // 3 pages of 9.
-                                        ConvertBuffer());
+                                        converted);
   ui::CandidateWindow* window = EnsureCandidateWindow();
   window->SetFontFamily(ReadCandidateFontSetting());
+  // The popup shows the preedit with the user's Mongolian font: the
+  // inline composition is rendered by the HOST app with the host's own
+  // font (TSF cannot set it) and may show isolated forms there.
+  window->SetPreedit(converted);
   window->SetCandidates(candidates_);
 }
 

@@ -20,9 +20,9 @@ constexpr wchar_t kLowerMap[26] = {
     /* a */ 0x1820, /* b */ 0x182A, /* c */ 0x1834, /* d */ 0x1833,
     /* e */ 0x1821, /* f */ 0x1839, /* g */ 0x182D, /* h */ 0x182C,
     /* i */ 0x1822, /* j */ 0x1835, /* k */ 0x183A, /* l */ 0x182F,
-    /* m */ 0x182E, /* n */ 0x1828, /* o */ 0x1823, /* p */ 0x182B,
-    /* q */ 0x1827, /* r */ 0x1837, /* s */ 0x1830, /* t */ 0x1832,
-    /* u */ 0x1824, /* v */ 0x1825, /* w */ 0x1838, /* x */ 0x1831,
+    /* m */ 0x182E, /* n */ 0x1828, /* o */ 0x1825, /* p */ 0x182B,
+    /* q */ 0x1823, /* r */ 0x1837, /* s */ 0x1830, /* t */ 0x1832,
+    /* u */ 0x1826, /* v */ 0x1824, /* w */ 0x1838, /* x */ 0x1831,
     /* y */ 0x1836, /* z */ 0x183D,
 };
 
@@ -42,6 +42,23 @@ constexpr UpperSpecial kUpperSpecials[] = {
     {'L', 0x1840},  // LHA
     {'Z', 0x1841},  // ZHI
     {'Q', 0x1842},  // CHI
+    {'I', 0x180A},  // NIRUGU
+    {'E', 0x1827},  // EE
+};
+
+// Punctuation keys composing Mongolian format/control characters.
+struct PunctuationEntry {
+  char key;
+  wchar_t mongolian;
+};
+constexpr PunctuationEntry kPunctuationDefaults[] = {
+    {'*', 0x1800},  // BIRGA
+    {'@', 0x180B},  // FVS1
+    {'#', 0x180C},  // FVS2 (written escaped as "\#" in keymap.txt)
+    {'$', 0x180D},  // FVS3
+    {'%', 0x180F},  // FVS4
+    {'-', 0x180E},  // MVS (Mongolian vowel separator)
+    {'_', 0x202F},  // NNBSP (suffix connector)
 };
 
 // Appends a Unicode codepoint to a UTF-16 string (with surrogate pairs).
@@ -75,7 +92,9 @@ std::wstring ParseCodepoints(std::istringstream* stream) {
 bool IsValidKey(const std::string& key) {
   if (key.empty() || key.size() > 8) return false;
   for (const char c : key) {
-    if (static_cast<unsigned char>(c) >= 128 || c == '#' ||
+    // '#' is a valid key (FVS2 by default); in the FILE it is written
+    // escaped ("\#") so comment detection stays line-based.
+    if (static_cast<unsigned char>(c) >= 128 ||
         std::isspace(static_cast<unsigned char>(c))) {
       return false;
     }
@@ -97,6 +116,11 @@ LineParse ParseKeyMapLine(const std::string& line, std::string* key,
   }
   std::istringstream stream(line);
   stream >> *key;
+  // Keys beginning with '#' are escaped as "\#" in the file (a bare '#'
+  // at the start of a line is a comment).
+  if (key->size() >= 2 && (*key)[0] == '\\' && (*key)[1] == '#') {
+    key->erase(0, 1);
+  }
   if (!IsValidKey(*key)) return LineParse::kInvalid;
   *value = ParseCodepoints(&stream);
   if (value->empty()) return LineParse::kInvalid;
@@ -135,6 +159,10 @@ KeyMapping KeyMapping::CreateDefault() {
   for (const UpperSpecial& special : kUpperSpecials) {
     mapping.Set(std::string(1, special.key),
                 std::wstring(1, special.mongolian));
+  }
+  for (const PunctuationEntry& entry : kPunctuationDefaults) {
+    mapping.Set(std::string(1, entry.key),
+                std::wstring(1, entry.mongolian));
   }
   mapping.Set("ng", L"\x1829");  // ANG digraph.
   return mapping;
@@ -239,8 +267,10 @@ bool KeyMapping::SaveToFile(const std::wstring& path) const {
        << "# Format: <key> <hex codepoint> [<hex codepoint> ...]\n"
        << "# Keys are case-sensitive; upper-case = Shift+letter.\n"
        << "# Multi-letter keys (e.g. \"ng\") match greedily.\n"
-       << "# Lines starting with '#' are comments. Saved as UTF-8.\n";
+       << "# Lines starting with '#' are comments; a literal '#' key is\n"
+       << "# written escaped as \\#. Saved as UTF-8.\n";
   for (const auto& [key, value] : Entries()) {
+    if (!key.empty() && key[0] == '#') file << '\\';
     file << key << "\t";
     bool first = true;
     // Re-encode UTF-16 (incl. surrogate pairs) back to codepoints.

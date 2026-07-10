@@ -121,6 +121,31 @@ TEST_F(InputSessionTest, UppercaseSelectsSecondLetterSet) {
   EXPECT_EQ(session.preedit(), L"\x1829");  // ANG, not NA.
 }
 
+TEST_F(InputSessionTest, MappedPunctuationComposes) {
+  InputSession session = MakeSession();
+  EXPECT_TRUE(session.IsComposableChar('-'));
+  EXPECT_TRUE(session.IsComposableChar('#'));
+  EXPECT_TRUE(session.IsComposableChar('_'));
+  Type(session, "a");
+  EXPECT_TRUE(session.HandleLetter('-').handled);  // MVS
+  EXPECT_TRUE(session.HandleLetter('a').handled);
+  EXPECT_EQ(session.preedit(), L"\x1820\x180E\x1820");
+  // Punctuation can also START a composition (e.g. Birga).
+  session.Reset();
+  EXPECT_TRUE(session.HandleLetter('*').handled);
+  EXPECT_TRUE(session.composing());
+  EXPECT_EQ(session.preedit(), L"\x1800");
+}
+
+TEST_F(InputSessionTest, DigitsAndUnmappedCharsNeverCompose) {
+  InputSession session = MakeSession();
+  EXPECT_FALSE(session.IsComposableChar('5'));  // Digits select.
+  EXPECT_FALSE(session.IsComposableChar('!'));  // Not in the mapping.
+  EXPECT_FALSE(session.IsComposableChar(' '));
+  EXPECT_FALSE(session.HandleLetter('!').handled);
+  EXPECT_FALSE(session.composing());
+}
+
 TEST_F(InputSessionTest, OtherKeyCommitsRawAndPassesThrough) {
   InputSession session = MakeSession();
   Type(session, "sa");

@@ -55,9 +55,15 @@ class InputSession {
                Config config);
 
   // Key events --------------------------------------------------------
-  // `letter` is the case-resolved ASCII letter ('a'..'z' or 'A'..'Z';
-  // upper case = the Shift second letter set). Starts a composition when
-  // none is active.
+  // True when `c` participates in composition: ASCII letters (upper case
+  // = the Shift second letter set) plus any non-digit printable character
+  // with an entry in the current key mapping (e.g. the default '-' MVS,
+  // '_' NNBSP, '*'/'@'/'#'/'$'/'%' Birga+FVS keys — and whatever the user
+  // maps in keymap.txt). Digits never compose: 1-9 select candidates.
+  bool IsComposableChar(char c);
+  // `letter` is a case-resolved composable character (see above). Starts
+  // a composition when none is active; not-composable characters are
+  // ignored (handled=false).
   KeyResult HandleLetter(char letter);
   // Digit 1..9: commits that candidate of the current page. Not handled
   // when the digit exceeds the page's candidate count (key passes
