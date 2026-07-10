@@ -8,7 +8,7 @@
 #   tests                       - GoogleTest; portable tests run everywhere,
 #                                 Windows-specific tests only on Windows
 cmake_minimum_required(VERSION 3.20)
-project(PaizaMongolianIme VERSION 0.1.0 LANGUAGES CXX)
+project(PaizaMongolianIme VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -38,6 +38,21 @@ if(NOT WIN32)
   find_package(Threads REQUIRED)
 endif()
 
+# -------------------------------------------------- third-party: SQLite ----
+# Vendored amalgamation (public domain), used by core/user_dictionary for
+# offline persistence only — never on the typing path.
+add_library(paiza_sqlite STATIC third_party/sqlite/sqlite3.c)
+target_include_directories(paiza_sqlite PUBLIC .)
+target_compile_definitions(paiza_sqlite PRIVATE
+  SQLITE_OMIT_LOAD_EXTENSION   # No dlopen/-ldl dependency.
+  SQLITE_DQS=0
+)
+if(MSVC)
+  target_compile_options(paiza_sqlite PRIVATE /w)
+else()
+  target_compile_options(paiza_sqlite PRIVATE -w)
+endif()
+
 # ------------------------------------------------------- portable: common ---
 add_library(paiza_common STATIC
   src/common/logging.cc
@@ -55,6 +70,7 @@ endif()
 add_library(paiza_core STATIC
   src/core/candidate_engine.cc
   src/core/cloud_candidate_source.cc
+  src/core/engine_c_api.cc
   src/core/input_session.cc
   src/core/font_stem_config.cc
   src/core/key_mapping.cc
@@ -63,8 +79,10 @@ add_library(paiza_core STATIC
   src/core/localization.cc
   src/core/mapping_preview.cc
   src/core/transliterator.cc
+  src/core/user_dictionary.cc
 )
 target_link_libraries(paiza_core PUBLIC paiza_common)
+target_link_libraries(paiza_core PRIVATE paiza_sqlite)
 
 # ------------------------------------------------------- Windows platform ---
 if(WIN32)
@@ -124,7 +142,7 @@ if(WIN32)
   )
   target_link_libraries(PaizaService PRIVATE
     paiza_core paiza_ipc paiza_ui
-    user32 advapi32 shell32
+    user32 advapi32 shell32 comdlg32
   )
 
   # Copy the sample dictionary next to the binaries so the service finds it.
@@ -316,6 +334,7 @@ if(PAIZA_BUILD_TESTS)
   set(PAIZA_TEST_SOURCES
     src/platform/linux/settings_store.cc
     tests/candidate_engine_test.cc
+    tests/engine_c_api_test.cc
     tests/input_session_test.cc
     tests/key_mapping_test.cc
     tests/linux_settings_store_test.cc
@@ -323,6 +342,7 @@ if(PAIZA_BUILD_TESTS)
     tests/localization_test.cc
     tests/string_utils_test.cc
     tests/transliterator_test.cc
+    tests/user_dictionary_test.cc
   )
   # Windows-only tests: named-pipe IPC, wire protocol, registry settings.
   if(WIN32)

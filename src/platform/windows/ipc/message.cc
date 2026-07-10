@@ -153,4 +153,21 @@ std::optional<QueryResponse> DecodeQueryResponse(const Message& message) {
   return response;
 }
 
+Message EncodeCommitNotice(const CommitNotice& notice) {
+  ByteWriter writer;
+  writer.WriteString(notice.latin_input);
+  writer.WriteWString(notice.word);
+  return {MessageType::kCommitCandidate, writer.Take()};
+}
+
+std::optional<CommitNotice> DecodeCommitNotice(const Message& message) {
+  if (message.type != MessageType::kCommitCandidate) return std::nullopt;
+  ByteReader reader(message.payload.data(), message.payload.size());
+  CommitNotice notice;
+  notice.latin_input = reader.ReadString();
+  notice.word = reader.ReadWString();
+  if (!reader.ok()) return std::nullopt;
+  return notice;
+}
+
 }  // namespace paiza::ipc

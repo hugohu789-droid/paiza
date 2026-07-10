@@ -42,6 +42,12 @@ void InputSession::Reset() {
 }
 
 InputSession::KeyResult InputSession::Commit(std::wstring text) {
+  // Feed the dynamic user lexicon before the buffer is cleared: every
+  // commit bumps (or coins) the (typed keys -> committed word) pair.
+  if (user_dictionary_ != nullptr && !latin_buffer_.empty() &&
+      !text.empty()) {
+    user_dictionary_->RecordCommit(latin_buffer_, text);
+  }
   Reset();
   KeyResult result;
   result.handled = true;

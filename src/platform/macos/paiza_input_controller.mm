@@ -2,10 +2,12 @@
 
 #import "paiza_input_controller.h"
 
+#include <filesystem>
 #include <memory>
 #include <string>
 
 #include "common/logging.h"
+#include "common/paths.h"
 #include "common/string_utils.h"
 #include "core/candidate_engine.h"
 #include "core/cloud_candidate_source.h"
@@ -13,6 +15,7 @@
 #include "core/key_mapping_store.h"
 #include "core/local_dictionary_source.h"
 #include "core/localization.h"
+#include "core/user_dictionary.h"
 
 #import "candidate_panel.h"
 #import "settings_store.h"
@@ -41,12 +44,21 @@ NSString* WideToNSString(const std::wstring& wide) {
 // Process-wide cloud candidate source (registered with the shared engine,
 // toggled from the settings window); mirrors the Windows service wiring.
 paiza::CloudCandidateSource* g_cloud_source = nullptr;
+// Dynamic user lexicon (dual-track overlay, spec §3.2): frequency boosts,
+// user-coined words, TXT imports. Persisted to
+// ~/Library/Application Support/PaizaIME/user.db asynchronously.
+paiza::UserDictionary* g_user_dictionary = nullptr;
 
 // The engine and key-mapping store are process-wide (the input method app
 // serves every client through one process); sessions are per client.
 paiza::CandidateEngine* SharedEngine() {
   static paiza::CandidateEngine* engine = [] {
     auto* built = new paiza::CandidateEngine();
+    auto user = std::make_unique<paiza::UserDictionary>(
+        (std::filesystem::path(paiza::UserConfigDirectory()) / L"user.db")
+            .wstring());
+    g_user_dictionary = user.get();
+    built->AddSource(std::move(user));
     auto dictionary = std::make_unique<paiza::LocalDictionarySource>();
     NSString* path = [[NSBundle mainBundle] pathForResource:@"dictionary"
                                                      ofType:@"txt"];
@@ -110,6 +122,8 @@ PaizaSettingsWindowController* SharedSettingsWindow() {
     ApplySettings(CurrentSettings());  // Applies the cloud toggle once.
     _session = std::make_unique<paiza::InputSession>(SharedEngine(),
                                                      SharedMappings());
+    // Commits feed the dynamic user lexicon (frequency + coined words).
+    _session->set_user_dictionary(g_user_dictionary);
     _panel = [[PaizaCandidatePanel alloc] init];
 
     // Mouse interaction on the panel drives the same session the keyboard

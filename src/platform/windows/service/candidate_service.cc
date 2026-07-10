@@ -12,8 +12,11 @@ using ipc::Message;
 using ipc::MessageType;
 
 CandidateService::CandidateService(std::shared_ptr<CandidateEngine> engine,
+                                   UserDictionary* user_dictionary,
                                    std::function<void()> show_settings)
-    : engine_(std::move(engine)), show_settings_(std::move(show_settings)) {}
+    : engine_(std::move(engine)),
+      user_dictionary_(user_dictionary),
+      show_settings_(std::move(show_settings)) {}
 
 Message CandidateService::HandleMessage(const Message& request) {
   switch (request.type) {
@@ -34,6 +37,14 @@ Message CandidateService::HandleMessage(const Message& request) {
     case MessageType::kShowSettings:
       if (show_settings_) show_settings_();
       return {MessageType::kAck, {}};
+
+    case MessageType::kCommitCandidate: {
+      const auto notice = ipc::DecodeCommitNotice(request);
+      if (notice.has_value() && user_dictionary_ != nullptr) {
+        user_dictionary_->RecordCommit(notice->latin_input, notice->word);
+      }
+      return {MessageType::kAck, {}};
+    }
 
     default:
       PAIZA_LOG_WARN(L"Unknown IPC message type");

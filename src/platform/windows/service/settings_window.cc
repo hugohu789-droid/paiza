@@ -2,10 +2,13 @@
 
 #include "service/settings_window.h"
 
+#include <commdlg.h>
 #include <shellapi.h>
 #include <windowsx.h>
 
 #include <algorithm>
+#include <cwchar>
+#include <iterator>
 #include <memory>
 
 #include "core/mapping_preview.h"
@@ -52,8 +55,10 @@ class FooterStrip : public ui::Widget {
 }  // namespace
 
 SettingsWindow::SettingsWindow(
-    std::function<void(const Settings&)> on_changed)
-    : on_changed_(std::move(on_changed)) {}
+    std::function<void(const Settings&)> on_changed,
+    UserDictionary* user_dictionary)
+    : on_changed_(std::move(on_changed)),
+      user_dictionary_(user_dictionary) {}
 
 void SettingsWindow::ShowDialog() {
   settings_ = SettingsStore::Load();
@@ -139,7 +144,7 @@ void SettingsWindow::BuildWidgets() {
   y += 18 + 14;
 
   // ---- Card 1: General ------------------------------------------------
-  general_card_ = {kMargin, y, content_width, 192};
+  general_card_ = {kMargin, y, content_width, 230};
   const int card1_x = general_card_.x + kCardPadding;
   int row_y = general_card_.y + 12;
 
@@ -251,6 +256,23 @@ void SettingsWindow::BuildWidgets() {
   font_button->set_bounds({controls_right - 230, row_y, 230, kRowHeight});
   font_button->SetOnClick([this] { OpenFontPicker(); });
   font_button_ = AddWidget(std::move(font_button));
+  row_y += kRowHeight + 8;
+
+  // Row: user dictionary import (spec §6). Entries may be single letters
+  // or phrases; applied immediately, persisted asynchronously.
+  auto user_dict_label = std::make_unique<ui::Label>();
+  user_dict_label->style().font_family = L"Segoe UI";
+  user_dict_label->style().font_size = 14.0f;
+  user_dict_label->style().color = kColorBody;
+  user_dict_label->style().center_vertical = true;
+  user_dict_label->set_bounds({card1_x, row_y, 230, kRowHeight});
+  user_dict_label_ = AddWidget(std::move(user_dict_label));
+
+  auto import_button = std::make_unique<ui::Button>();
+  import_button->style().font_family = L"Segoe UI";
+  import_button->set_bounds({controls_right - 128, row_y, 128, kRowHeight});
+  import_button->SetOnClick([this] { ImportUserDictionary(); });
+  import_button_ = AddWidget(std::move(import_button));
   y = general_card_.bottom() + 14;
 
   // ---- Card 2: Key mapping ----------------------------------------------
@@ -415,6 +437,8 @@ void SettingsWindow::ApplyStrings() {
   language_label_->SetText(strings.language_label);
   language_button_->SetCaption(strings.language_name);
   font_label_->SetText(strings.candidate_font_label);
+  user_dict_label_->SetText(strings.user_dict_label);
+  import_button_->SetCaption(strings.user_dict_import);
   mapping_title_label_->SetText(strings.section_key_mapping);
   edit_mapping_button_->SetCaption(strings.edit_mapping_file);
   mapping_hint_label_->SetText(strings.mapping_hint);
@@ -526,6 +550,34 @@ void SettingsWindow::OpenMappingFileForEditing() {
   }
   ::ShellExecuteW(nullptr, L"open", path.c_str(), nullptr, nullptr,
                   SW_SHOWNORMAL);
+}
+
+void SettingsWindow::ImportUserDictionary() {
+  if (user_dictionary_ == nullptr) return;
+  const UiStrings& strings = GetStrings(settings_.ui_language);
+
+  wchar_t file[MAX_PATH] = L"";
+  OPENFILENAMEW dialog = {};
+  dialog.lStructSize = sizeof(dialog);
+  dialog.hwndOwner = hwnd();
+  dialog.lpstrFilter = L"Text files (*.txt)\0*.txt\0All files (*.*)\0*.*\0";
+  dialog.lpstrFile = file;
+  dialog.nMaxFile = MAX_PATH;
+  dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+  if (!::GetOpenFileNameW(&dialog)) return;  // Cancelled.
+
+  const ImportResult result = user_dictionary_->ImportFromFile(file);
+  if (!result.opened) {
+    ::MessageBoxW(hwnd(), strings.user_dict_import_failed,
+                  strings.user_dict_label, MB_OK | MB_ICONWARNING);
+    return;
+  }
+  wchar_t message[256];
+  std::swprintf(message, std::size(message),
+                strings.user_dict_import_result, result.imported,
+                result.skipped);
+  ::MessageBoxW(hwnd(), message, strings.user_dict_label,
+                MB_OK | MB_ICONINFORMATION);
 }
 
 void SettingsWindow::OnPaintBackground(ui::RenderContext& context) {

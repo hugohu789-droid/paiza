@@ -2,10 +2,12 @@
 
 #include "engine.h"
 
+#include <filesystem>
 #include <memory>
 #include <string>
 
 #include "common/logging.h"
+#include "common/paths.h"
 #include "common/string_utils.h"
 #include "core/candidate_engine.h"
 #include "core/cloud_candidate_source.h"
@@ -13,6 +15,7 @@
 #include "core/key_mapping_store.h"
 #include "core/local_dictionary_source.h"
 #include "core/localization.h"
+#include "core/user_dictionary.h"
 #include "candidate_window.h"
 #include "settings_store.h"
 
@@ -24,6 +27,9 @@ using paiza::linux_ime::SettingsWatcher;
 // Process-wide cloud candidate source (registered with the shared engine,
 // toggled from the settings dialog); mirrors the Windows/macOS wiring.
 paiza::CloudCandidateSource* g_cloud_source = nullptr;
+// Dynamic user lexicon (dual-track overlay, spec §3.2); persisted to
+// ~/.config/paiza-ime/user.db asynchronously.
+paiza::UserDictionary* g_user_dictionary = nullptr;
 
 // Directory of the running executable (build-tree fallback lookups).
 std::string ExecutableDirectory() {
@@ -41,6 +47,11 @@ std::string ExecutableDirectory() {
 paiza::CandidateEngine* SharedEngine() {
   static paiza::CandidateEngine* engine = [] {
     auto* built = new paiza::CandidateEngine();
+    auto user = std::make_unique<paiza::UserDictionary>(
+        (std::filesystem::path(paiza::UserConfigDirectory()) / L"user.db")
+            .wstring());
+    g_user_dictionary = user.get();
+    built->AddSource(std::move(user));
     auto dictionary = std::make_unique<paiza::LocalDictionarySource>();
     // Installed location first, then next to the binary (build tree).
     const std::string installed =
@@ -237,6 +248,8 @@ static void paiza_engine_init(PaizaEngine* engine) {
   engine->state = new EngineState();
   engine->state->session = std::make_unique<paiza::InputSession>(
       SharedEngine(), SharedMappings());
+  // Commits feed the dynamic user lexicon (frequency + coined words).
+  engine->state->session->set_user_dictionary(g_user_dictionary);
 
   IBusLookupTable* table = ibus_lookup_table_new(
       /*page_size=*/7, /*cursor_pos=*/0, /*cursor_visible=*/TRUE,

@@ -28,6 +28,14 @@ bool ImeClient::ShowSettings() {
   return client_.Send({MessageType::kShowSettings, {}});
 }
 
+bool ImeClient::NotifyCommit(const std::string& latin_input,
+                             const std::wstring& word) {
+  CommitNotice notice;
+  notice.latin_input = latin_input;
+  notice.word = word;
+  return client_.Send(EncodeCommitNotice(notice));
+}
+
 bool ImeClient::IsServiceRunning() {
   const auto reply = client_.Transact({MessageType::kPing, {}});
   return reply.has_value() && reply->type == MessageType::kPingReply;

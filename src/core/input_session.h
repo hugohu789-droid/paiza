@@ -26,6 +26,7 @@
 #include "core/candidate.h"
 #include "core/candidate_engine.h"
 #include "core/key_mapping_store.h"
+#include "core/user_dictionary.h"
 
 namespace paiza {
 
@@ -103,12 +104,21 @@ class InputSession {
   // Clears the composition without committing (host lost focus etc.).
   void Reset();
 
+  // Optional dynamic user lexicon: every commit records the (typed keys,
+  // committed word) pair for frequency boosting and user-coined words
+  // (spec §3.2). The dictionary must outlive the session; it is usually
+  // also registered as a CandidateSource on the same engine.
+  void set_user_dictionary(UserDictionary* dictionary) {
+    user_dictionary_ = dictionary;
+  }
+
  private:
   void RefreshCandidates();
   KeyResult Commit(std::wstring text);
 
   CandidateEngine* engine_;
   KeyMappingStore* mappings_;
+  UserDictionary* user_dictionary_ = nullptr;
   Config config_;
 
   std::string latin_buffer_;

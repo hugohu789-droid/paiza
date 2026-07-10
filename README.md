@@ -61,6 +61,21 @@ feature-identical to the Windows version. Platform front-ends are thin
 adapters: key events in, committed text out, plus a native-rendered
 candidate window.
 
+## Core engine v2 (dual-track, SQLite-backed)
+
+The engine is evolving toward the architecture in
+**docs/core-engine-spec.md** (SQLite offline management + FST/DAT static
+lexicon + Levenshtein-DFA tolerance + CSR bigram prediction + in-memory
+user overlay, exposed through a C FFI). **Phase 1 is implemented**: the
+dynamic **user dictionary** (`core/user_dictionary`) — an in-memory
+overlay ranked above the static lexicon, fed by every committed candidate
+(frequency boosting + user-coined words), persisted asynchronously to
+SQLite (vendored, `third_party/sqlite`) in the user profile, with a
+settings-page **Import…** button for TAB-separated TXT files whose
+entries may be single letters or whole phrases. External hosts can use
+the C API in `core/engine_c_api.h` (`Engine_Initialize / Search /
+CommitCandidate / ImportUserDictionary / Destroy`).
+
 ## Design decisions
 
 ### IPC: named pipes (spec item 11)

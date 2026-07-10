@@ -33,6 +33,9 @@ enum class MessageType : uint32_t {
   kQueryCandidatesReply = 4,
   kShowSettings = 5,
   kAck = 6,
+  // Fire-and-forget commit notification: feeds the service-side dynamic
+  // user lexicon (docs/core-engine-spec.md §3.2).
+  kCommitCandidate = 7,
 };
 
 struct MessageHeader {
@@ -73,6 +76,16 @@ std::optional<QueryRequest> DecodeQueryRequest(const Message& message);
 
 Message EncodeQueryResponse(const QueryResponse& response);
 std::optional<QueryResponse> DecodeQueryResponse(const Message& message);
+
+// A committed candidate: the typed Latin keys plus the Mongolian text
+// that reached the document.
+struct CommitNotice {
+  std::string latin_input;
+  std::wstring word;
+};
+
+Message EncodeCommitNotice(const CommitNotice& notice);
+std::optional<CommitNotice> DecodeCommitNotice(const Message& message);
 
 }  // namespace paiza::ipc
 

@@ -38,4 +38,10 @@ void EngineProxy::RequestShowSettings() {
   }
 }
 
+void EngineProxy::NotifyCommit(const std::string& latin_input,
+                               const std::wstring& word) {
+  if (latin_input.empty() || word.empty()) return;
+  client_.NotifyCommit(latin_input, word);  // Best effort by design.
+}
+
 }  // namespace paiza::tsf

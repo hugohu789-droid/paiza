@@ -28,6 +28,10 @@ class ImeClient {
   // Asks the service process to show the settings dialog.
   bool ShowSettings();
 
+  // Fire-and-forget commit notification feeding the service-side dynamic
+  // user lexicon; failures are ignored (typing must never stall on it).
+  bool NotifyCommit(const std::string& latin_input, const std::wstring& word);
+
   // Returns true if the service answers a ping.
   bool IsServiceRunning();
 

@@ -24,6 +24,12 @@ constexpr UiStrings kEnglishStrings = {
     /*toggle_off=*/L"Off",
     /*language_label=*/L"Language",
     /*candidate_font_label=*/L"Candidate window font",
+    /*user_dict_label=*/L"User dictionary",
+    /*user_dict_import=*/L"Import…",
+    /*user_dict_import_result=*/
+    L"Imported %d entries (%d lines skipped). Words and phrases take "
+    L"effect immediately.",
+    /*user_dict_import_failed=*/L"The file could not be opened.",
     /*section_key_mapping=*/
     L"KEY MAPPING   ·   upper-case = Shift second set",
     /*edit_mapping_file=*/L"Edit mapping file…",
@@ -54,6 +60,11 @@ constexpr UiStrings kChineseStrings = {
     /*toggle_off=*/L"关",
     /*language_label=*/L"界面语言",
     /*candidate_font_label=*/L"候选框字体",
+    /*user_dict_label=*/L"用户词库",
+    /*user_dict_import=*/L"导入…",
+    /*user_dict_import_result=*/
+    L"已导入 %d 条（跳过 %d 行）。单字和词组即刻生效。",
+    /*user_dict_import_failed=*/L"无法打开该文件。",
     /*section_key_mapping=*/L"按键映射   ·   大写字母 = Shift 第二组",
     /*edit_mapping_file=*/L"编辑映射文件…",
     /*shift_label=*/L"Shift:",
@@ -80,6 +91,11 @@ constexpr UiStrings kCyrillicStrings = {
     /*toggle_off=*/L"Идэвхгүй",
     /*language_label=*/L"Хэл",
     /*candidate_font_label=*/L"Үгийн фонт",
+    /*user_dict_label=*/L"Хэрэглэгчийн толь",
+    /*user_dict_import=*/L"Импорт…",
+    /*user_dict_import_result=*/
+    L"%d бичилт орууллаа (%d мөр алгассан). Үг, хэллэг шууд хүчинтэй.",
+    /*user_dict_import_failed=*/L"Файлыг нээж чадсангүй.",
     /*section_key_mapping=*/
     L"ТОВЧЛУУРЫН ХОЛБОЛТ   ·   том үсэг = Shift хоёр дахь багц",
     /*edit_mapping_file=*/L"Холболтын файл засах…",

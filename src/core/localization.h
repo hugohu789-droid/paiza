@@ -34,6 +34,13 @@ struct UiStrings {
   const wchar_t* toggle_off;
   const wchar_t* language_label;
   const wchar_t* candidate_font_label;
+  // User dictionary import (settings page): row label, button caption,
+  // result message ("%d" imported entries / "%d" skipped lines) and the
+  // open-failure message.
+  const wchar_t* user_dict_label;
+  const wchar_t* user_dict_import;
+  const wchar_t* user_dict_import_result;
+  const wchar_t* user_dict_import_failed;
   const wchar_t* section_key_mapping;
   const wchar_t* edit_mapping_file;
   const wchar_t* shift_label;

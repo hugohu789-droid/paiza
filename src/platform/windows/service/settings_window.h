@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "core/key_mapping_store.h"
+#include "core/user_dictionary.h"
 #include "service/settings_store.h"
 #include "ui/button.h"
 #include "ui/dropdown.h"
@@ -26,8 +27,10 @@ namespace paiza::service {
 class SettingsWindow : public ui::Window {
  public:
   // `on_changed` fires after the user saves; the service re-applies the
-  // settings to the engine.
-  explicit SettingsWindow(std::function<void(const Settings&)> on_changed);
+  // settings to the engine. `user_dictionary` (may be null in previews)
+  // receives TXT imports from the settings UI and must outlive the window.
+  SettingsWindow(std::function<void(const Settings&)> on_changed,
+                 UserDictionary* user_dictionary);
 
   // Creates (if needed), reloads current settings and shows centred.
   void ShowDialog();
@@ -61,9 +64,12 @@ class SettingsWindow : public ui::Window {
   // dropdown below the font button.
   void OpenFontPicker();
   void ApplyCandidateFont(const std::wstring& font);
+  // File-picker -> UserDictionary::ImportFromFile -> result message box.
+  void ImportUserDictionary();
 
   Settings settings_;
   std::function<void(const Settings&)> on_changed_;
+  UserDictionary* user_dictionary_;
   KeyMappingStore mapping_store_;
   uint64_t shown_mapping_revision_ = 0;
 
@@ -84,6 +90,8 @@ class SettingsWindow : public ui::Window {
   ui::Button* language_button_ = nullptr;
   ui::Label* font_label_ = nullptr;
   ui::Button* font_button_ = nullptr;
+  ui::Label* user_dict_label_ = nullptr;
+  ui::Button* import_button_ = nullptr;
   std::unique_ptr<ui::DropdownPopup> font_popup_;
   std::vector<ui::FontFamilyInfo> font_families_;  // Lazy cache.
   ui::Label* mapping_title_label_ = nullptr;

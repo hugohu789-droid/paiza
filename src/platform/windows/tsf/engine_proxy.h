@@ -30,6 +30,11 @@ class EngineProxy {
   // Best-effort request to open the settings dialog (service side).
   void RequestShowSettings();
 
+  // Fire-and-forget commit notification: the service updates its dynamic
+  // user lexicon (frequency boost / user-coined words). Never blocks
+  // typing; a dead service just misses the sample.
+  void NotifyCommit(const std::string& latin_input, const std::wstring& word);
+
  private:
   void MaybeStartService();
 

@@ -9,13 +9,16 @@
 
 #include <windows.h>
 
+#include <filesystem>
 #include <memory>
 #include <string>
 
 #include "common/logging.h"
+#include "common/paths.h"
 #include "core/candidate_engine.h"
 #include "core/cloud_candidate_source.h"
 #include "core/local_dictionary_source.h"
+#include "core/user_dictionary.h"
 #include "ipc/ime_client.h"
 #include "ipc/named_pipe_server.h"
 #include "service/candidate_service.h"
@@ -124,6 +127,13 @@ int Run(bool show_settings_on_start) {
   // source type (AI, speech, handwriting) is one AddSource call here.
   auto engine = std::make_shared<CandidateEngine>();
 
+  // Dynamic user lexicon (dual-track overlay, spec §3.2): highest
+  // priority, persisted asynchronously to SQLite in the user profile.
+  auto user_dictionary = std::make_unique<UserDictionary>(
+      (std::filesystem::path(UserConfigDirectory()) / L"user.db").wstring());
+  UserDictionary* user_dictionary_ptr = user_dictionary.get();
+  engine->AddSource(std::move(user_dictionary));
+
   auto dictionary = std::make_unique<LocalDictionarySource>();
   dictionary->LoadFromFile(ExecutableDirectory() + L"\\dictionary.txt");
   engine->AddSource(std::move(dictionary));
@@ -137,11 +147,11 @@ int Run(bool show_settings_on_start) {
   HWND message_window = CreateMessageWindow();
   if (message_window == nullptr) return 1;
 
-  SettingsWindow settings_window(ApplySettings);
+  SettingsWindow settings_window(ApplySettings, user_dictionary_ptr);
   g_settings_window = &settings_window;
 
   // IPC callbacks arrive on worker threads; hop to the UI thread.
-  CandidateService service(engine, [message_window] {
+  CandidateService service(engine, user_dictionary_ptr, [message_window] {
     ::PostMessageW(message_window, kMsgShowSettings, 0, 0);
   });
   ipc::NamedPipeServer server(

@@ -95,6 +95,10 @@ HRESULT TextService::CommitText(const std::wstring& text) {
   if (!IsComposing() || active_context_ == nullptr) return E_UNEXPECTED;
   ITfContext* context = active_context_.Get();
 
+  // Feed the service-side dynamic user lexicon (fire-and-forget) while
+  // the typed buffer is still alive; the edit session below clears it.
+  engine_.NotifyCommit(latin_buffer_, text);
+
   // TF_ES_ASYNCDONTCARE: commits may originate from mouse clicks on the
   // candidate window (outside a TSF callback) where synchronous sessions
   // are not granted.
