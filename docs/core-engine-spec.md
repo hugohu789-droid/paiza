@@ -256,7 +256,9 @@ extern "C" {
 * DAWG × 自动机联合 DFS（序号↔KeyRecord 下标）：
   `StaticLexicon::IntersectDfs`（`static_lexicon.cc`）
 * 表驱动 CRC32：`lexicon_binary.cc`
-* 性能台架：`tools/lexicon_bench`；权重评测：`tools/tune_scoring`
+* 性能台架：`tools/lexicon_bench`；权重评测：`tools/tune_scoring`；
+  无界面候选查询 REPL：`tools/paiza_query`（用法见
+  [engine-tools.md](engine-tools.md)）
 * 单测：`tests/{dawg,levenshtein_automaton}_test.cc`
 * 实测（Windows Release，随机 50 万键 / 42.7 万唯一键）：DAWG 15.6 万
   节点（唯一键的 36.5%，2.7× 压缩）；mmap 加载 ~87ms；查询

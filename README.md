@@ -107,6 +107,11 @@ states (36.5% of the keys, a 2.7× reduction), mmaps in ~87ms
 (table-driven CRC), and answers queries at **P99 ≈ 1.9ms** — inside the
 5ms target, with real (smaller, less prefix-dense) dictionaries faster.
 
+To exercise the engine from the command line with no UI — feed a key
+sequence, get the ranked candidate list back — use the `paiza_query`
+REPL; see **docs/engine-tools.md** for that and the other engine tools
+(`compile_lexicon`, `lexicon_bench`, `tune_scoring`).
+
 External hosts can use the C API in `core/engine_c_api.h`
 (`Engine_Initialize / Search / CommitCandidate / ImportUserDictionary /
 Destroy`).
