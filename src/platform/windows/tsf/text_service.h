@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "core/candidate.h"
+#include "core/fixed_sequences.h"
 #include "core/key_mapping_store.h"
 #include "tsf/engine_proxy.h"
 #include "ui/candidate_window.h"
@@ -125,6 +126,7 @@ class TextService final : public ITfTextInputProcessorEx,
   std::unique_ptr<ui::CandidateWindow> candidate_window_;
   EngineProxy engine_;
   KeyMappingStore mapping_store_;
+  FixedSequenceTable fixed_sequences_;  // Compose-side MVS/harmony (GB/T D.2).
 };
 
 }  // namespace paiza::tsf

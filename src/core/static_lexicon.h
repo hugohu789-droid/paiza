@@ -20,6 +20,7 @@
 #include "core/candidate_source.h"
 #include "core/dawg.h"
 #include "core/equivalence_table.h"
+#include "core/fixed_sequences.h"
 #include "core/lexicon_binary.h"
 #include "core/levenshtein_automaton.h"
 #include "core/scorer.h"
@@ -74,6 +75,10 @@ class StaticLexicon : public CandidateSource {
   // GB/T fixed-sequence rules embedded at compile time (raw text), for the
   // compose layer. Empty when the lexicon carries none.
   const std::string& fixed_sequences() const { return fixed_sequences_; }
+  // Parsed compose-side suffix table (MVS insertion + harmony).
+  const FixedSequenceTable& fixed_sequence_table() const {
+    return fixed_seq_table_;
+  }
   uint32_t key_count() const { return header_ ? header_->key_count : 0; }
   uint32_t dawg_node_count() const {
     return header_ ? header_->dawg_node_count : 0;
@@ -136,6 +141,7 @@ class StaticLexicon : public CandidateSource {
   Scorer scorer_;
   EquivalenceTable equivalences_;
   std::string fixed_sequences_;  // Raw GB/T rules blob (compose layer).
+  FixedSequenceTable fixed_seq_table_;  // Parsed suffix forms.
   std::atomic<uint32_t> context_word_id_{0};
 };
 

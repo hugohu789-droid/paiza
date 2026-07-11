@@ -25,6 +25,7 @@
 
 #include "core/candidate.h"
 #include "core/candidate_engine.h"
+#include "core/fixed_sequences.h"
 #include "core/key_mapping_store.h"
 #include "core/static_lexicon.h"
 #include "core/user_dictionary.h"
@@ -121,6 +122,13 @@ class InputSession {
     static_lexicon_ = lexicon;
   }
 
+  // Optional compose-side suffix table: inserts the leading MVS and applies
+  // vowel harmony to a recognised word-final suffix in the raw conversion
+  // (GB/T fixed sequences). Must outlive the session.
+  void set_fixed_sequences(const FixedSequenceTable* table) {
+    fixed_sequences_ = table;
+  }
+
  private:
   void RefreshCandidates();
   KeyResult Commit(std::wstring text);
@@ -129,6 +137,7 @@ class InputSession {
   KeyMappingStore* mappings_;
   UserDictionary* user_dictionary_ = nullptr;
   StaticLexicon* static_lexicon_ = nullptr;
+  const FixedSequenceTable* fixed_sequences_ = nullptr;
   Config config_;
 
   std::string latin_buffer_;

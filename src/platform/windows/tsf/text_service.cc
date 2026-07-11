@@ -5,6 +5,9 @@
 #include <olectl.h>
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 
 #include "common/logging.h"
 #include "core/romanization.h"
@@ -148,7 +151,18 @@ class EnumDisplayAttributeInfoImpl final
 // ---------------------------------------------------------------------------
 // Construction / IUnknown
 
-TextService::TextService() { ModuleAddRef(); }
+TextService::TextService() {
+  ModuleAddRef();
+  // Compose-side suffix rules (GB/T D.2), deployed next to the module.
+  std::ifstream file(std::filesystem::path(ModuleDirectory()) /
+                         L"fixed_sequences.txt",
+                     std::ios::binary);
+  if (file.is_open()) {
+    std::ostringstream buffer;
+    buffer << file.rdbuf();
+    fixed_sequences_.LoadFromString(buffer.str());
+  }
+}
 
 TextService::~TextService() { ModuleRelease(); }
 
@@ -340,7 +354,8 @@ ui::CandidateWindow* TextService::EnsureCandidateWindow() {
 }
 
 std::wstring TextService::ConvertBuffer() {
-  return mapping_store_.Get().Convert(latin_buffer_);
+  return fixed_sequences_.InsertSuffixMvs(
+      mapping_store_.Get().Convert(latin_buffer_));
 }
 
 void TextService::RefreshCandidates() {

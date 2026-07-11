@@ -141,6 +141,9 @@ PaizaSettingsWindowController* SharedSettingsWindow() {
     // set the static lexicon's bigram context for the next word.
     _session->set_user_dictionary(g_user_dictionary);
     _session->set_static_lexicon(g_static_lexicon);
+    if (g_static_lexicon != nullptr) {
+      _session->set_fixed_sequences(&g_static_lexicon->fixed_sequence_table());
+    }
     _panel = [[PaizaCandidatePanel alloc] init];
 
     // Mouse interaction on the panel drives the same session the keyboard

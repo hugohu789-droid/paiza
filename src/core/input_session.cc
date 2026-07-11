@@ -64,6 +64,12 @@ InputSession::KeyResult InputSession::Commit(std::wstring text) {
 
 void InputSession::RefreshCandidates() {
   preedit_ = mappings_->Get().Convert(latin_buffer_);
+  // Compose-side fixup of the raw conversion: insert the leading MVS and
+  // harmonise a recognised word-final suffix. The MVS is stripped from the
+  // query key by Romanize, so lookup is unaffected.
+  if (fixed_sequences_ != nullptr) {
+    preedit_ = fixed_sequences_->InsertSuffixMvs(preedit_);
+  }
   // Query on two keys and merge: the raw typed latin (matches gloss / literal
   // keys) and the romanization of the preedit (matches the layout-independent
   // Mongolian-derived keys, and is the same key regardless of how the user

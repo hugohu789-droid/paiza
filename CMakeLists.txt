@@ -74,6 +74,7 @@ add_library(paiza_core STATIC
   src/core/dawg.cc
   src/core/engine_c_api.cc
   src/core/equivalence_table.cc
+  src/core/fixed_sequences.cc
   src/core/input_session.cc
   src/core/font_stem_config.cc
   src/core/key_mapping.cc
@@ -208,6 +209,9 @@ if(WIN32)
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${PAIZA_LEXICON_BIN}
             $<TARGET_FILE_DIR:PaizaService>/lexicon.bin
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/data/fixed_sequences.txt
+            $<TARGET_FILE_DIR:PaizaService>/fixed_sequences.txt
   )
 endif()
 
@@ -405,6 +409,7 @@ if(PAIZA_BUILD_TESTS)
     tests/dawg_test.cc
     tests/engine_c_api_test.cc
     tests/equivalence_table_test.cc
+    tests/fixed_sequences_test.cc
     tests/input_session_test.cc
     tests/key_mapping_test.cc
     tests/levenshtein_automaton_test.cc

@@ -74,6 +74,7 @@ bool StaticLexicon::Load(const std::wstring& bin_path) {
                                                      header_->fixed_blob_offset);
     fixed_sequences_.assign(blob, header_->fixed_blob_size);
   }
+  fixed_seq_table_.LoadFromString(fixed_sequences_);
   Logf(LogLevel::kInfo, L"Static lexicon mapped: %u entries",
        header_->entry_count);
   return true;

@@ -108,6 +108,9 @@ int main(int argc, char** argv) {
   paiza::InputSession session(&engine, &mappings);
   session.set_user_dictionary(user_ptr);
   session.set_static_lexicon(lexicon_ptr);
+  if (lexicon_ptr != nullptr) {
+    session.set_fixed_sequences(&lexicon_ptr->fixed_sequence_table());
+  }
 
   auto run = [&](const std::string& seq) {
     session.Reset();

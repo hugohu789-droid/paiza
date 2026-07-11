@@ -269,6 +269,10 @@ static void paiza_engine_init(PaizaEngine* engine) {
   // set the static lexicon's bigram context for the next word.
   engine->state->session->set_user_dictionary(g_user_dictionary);
   engine->state->session->set_static_lexicon(g_static_lexicon);
+  if (g_static_lexicon != nullptr) {
+    engine->state->session->set_fixed_sequences(
+        &g_static_lexicon->fixed_sequence_table());
+  }
 
   IBusLookupTable* table = ibus_lookup_table_new(
       /*page_size=*/7, /*cursor_pos=*/0, /*cursor_visible=*/TRUE,
