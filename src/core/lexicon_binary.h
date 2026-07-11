@@ -27,7 +27,7 @@
 namespace paiza {
 
 inline constexpr uint32_t kLexiconMagic = 0x584C5A50;  // "PZLX"
-inline constexpr uint32_t kLexiconVersion = 1;
+inline constexpr uint32_t kLexiconVersion = 2;  // v2 adds the DAWG section.
 inline constexpr uint32_t kLexiconEndianMark = 0x01020304;
 
 #pragma pack(push, 1)
@@ -50,7 +50,30 @@ struct LexiconHeader {
   uint64_t bigram_index_offset = 0;
   uint64_t bigram_edges_offset = 0;
   uint64_t file_size = 0;
-  uint64_t reserved = 0;
+  // DAWG section (v2). dawg_node_count == 0 means "no DAWG" (older/degenerate
+  // file); the reader then falls back to a flat key-table tolerant search.
+  uint64_t dawg_nodes_offset = 0;
+  uint64_t dawg_trans_offset = 0;
+  uint32_t dawg_node_count = 0;
+  uint32_t dawg_trans_count = 0;
+  uint32_t dawg_root = 0;
+  uint32_t reserved = 0;
+};
+
+// A DAWG state. Transitions live contiguously in the trans array, sorted by
+// label ascending. word_count is the number of keys accepted from this state,
+// used to derive the lexicographic rank (= KeyRecord index) of a match.
+struct DawgNode {
+  uint32_t trans_first = 0;
+  uint32_t trans_count = 0;
+  uint32_t word_count = 0;
+  uint32_t is_final = 0;  // 0/1 (uint32 keeps the struct naturally aligned).
+};
+
+struct DawgTrans {
+  uint8_t label = 0;
+  uint8_t pad[3] = {0, 0, 0};
+  uint32_t target = 0;  // Destination node index.
 };
 
 struct KeyRecord {
@@ -74,10 +97,12 @@ struct BigramEdge {
 
 #pragma pack(pop)
 
-static_assert(sizeof(LexiconHeader) == 112, "header layout is the contract");
+static_assert(sizeof(LexiconHeader) == 136, "header layout is the contract");
 static_assert(sizeof(KeyRecord) == 16, "key record layout is the contract");
 static_assert(sizeof(EntryRecord) == 16, "entry layout is the contract");
 static_assert(sizeof(BigramEdge) == 8, "edge layout is the contract");
+static_assert(sizeof(DawgNode) == 16, "dawg node layout is the contract");
+static_assert(sizeof(DawgTrans) == 8, "dawg trans layout is the contract");
 
 // CRC-32 (IEEE 802.3, the zlib polynomial), used for payload validation.
 uint32_t Crc32(const uint8_t* data, size_t size);

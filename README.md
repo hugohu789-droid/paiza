@@ -93,6 +93,20 @@ Data-driven key equivalences (`core/equivalence_table`,
 `equivalences.txt`) make configured "same sound, different key"
 confusions cost-free.
 
+**Phase 3 — scale.** The compiled key table is now a **minimal numbered
+DAWG** (`core/dawg`) — a directed acyclic word graph that shares both
+prefixes and suffixes, with each state carrying its sub-language word
+count so an accepted key maps back to its entry by lexicographic rank (a
+minimal perfect hash, no key→id table). Fault tolerance runs as a joint
+DFS over the DAWG and an explicit **Damerau-Levenshtein automaton**
+(`core/levenshtein_automaton`) — a DFA×FST intersection replacing Phase
+2's implicit-trie walk. A build-time benchmark (`tools/lexicon_bench`)
+and a scoring evaluator (`tools/tune_scoring`) round it out. On a
+synthetic 500k-key / 427k-unique-key dictionary the DAWG holds 156k
+states (36.5% of the keys, a 2.7× reduction), mmaps in ~87ms
+(table-driven CRC), and answers queries at **P99 ≈ 1.9ms** — inside the
+5ms target, with real (smaller, less prefix-dense) dictionaries faster.
+
 External hosts can use the C API in `core/engine_c_api.h`
 (`Engine_Initialize / Search / CommitCandidate / ImportUserDictionary /
 Destroy`).

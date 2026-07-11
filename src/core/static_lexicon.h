@@ -18,8 +18,10 @@
 
 #include "common/mapped_file.h"
 #include "core/candidate_source.h"
+#include "core/dawg.h"
 #include "core/equivalence_table.h"
 #include "core/lexicon_binary.h"
+#include "core/levenshtein_automaton.h"
 #include "core/scorer.h"
 
 namespace paiza {
@@ -72,6 +74,10 @@ class StaticLexicon : public CandidateSource {
   uint32_t entry_count() const {
     return header_ ? header_->entry_count : 0;
   }
+  uint32_t key_count() const { return header_ ? header_->key_count : 0; }
+  uint32_t dawg_node_count() const {
+    return header_ ? header_->dawg_node_count : 0;
+  }
 
  private:
   // Views into the mapped file (valid while is_loaded()).
@@ -81,6 +87,8 @@ class StaticLexicon : public CandidateSource {
   const char* string_pool() const;
   const uint32_t* bigram_index() const;
   const BigramEdge* bigram_edges() const;
+  const DawgNode* dawg_nodes() const;
+  const DawgTrans* dawg_trans() const;
 
   // Byte comparison of the key at index `i` against `s`.
   int CompareKey(uint32_t i, const std::string& s) const;
@@ -97,19 +105,15 @@ class StaticLexicon : public CandidateSource {
                          std::vector<uint32_t>& seen_ids,
                          std::vector<Candidate>& out) const;
 
-  // Damerau-Levenshtein<=1 whole-word tolerant search over the key table.
-  void TolerantSearch(const std::string& input,
-                      const std::vector<uint32_t>& bigram_row,
-                      std::vector<uint32_t>& seen_ids,
-                      std::vector<Candidate>& out) const;
-
-  // Recursive trie DFS (Levenshtein) over sorted key range [lo, hi) at column
-  // `depth`, carrying the DP row.
-  void DfsLevenshtein(const std::string& input, uint32_t lo, uint32_t hi,
-                      size_t depth, const std::vector<int>& prev_row,
-                      const std::vector<uint32_t>& bigram_row,
-                      std::vector<uint32_t>& seen_ids,
-                      std::vector<Candidate>& out) const;
+  // Damerau-Levenshtein<=1 tolerant search: a joint DFS over the DAWG and a
+  // Levenshtein automaton (the Phase 3 "DFA x FST intersection"). `rank` is
+  // the accumulated lexicographic rank, which equals the KeyRecord index when
+  // an accepting state is reached.
+  void IntersectDfs(uint32_t node_index, const LevenshteinAutomaton& automaton,
+                    const LevenshteinAutomaton::State& state, uint32_t rank,
+                    const std::vector<uint32_t>& bigram_row,
+                    std::vector<uint32_t>& seen_ids,
+                    std::vector<Candidate>& out) const;
 
   // Sorted list of successor word_ids for a context (empty if none).
   std::vector<uint32_t> BigramRow(uint32_t context_word_id) const;
@@ -117,6 +121,7 @@ class StaticLexicon : public CandidateSource {
 
   MappedFile file_;
   const LexiconHeader* header_ = nullptr;
+  DawgView dawg_;
   Scorer scorer_;
   EquivalenceTable equivalences_;
   std::atomic<uint32_t> context_word_id_{0};

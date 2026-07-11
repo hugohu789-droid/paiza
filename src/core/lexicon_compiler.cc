@@ -11,6 +11,7 @@
 #include <unordered_map>
 
 #include "common/logging.h"
+#include "core/dawg.h"
 #include "core/lexicon_binary.h"
 
 namespace paiza {
@@ -116,6 +117,7 @@ bool LexiconCompiler::Write(const std::wstring& path) const {
   // 3. Group consecutive equal keys into KeyRecords over the unique key blob.
   std::vector<uint8_t> key_blob;
   std::vector<KeyRecord> key_records;
+  std::vector<std::string> unique_keys;  // In KeyRecord order, for the DAWG.
 
   for (size_t i = 0; i < ordered.size(); ++i) {
     const Entry* e = ordered[i];
@@ -128,6 +130,7 @@ bool LexiconCompiler::Write(const std::wstring& path) const {
       kr.entry_count = 0;
       AppendBytes(key_blob, e->latin);
       key_records.push_back(kr);
+      unique_keys.push_back(e->latin);
     }
     key_records.back().entry_count += 1;
 
@@ -174,6 +177,13 @@ bool LexiconCompiler::Write(const std::wstring& path) const {
     bigram_index.push_back(running);  // Sentinel = total edge count.
   }
 
+  // 4b. Minimal numbered DAWG over the unique keys (Phase 3). Its ordinals
+  //     line up with KeyRecord indices, so tolerant search recovers entries.
+  std::vector<DawgNode> dawg_nodes;
+  std::vector<DawgTrans> dawg_trans;
+  uint32_t dawg_root = 0;
+  BuildDawg(unique_keys, dawg_nodes, dawg_trans, dawg_root);
+
   // 5. Assemble the payload (everything after the header), then compute CRC.
   std::vector<uint8_t> payload;
   const uint64_t header_size = sizeof(LexiconHeader);
@@ -210,6 +220,18 @@ bool LexiconCompiler::Write(const std::wstring& path) const {
     header.bigram_edges_offset = offset;
     for (const BigramEdge& edge : bigram_edges) AppendPod(payload, edge);
     offset += static_cast<uint64_t>(bigram_edges.size()) * sizeof(BigramEdge);
+  }
+
+  header.dawg_node_count = static_cast<uint32_t>(dawg_nodes.size());
+  header.dawg_trans_count = static_cast<uint32_t>(dawg_trans.size());
+  header.dawg_root = dawg_root;
+  if (!dawg_nodes.empty()) {
+    header.dawg_nodes_offset = offset;
+    for (const DawgNode& n : dawg_nodes) AppendPod(payload, n);
+    offset += static_cast<uint64_t>(dawg_nodes.size()) * sizeof(DawgNode);
+    header.dawg_trans_offset = offset;
+    for (const DawgTrans& t : dawg_trans) AppendPod(payload, t);
+    offset += static_cast<uint64_t>(dawg_trans.size()) * sizeof(DawgTrans);
   }
 
   header.file_size = header_size + payload.size();

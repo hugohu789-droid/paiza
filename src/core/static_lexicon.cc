@@ -11,11 +11,6 @@
 #include "core/scorer.h"
 
 namespace paiza {
-namespace {
-
-constexpr int kMaxEditCost = 1;
-
-}  // namespace
 
 bool StaticLexicon::Load(const std::wstring& bin_path) {
   file_.Close();
@@ -44,6 +39,12 @@ bool StaticLexicon::Load(const std::wstring& bin_path) {
     return false;
   }
   header_ = header;
+  if (header_->dawg_node_count > 0) {
+    dawg_ = DawgView(dawg_nodes(), header_->dawg_node_count, dawg_trans(),
+                     header_->dawg_trans_count, header_->dawg_root);
+  } else {
+    dawg_ = DawgView();
+  }
   Logf(LogLevel::kInfo, L"Static lexicon mapped: %u entries",
        header_->entry_count);
   return true;
@@ -72,6 +73,14 @@ const uint32_t* StaticLexicon::bigram_index() const {
 const BigramEdge* StaticLexicon::bigram_edges() const {
   return reinterpret_cast<const BigramEdge*>(file_.data() +
                                              header_->bigram_edges_offset);
+}
+const DawgNode* StaticLexicon::dawg_nodes() const {
+  return reinterpret_cast<const DawgNode*>(file_.data() +
+                                           header_->dawg_nodes_offset);
+}
+const DawgTrans* StaticLexicon::dawg_trans() const {
+  return reinterpret_cast<const DawgTrans*>(file_.data() +
+                                            header_->dawg_trans_offset);
 }
 
 std::string StaticLexicon::KeyString(uint32_t i) const {
@@ -175,9 +184,12 @@ std::vector<Candidate> StaticLexicon::Query(const std::string& latin_input,
   }
 
   // Fault tolerance only when the exact/prefix pass is thin and the input is
-  // long enough that edits are meaningful (avoids matching everything).
-  if (out.size() < max_results && latin_input.size() >= 2) {
-    TolerantSearch(latin_input, bigram_row, seen_ids, out);
+  // long enough that edits are meaningful (avoids matching everything). Walks
+  // the DAWG and a Damerau-Levenshtein<=1 automaton in lock-step.
+  if (out.size() < max_results && latin_input.size() >= 2 && dawg_.valid()) {
+    LevenshteinAutomaton automaton(latin_input, 1, &equivalences_);
+    IntersectDfs(dawg_.root(), automaton, automaton.Start(), 0, bigram_row,
+                 seen_ids, out);
   }
 
   std::stable_sort(out.begin(), out.end(),
@@ -188,84 +200,37 @@ std::vector<Candidate> StaticLexicon::Query(const std::string& latin_input,
   return out;
 }
 
-void StaticLexicon::TolerantSearch(const std::string& input,
-                                   const std::vector<uint32_t>& bigram_row,
-                                   std::vector<uint32_t>& seen_ids,
-                                   std::vector<Candidate>& out) const {
-  // Whole-word Levenshtein<=1 via an implicit-trie DFS over the sorted keys.
-  const size_t n = input.size();
-  std::vector<int> initial(n + 1);
-  for (size_t j = 0; j <= n; ++j) initial[j] = static_cast<int>(j);
-  DfsLevenshtein(input, 0, header_->key_count, 0, initial, bigram_row,
-                 seen_ids, out);
-
-  // Adjacent transposition (Damerau): swap each neighbouring pair and do an
-  // exact/prefix lookup. Covers "typed two keys out of order".
-  for (size_t i = 0; i + 1 < n; ++i) {
-    std::string swapped = input;
-    std::swap(swapped[i], swapped[i + 1]);
-    if (swapped == input) continue;
-    for (uint32_t idx = LowerBoundKey(swapped); idx < header_->key_count;
-         ++idx) {
-      const KeyRecord& k = keys()[idx];
-      if (k.key_length < swapped.size() ||
-          std::memcmp(key_blob() + k.key_offset, swapped.data(),
-                      swapped.size()) != 0) {
-        break;
-      }
-      CollectKeyEntries(idx, 1, bigram_row, seen_ids, out);
+void StaticLexicon::IntersectDfs(uint32_t node_index,
+                                 const LevenshteinAutomaton& automaton,
+                                 const LevenshteinAutomaton::State& state,
+                                 uint32_t rank,
+                                 const std::vector<uint32_t>& bigram_row,
+                                 std::vector<uint32_t>& seen_ids,
+                                 std::vector<Candidate>& out) const {
+  const DawgNode& node = dawg_.node(node_index);
+  // A final node spells a complete key whose lexicographic rank is `rank`,
+  // which is exactly its KeyRecord index. Collect it if within edit budget.
+  if (node.is_final && automaton.IsAccept(state)) {
+    const int cost = automaton.Distance(state);
+    if (rank < header_->key_count) {
+      CollectKeyEntries(rank, cost, bigram_row, seen_ids, out);
     }
   }
-}
-
-void StaticLexicon::DfsLevenshtein(const std::string& input, uint32_t lo,
-                                   uint32_t hi, size_t depth,
-                                   const std::vector<int>& prev_row,
-                                   const std::vector<uint32_t>& bigram_row,
-                                   std::vector<uint32_t>& seen_ids,
-                                   std::vector<Candidate>& out) const {
-  const size_t n = input.size();
-  const KeyRecord* key_arr = keys();
-  const char* blob = key_blob();
-
-  // Keys whose length equals `depth` terminate here: a complete key matched
-  // against the whole input with cost prev_row[n].
-  uint32_t k = lo;
-  while (k < hi && key_arr[k].key_length == depth) {
-    const int cost = prev_row[n];
-    // Collect cost 0..kMaxEditCost. A cost-0 hit is usually already found by
-    // the exact/prefix pass (deduplicated in CollectKeyEntries), but with an
-    // equivalence class an input that never matched literally can still reach
-    // a key at zero cost — that is a genuine new find.
-    if (cost <= kMaxEditCost) {
-      CollectKeyEntries(k, cost, bigram_row, seen_ids, out);
+  // Descend each transition in ascending label order, threading the rank:
+  // words ending here and under smaller-labelled edges are all lexicographi-
+  // cally smaller than anything reached through this edge.
+  uint32_t child_rank = rank + (node.is_final ? 1u : 0u);
+  const uint32_t first = node.trans_first;
+  const uint32_t last = first + node.trans_count;
+  for (uint32_t t = first; t < last; ++t) {
+    const DawgTrans& edge = dawg_.trans(t);
+    const LevenshteinAutomaton::State next =
+        automaton.Step(state, static_cast<char>(edge.label));
+    if (automaton.CanMatch(next)) {
+      IntersectDfs(edge.target, automaton, next, child_rank, bigram_row,
+                   seen_ids, out);
     }
-    ++k;
-  }
-
-  // Group the remaining (longer) keys by their byte at column `depth`.
-  uint32_t g = k;
-  while (g < hi) {
-    const char c = blob[key_arr[g].key_offset + depth];
-    uint32_t g2 = g;
-    while (g2 < hi && blob[key_arr[g2].key_offset + depth] == c) ++g2;
-
-    std::vector<int> row(n + 1);
-    row[0] = static_cast<int>(depth) + 1;
-    int row_min = row[0];
-    for (size_t j = 1; j <= n; ++j) {
-      const bool same = input[j - 1] == c ||
-                        equivalences_.Equivalent(input[j - 1], c);
-      const int sub = prev_row[j - 1] + (same ? 0 : 1);
-      const int del = prev_row[j] + 1;
-      const int ins = row[j - 1] + 1;
-      row[j] = std::min({sub, del, ins});
-      row_min = std::min(row_min, row[j]);
-    }
-    if (row_min <= kMaxEditCost) {
-      DfsLevenshtein(input, g, g2, depth + 1, row, bigram_row, seen_ids, out);
-    }
-    g = g2;
+    child_rank += dawg_.node(edge.target).word_count;
   }
 }
 

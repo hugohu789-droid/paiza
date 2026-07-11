@@ -71,12 +71,14 @@ endif()
 add_library(paiza_core STATIC
   src/core/candidate_engine.cc
   src/core/cloud_candidate_source.cc
+  src/core/dawg.cc
   src/core/engine_c_api.cc
   src/core/equivalence_table.cc
   src/core/input_session.cc
   src/core/font_stem_config.cc
   src/core/key_mapping.cc
   src/core/key_mapping_store.cc
+  src/core/levenshtein_automaton.cc
   src/core/lexicon_binary.cc
   src/core/lexicon_compiler.cc
   src/core/local_dictionary_source.cc
@@ -95,6 +97,13 @@ target_link_libraries(paiza_core PRIVATE paiza_sqlite)
 # into the binary lexicon.bin that StaticLexicon memory-maps at runtime.
 add_executable(compile_lexicon tools/compile_lexicon/main.cc)
 target_link_libraries(compile_lexicon PRIVATE paiza_core)
+
+# Developer tools: performance harness (Phase 3 P99 acceptance) and a
+# scoring-weight evaluator. Built on demand, not part of ALL.
+add_executable(lexicon_bench EXCLUDE_FROM_ALL tools/lexicon_bench/main.cc)
+target_link_libraries(lexicon_bench PRIVATE paiza_core)
+add_executable(tune_scoring EXCLUDE_FROM_ALL tools/tune_scoring/main.cc)
+target_link_libraries(tune_scoring PRIVATE paiza_core)
 
 set(PAIZA_LEXICON_BIN ${CMAKE_BINARY_DIR}/lexicon.bin)
 set(PAIZA_COMPILE_ARGS
@@ -378,10 +387,12 @@ if(PAIZA_BUILD_TESTS)
   set(PAIZA_TEST_SOURCES
     src/platform/linux/settings_store.cc
     tests/candidate_engine_test.cc
+    tests/dawg_test.cc
     tests/engine_c_api_test.cc
     tests/equivalence_table_test.cc
     tests/input_session_test.cc
     tests/key_mapping_test.cc
+    tests/levenshtein_automaton_test.cc
     tests/linux_settings_store_test.cc
     tests/local_dictionary_source_test.cc
     tests/localization_test.cc
