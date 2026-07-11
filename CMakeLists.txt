@@ -104,6 +104,9 @@ add_executable(lexicon_bench EXCLUDE_FROM_ALL tools/lexicon_bench/main.cc)
 target_link_libraries(lexicon_bench PRIVATE paiza_core)
 add_executable(tune_scoring EXCLUDE_FROM_ALL tools/tune_scoring/main.cc)
 target_link_libraries(tune_scoring PRIVATE paiza_core)
+# Headless query REPL: type a key sequence, get the candidate list back.
+add_executable(paiza_query EXCLUDE_FROM_ALL tools/paiza_query/main.cc)
+target_link_libraries(paiza_query PRIVATE paiza_core)
 
 set(PAIZA_LEXICON_BIN ${CMAKE_BINARY_DIR}/lexicon.bin)
 set(PAIZA_COMPILE_ARGS
