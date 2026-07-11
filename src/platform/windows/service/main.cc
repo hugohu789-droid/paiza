@@ -38,6 +38,7 @@ constexpr int kHotkeyId = 1;
 
 SettingsWindow* g_settings_window = nullptr;
 CloudCandidateSource* g_cloud_source = nullptr;
+StaticLexicon* g_static_lexicon = nullptr;
 
 std::wstring ExecutableDirectory() {
   wchar_t path[MAX_PATH] = {};
@@ -50,6 +51,16 @@ std::wstring ExecutableDirectory() {
 void ApplySettings(const Settings& settings) {
   if (g_cloud_source != nullptr) {
     g_cloud_source->set_enabled(settings.cloud_source_enabled);
+  }
+  // Rebuild the active soft-equivalence set from the per-pair toggles; a
+  // disabled pair is dropped so that pair is matched precisely.
+  if (g_static_lexicon != nullptr) {
+    std::string equiv;
+    if (settings.equiv_ou) equiv += "o u\n";
+    if (settings.equiv_qv) equiv += "q v\n";
+    if (settings.equiv_hg) equiv += "h g\n";
+    if (settings.equiv_td) equiv += "t d\n";
+    g_static_lexicon->equivalences().LoadFromString(equiv);
   }
 }
 
@@ -145,6 +156,7 @@ int Run(bool show_settings_on_start) {
     static_lexicon->LoadTuning(cfg + L"\\scoring.txt",
                                cfg + L"\\equivalences.txt");
     static_lexicon_ptr = static_lexicon.get();
+    g_static_lexicon = static_lexicon_ptr;  // For ApplySettings (equiv toggles).
     engine->AddSource(std::move(static_lexicon));
   }
 

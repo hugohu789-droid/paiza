@@ -275,7 +275,62 @@ void SettingsWindow::BuildWidgets() {
   import_button_ = AddWidget(std::move(import_button));
   y = general_card_.bottom() + 14;
 
-  // ---- Card 2: Key mapping ----------------------------------------------
+  // ---- Card 2: Soft equivalence (per-pair recall toggles) ---------------
+  soft_equiv_card_ = {kMargin, y, content_width, 0};  // Height set below.
+  const int cardE_x = soft_equiv_card_.x + kCardPadding;
+  row_y = soft_equiv_card_.y + 12;
+
+  auto se_section = std::make_unique<ui::Label>();
+  se_section->style().font_family = L"Segoe UI";
+  se_section->style().font_size = 11.0f;
+  se_section->style().bold = true;
+  se_section->style().color = kColorSection;
+  se_section->style().center_vertical = true;
+  se_section->set_bounds(
+      {cardE_x, row_y, content_width - 2 * kCardPadding, 16});
+  soft_equiv_section_label_ = AddWidget(std::move(se_section));
+  row_y += 22;
+
+  auto se_hint = std::make_unique<ui::Label>();
+  se_hint->style().font_family = L"Segoe UI";
+  se_hint->style().font_size = 11.0f;
+  se_hint->style().color = kColorHint;
+  se_hint->set_bounds(
+      {cardE_x, row_y, content_width - 2 * kCardPadding, 32});
+  soft_equiv_hint_label_ = AddWidget(std::move(se_hint));
+  row_y += 36;
+
+  const int se_col_w = (content_width - 2 * kCardPadding) / 2;
+  auto add_check = [&](const wchar_t* caption, bool checked, ui::Rect r,
+                       std::function<void(bool)> on) -> ui::Checkbox* {
+    auto cb = std::make_unique<ui::Checkbox>();
+    cb->SetCaption(caption);
+    cb->SetChecked(checked);
+    cb->set_bounds(r);
+    cb->SetOnToggle(std::move(on));
+    return AddWidget(std::move(cb));
+  };
+  equiv_ou_check_ = add_check(L"o  /  u", settings_.equiv_ou,
+                              {cardE_x, row_y, se_col_w, kRowHeight},
+                              [this](bool v) { settings_.equiv_ou = v; });
+  equiv_qv_check_ =
+      add_check(L"q  /  v", settings_.equiv_qv,
+                {cardE_x + se_col_w, row_y, se_col_w, kRowHeight},
+                [this](bool v) { settings_.equiv_qv = v; });
+  row_y += kRowHeight;
+  equiv_hg_check_ = add_check(L"h  /  g", settings_.equiv_hg,
+                              {cardE_x, row_y, se_col_w, kRowHeight},
+                              [this](bool v) { settings_.equiv_hg = v; });
+  equiv_td_check_ =
+      add_check(L"t  /  d", settings_.equiv_td,
+                {cardE_x + se_col_w, row_y, se_col_w, kRowHeight},
+                [this](bool v) { settings_.equiv_td = v; });
+  row_y += kRowHeight;
+
+  soft_equiv_card_.height = row_y + 12 - soft_equiv_card_.y;
+  y = soft_equiv_card_.bottom() + 14;
+
+  // ---- Card 3: Key mapping ----------------------------------------------
   mapping_card_ = {kMargin, y, content_width, 286};
   const int card2_x = mapping_card_.x + kCardPadding;
   row_y = mapping_card_.y + 12;
@@ -366,6 +421,7 @@ void SettingsWindow::BuildWidgets() {
   // Scroll bookkeeping: everything except the footer scrolls; the base
   // (unscrolled) bounds recorded here are the single source of layout.
   general_card_base_ = general_card_;
+  soft_equiv_card_base_ = soft_equiv_card_;
   mapping_card_base_ = mapping_card_;
   content_height_ = mapping_card_.bottom() + kMargin;
   scrolled_widgets_.clear();
@@ -393,6 +449,10 @@ void SettingsWindow::ApplyScrollLayout() {
   general_card_ = {general_card_base_.x,
                    general_card_base_.y - scroll_offset_,
                    general_card_base_.width, general_card_base_.height};
+  soft_equiv_card_ = {soft_equiv_card_base_.x,
+                      soft_equiv_card_base_.y - scroll_offset_,
+                      soft_equiv_card_base_.width,
+                      soft_equiv_card_base_.height};
   mapping_card_ = {mapping_card_base_.x,
                    mapping_card_base_.y - scroll_offset_,
                    mapping_card_base_.width, mapping_card_base_.height};
@@ -439,6 +499,8 @@ void SettingsWindow::ApplyStrings() {
   font_label_->SetText(strings.candidate_font_label);
   user_dict_label_->SetText(strings.user_dict_label);
   import_button_->SetCaption(strings.user_dict_import);
+  soft_equiv_section_label_->SetText(strings.section_soft_equiv);
+  soft_equiv_hint_label_->SetText(strings.soft_equiv_hint);
   mapping_title_label_->SetText(strings.section_key_mapping);
   edit_mapping_button_->SetCaption(strings.edit_mapping_file);
   mapping_hint_label_->SetText(strings.mapping_hint);
@@ -461,6 +523,10 @@ void SettingsWindow::RefreshLabels() {
                                 : strings.toggle_off);
   font_button_->SetCaption(settings_.candidate_font + L"   ▾");
   vertical_preview_->style().font_family = settings_.candidate_font;
+  equiv_ou_check_->SetChecked(settings_.equiv_ou);
+  equiv_qv_check_->SetChecked(settings_.equiv_qv);
+  equiv_hg_check_->SetChecked(settings_.equiv_hg);
+  equiv_td_check_->SetChecked(settings_.equiv_td);
   Invalidate();
 }
 
@@ -582,7 +648,7 @@ void SettingsWindow::ImportUserDictionary() {
 
 void SettingsWindow::OnPaintBackground(ui::RenderContext& context) {
   context.Clear(kColorWindowBg);
-  for (const ui::Rect& card : {general_card_, mapping_card_}) {
+  for (const ui::Rect& card : {general_card_, soft_equiv_card_, mapping_card_}) {
     context.FillRoundedRect(card, 8.0f, kColorCardBg);
     context.DrawBorder(card, kColorCardBorder);
   }

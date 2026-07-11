@@ -17,6 +17,7 @@
 #include "core/user_dictionary.h"
 #include "service/settings_store.h"
 #include "ui/button.h"
+#include "ui/checkbox.h"
 #include "ui/dropdown.h"
 #include "ui/label.h"
 #include "ui/render_context.h"
@@ -75,6 +76,7 @@ class SettingsWindow : public ui::Window {
 
   // Section card rectangles, painted in OnPaintBackground.
   ui::Rect general_card_;
+  ui::Rect soft_equiv_card_;
   ui::Rect mapping_card_;
 
   ui::Label* title_label_ = nullptr;
@@ -92,6 +94,12 @@ class SettingsWindow : public ui::Window {
   ui::Button* font_button_ = nullptr;
   ui::Label* user_dict_label_ = nullptr;
   ui::Button* import_button_ = nullptr;
+  ui::Label* soft_equiv_section_label_ = nullptr;
+  ui::Label* soft_equiv_hint_label_ = nullptr;
+  ui::Checkbox* equiv_ou_check_ = nullptr;
+  ui::Checkbox* equiv_qv_check_ = nullptr;
+  ui::Checkbox* equiv_hg_check_ = nullptr;
+  ui::Checkbox* equiv_td_check_ = nullptr;
   std::unique_ptr<ui::DropdownPopup> font_popup_;
   std::vector<ui::FontFamilyInfo> font_families_;  // Lazy cache.
   ui::Label* mapping_title_label_ = nullptr;
@@ -110,6 +118,7 @@ class SettingsWindow : public ui::Window {
   ui::Widget* footer_strip_ = nullptr;
   std::vector<std::pair<ui::Widget*, ui::Rect>> scrolled_widgets_;
   ui::Rect general_card_base_;
+  ui::Rect soft_equiv_card_base_;
   ui::Rect mapping_card_base_;
   int content_height_ = 0;
   int scroll_offset_ = 0;

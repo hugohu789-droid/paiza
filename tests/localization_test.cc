@@ -27,6 +27,7 @@ TEST(LocalizationTest, AllStringTablesComplete) {
           strings.language_label, strings.candidate_font_label,
           strings.user_dict_label, strings.user_dict_import,
           strings.user_dict_import_result, strings.user_dict_import_failed,
+          strings.section_soft_equiv, strings.soft_equiv_hint,
           strings.section_key_mapping,
           strings.edit_mapping_file, strings.shift_label,
           strings.digraphs_label, strings.mapping_hint,

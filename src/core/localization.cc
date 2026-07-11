@@ -30,6 +30,10 @@ constexpr UiStrings kEnglishStrings = {
     L"Imported %d entries (%d lines skipped). Words and phrases take "
     L"effect immediately.",
     /*user_dict_import_failed=*/L"The file could not be opened.",
+    /*section_soft_equiv=*/L"SOFT EQUIVALENCE",
+    /*soft_equiv_hint=*/
+    L"When on, look-alike / near-homophone spellings are also offered, ranked "
+    L"below the exact one. Turn off for precise matching.",
     /*section_key_mapping=*/
     L"KEY MAPPING   ·   upper-case = Shift second set",
     /*edit_mapping_file=*/L"Edit mapping file…",
@@ -65,6 +69,9 @@ constexpr UiStrings kChineseStrings = {
     /*user_dict_import_result=*/
     L"已导入 %d 条（跳过 %d 行）。单字和词组即刻生效。",
     /*user_dict_import_failed=*/L"无法打开该文件。",
+    /*section_soft_equiv=*/L"软等价",
+    /*soft_equiv_hint=*/
+    L"开启后，形近/音近的拼写也会作为候选给出，排在精确拼写之后。关闭则精确匹配。",
     /*section_key_mapping=*/L"按键映射   ·   大写字母 = Shift 第二组",
     /*edit_mapping_file=*/L"编辑映射文件…",
     /*shift_label=*/L"Shift:",
@@ -96,6 +103,10 @@ constexpr UiStrings kCyrillicStrings = {
     /*user_dict_import_result=*/
     L"%d бичилт орууллаа (%d мөр алгассан). Үг, хэллэг шууд хүчинтэй.",
     /*user_dict_import_failed=*/L"Файлыг нээж чадсангүй.",
+    /*section_soft_equiv=*/L"ЗӨӨЛӨН ДҮЙЦЭЛ",
+    /*soft_equiv_hint=*/
+    L"Асаалттай үед ойролцоо бичлэгүүдийг мөн санал болгоно (яг таарахын "
+    L"дараа). Унтраавал яг таарна.",
     /*section_key_mapping=*/
     L"ТОВЧЛУУРЫН ХОЛБОЛТ   ·   том үсэг = Shift хоёр дахь багц",
     /*edit_mapping_file=*/L"Холболтын файл засах…",

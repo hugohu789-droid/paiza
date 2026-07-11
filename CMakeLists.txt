@@ -152,6 +152,7 @@ if(WIN32)
 
   add_library(paiza_ui STATIC
     ${PAIZA_WIN}/ui/button.cc
+    ${PAIZA_WIN}/ui/checkbox.cc
     ${PAIZA_WIN}/ui/candidate_list_view.cc
     ${PAIZA_WIN}/ui/candidate_window.cc
     ${PAIZA_WIN}/ui/dropdown.cc

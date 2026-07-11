@@ -41,6 +41,10 @@ struct UiStrings {
   const wchar_t* user_dict_import;
   const wchar_t* user_dict_import_result;
   const wchar_t* user_dict_import_failed;
+  // Soft-equivalence section: a header and a one-line hint for the pair
+  // checkboxes (o/u, q/v, h/g, t/d).
+  const wchar_t* section_soft_equiv;
+  const wchar_t* soft_equiv_hint;
   const wchar_t* section_key_mapping;
   const wchar_t* edit_mapping_file;
   const wchar_t* shift_label;

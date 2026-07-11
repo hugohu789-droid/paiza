@@ -14,6 +14,10 @@ constexpr wchar_t kValuePageSize[] = L"CandidatesPerPage";
 constexpr wchar_t kValueCloudEnabled[] = L"CloudSourceEnabled";
 constexpr wchar_t kValueUiLanguage[] = L"UiLanguage";
 constexpr wchar_t kValueCandidateFont[] = L"CandidateFont";
+constexpr wchar_t kValueEquivOu[] = L"EquivOU";
+constexpr wchar_t kValueEquivQv[] = L"EquivQV";
+constexpr wchar_t kValueEquivHg[] = L"EquivHG";
+constexpr wchar_t kValueEquivTd[] = L"EquivTD";
 
 uint32_t ReadDword(HKEY key, const wchar_t* name, uint32_t fallback) {
   DWORD value = 0;
@@ -72,6 +76,10 @@ Settings SettingsStore::Load() {
                   static_cast<uint32_t>(settings.ui_language)));
     settings.candidate_font =
         ReadString(key, kValueCandidateFont, settings.candidate_font);
+    settings.equiv_ou = ReadDword(key, kValueEquivOu, 1) != 0;
+    settings.equiv_qv = ReadDword(key, kValueEquivQv, 1) != 0;
+    settings.equiv_hg = ReadDword(key, kValueEquivHg, 1) != 0;
+    settings.equiv_td = ReadDword(key, kValueEquivTd, 1) != 0;
     ::RegCloseKey(key);
   }
   settings.candidates_per_page =
@@ -90,6 +98,10 @@ void SettingsStore::Save(const Settings& settings) {
     WriteDword(key, kValueUiLanguage,
                static_cast<uint32_t>(settings.ui_language));
     WriteString(key, kValueCandidateFont, settings.candidate_font);
+    WriteDword(key, kValueEquivOu, settings.equiv_ou ? 1 : 0);
+    WriteDword(key, kValueEquivQv, settings.equiv_qv ? 1 : 0);
+    WriteDword(key, kValueEquivHg, settings.equiv_hg ? 1 : 0);
+    WriteDword(key, kValueEquivTd, settings.equiv_td ? 1 : 0);
     ::RegCloseKey(key);
   }
 }
