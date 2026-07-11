@@ -9,6 +9,7 @@
 
 #include "common/logging.h"
 #include "common/string_utils.h"
+#include "core/romanization.h"
 
 namespace paiza {
 namespace {
@@ -48,6 +49,14 @@ size_t LocalDictionarySource::LoadFromFile(const std::wstring& path) {
       entry.frequency = std::atoi(line.c_str() + tab2 + 1);
     }
     if (entry.latin_key.empty() || entry.mongolian.empty()) continue;
+    // Layout-independent romanized key alongside the hand-written one (same
+    // rule as the offline compiler), so a remapped keyboard still matches.
+    if (ContainsMongolianLetter(entry.mongolian)) {
+      const std::string roman = Romanize(entry.mongolian);
+      if (!roman.empty() && roman != entry.latin_key) {
+        entries_.push_back({roman, entry.mongolian, entry.frequency});
+      }
+    }
     entries_.push_back(std::move(entry));
   }
   SortEntries();

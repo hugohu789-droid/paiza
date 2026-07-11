@@ -11,8 +11,10 @@
 #include <unordered_map>
 
 #include "common/logging.h"
+#include "common/string_utils.h"
 #include "core/dawg.h"
 #include "core/lexicon_binary.h"
+#include "core/romanization.h"
 
 namespace paiza {
 namespace {
@@ -49,6 +51,16 @@ std::vector<std::string> SplitTabs(const std::string& line) {
 void LexiconCompiler::AddEntry(std::string latin, std::string mongolian_utf8,
                                uint32_t frequency) {
   if (latin.empty() || mongolian_utf8.empty()) return;
+  // A layout-independent romanized key (inverse of the default keymap over the
+  // Mongolian word) is added alongside the hand-written key, so a remapped
+  // keyboard still finds the word while the original spelling keeps working.
+  const std::wstring wide = Utf8ToWide(mongolian_utf8);
+  if (ContainsMongolianLetter(wide)) {
+    const std::string roman = Romanize(wide);
+    if (!roman.empty() && roman != latin) {
+      entries_.push_back({roman, mongolian_utf8, frequency});
+    }
+  }
   entries_.push_back({std::move(latin), std::move(mongolian_utf8), frequency});
 }
 
@@ -65,7 +77,7 @@ int LexiconCompiler::AddDictionaryFile(const std::wstring& path) {
     const uint32_t freq =
         fields.size() >= 3 ? static_cast<uint32_t>(std::atoi(fields[2].c_str()))
                            : 0u;
-    entries_.push_back({fields[0], fields[1], freq});
+    AddEntry(fields[0], fields[1], freq);  // Adds the romanized key too.
     ++accepted;
   }
   return accepted;

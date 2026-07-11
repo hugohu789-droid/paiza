@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <utility>
 
+#include "core/romanization.h"
+
 namespace paiza {
 
 InputSession::InputSession(CandidateEngine* engine,
@@ -62,7 +64,27 @@ InputSession::KeyResult InputSession::Commit(std::wstring text) {
 
 void InputSession::RefreshCandidates() {
   preedit_ = mappings_->Get().Convert(latin_buffer_);
+  // Query on two keys and merge: the raw typed latin (matches gloss / literal
+  // keys) and the romanization of the preedit (matches the layout-independent
+  // Mongolian-derived keys, and is the same key regardless of how the user
+  // remapped the keyboard). They coincide for simple default-layout input.
   candidates_ = engine_->Query(latin_buffer_, config_.max_candidates);
+  const std::string canonical = Romanize(preedit_);
+  if (!canonical.empty() && canonical != latin_buffer_) {
+    const auto extra = engine_->Query(canonical, config_.max_candidates);
+    for (const Candidate& c : extra) {
+      const bool dup = std::any_of(
+          candidates_.begin(), candidates_.end(),
+          [&c](const Candidate& e) { return e.text == c.text; });
+      if (!dup) candidates_.push_back(c);
+    }
+    std::stable_sort(candidates_.begin(), candidates_.end(),
+                     [](const Candidate& a, const Candidate& b) {
+                       return a.score > b.score;
+                     });
+    if (candidates_.size() > config_.max_candidates)
+      candidates_.resize(config_.max_candidates);
+  }
   if (candidates_.empty() && !preedit_.empty()) {
     // The raw conversion is always offered so typing works even without
     // dictionary coverage (mirrors the Windows EngineProxy fallback).

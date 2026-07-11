@@ -56,7 +56,9 @@ class StaticLexiconTest : public ::testing::Test {
 TEST_F(StaticLexiconTest, LoadsAndReportsEntryCount) {
   StaticLexicon lex;
   ASSERT_TRUE(lex.Load(bin_path_));
-  EXPECT_EQ(lex.entry_count(), 6u);
+  // 6 dictionary rows + 1 romanized alias key for "mng" (whose Mongolian
+  // U+1820 U+1821 romanizes to "ae", != the gloss key).
+  EXPECT_EQ(lex.entry_count(), 7u);
   EXPECT_TRUE(lex.IsAvailable());
 }
 
@@ -195,6 +197,26 @@ std::wstring BuildLexiconWithEquiv(const std::string& dict_lines,
   EXPECT_TRUE(compiler.SetEquivalenceFile(equiv));
   EXPECT_TRUE(compiler.Write(bin));
   return bin;
+}
+
+TEST(StaticLexiconRomanizedKeyTest, CompilerAddsRomanizedKey) {
+  // A dictionary entry keyed on a gloss is also reachable by the romanized
+  // key derived from its Mongolian word (layout-independent lookup).
+  const std::wstring dict = TempFile("pz_rk_dict.txt");
+  const std::wstring bin = TempFile("pz_rk_bin.bin");
+  {
+    std::ofstream f(std::filesystem::path(dict),
+                    std::ios::binary | std::ios::trunc);
+    f << "gloss\t" << WideToUtf8(L"\x182E\x1823\x1829\x182D\x1823\x182F")
+      << "\t100\n";  // ᠮᠣᠩᠭᠣᠯ -> "mqNgql"
+  }
+  LexiconCompiler compiler;
+  ASSERT_GE(compiler.AddDictionaryFile(dict), 0);
+  ASSERT_TRUE(compiler.Write(bin));
+  StaticLexicon lex;
+  ASSERT_TRUE(lex.Load(bin));
+  EXPECT_FALSE(lex.Query("gloss", 9).empty());    // Original gloss key.
+  EXPECT_FALSE(lex.Query("mqNgql", 9).empty());   // Romanized key.
 }
 
 TEST(StaticLexiconSoftEquivTest, ExactRanksAboveVariant) {

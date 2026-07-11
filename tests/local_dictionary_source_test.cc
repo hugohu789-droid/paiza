@@ -4,6 +4,12 @@
 
 #include <gtest/gtest.h>
 
+#include <filesystem>
+#include <fstream>
+#include <string>
+
+#include "common/string_utils.h"
+
 namespace paiza {
 namespace {
 
@@ -59,6 +65,28 @@ TEST_F(LocalDictionarySourceTest, MissingFileLoadsNothing) {
   LocalDictionarySource missing;
   EXPECT_EQ(missing.LoadFromFile(L"Z:\\does\\not\\exist.txt"), 0u);
   EXPECT_FALSE(missing.IsAvailable());
+}
+
+TEST(LocalDictionaryRomanizedKeyTest, LoadFromFileAddsRomanizedKey) {
+  // A file entry gets both its hand-written key and a layout-independent
+  // romanized key derived from the Mongolian word.
+  const std::string path = ::testing::TempDir() + "paiza_local_roman.txt";
+  {
+    std::ofstream f(std::filesystem::path(path),
+                    std::ios::binary | std::ios::trunc);
+    // Gloss "gloss" for ᠮᠣᠩᠭᠣᠯ (romanizes to "mqNgql").
+    f << "gloss\t" << WideToUtf8(L"\x182E\x1823\x1829\x182D\x1823\x182F")
+      << "\t100\n";
+  }
+  LocalDictionarySource source;
+  ASSERT_GT(source.LoadFromFile(std::wstring(path.begin(), path.end())), 0u);
+
+  // Both the original gloss and the romanized key resolve to the word.
+  const auto by_gloss = source.Query("gloss", 9);
+  ASSERT_EQ(by_gloss.size(), 1u);
+  const auto by_roman = source.Query("mqNgql", 9);
+  ASSERT_EQ(by_roman.size(), 1u);
+  EXPECT_EQ(by_gloss[0].text, by_roman[0].text);
 }
 
 }  // namespace

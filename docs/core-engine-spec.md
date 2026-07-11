@@ -258,8 +258,14 @@ extern "C" {
   (edit 0 / variant 0),同形变体经容错自动机以**编辑距离 0** 命中并标记
   `variant_cost`,由打分器施加 `w_variant`(默认 2.0,介于 0 与 w_edit=6 之间)
   惩罚,排在精确之下、真错拼之上。后续可在设置页做每对开关。
-- 后续增量:无损中间层罗马化 + 编译器从蒙古文列生成词库键;GB/T 固定序列
-  规则表;Windows TSF 对齐;辅音骨架输入。
+- **增量 2(已实现)**:无损中间层罗马化(`src/core/romanization`)。罗马化表
+  = **默认 keymap 的逆**(码点→latin token),故默认布局下 `Romanize(Convert(x))
+  == x`(除唯一二合 `ng→ᠩ` 归一为 `N`)。编译器与 `LocalDictionarySource` 为每个
+  含蒙古文字母的词条**在原手写键之外追加一个罗马化键**(`Romanize(蒙古文)`),
+  `InputSession` 查询时**双键并查**:原始按键(命中手写/gloss 键)+ `Romanize(preedit)`
+  (命中罗马化键,布局无关、消化二合)。既不破坏"打 gloss"旧习,又让改键盘后仍
+  命中同一词。实测:`mongol`(gloss)与 `mqnggql`(蒙古字母)均命中 ᠮᠣᠩᠭᠣᠯ。
+- 后续增量:GB/T 固定序列规则表;格式符从查询键剥离;Windows TSF 对齐;辅音骨架输入。
 
 ### Phase 3 实现落点
 
