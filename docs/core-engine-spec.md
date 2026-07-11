@@ -273,7 +273,13 @@ extern "C" {
   由编译器 `--fixed` **内嵌进 `lexicon.bin`(格式升 v4)**,运行期 `StaticLexicon`
   加载并经 `fixed_sequences()` 暴露,供合成层使用(合成期 MVS 插入与后缀谐元归一
   在后续合成增量落地)。
-- 后续增量:Windows TSF 对齐(发送罗马化键 + 剥离);辅音骨架输入;设置页软等价开关。
+- **增量 4(已实现)**:Windows TSF 对齐。TSF DLL(`text_service.cc`)本就持有
+  自己的 `KeyMappingStore` 与 `ConvertBuffer()`,`RefreshCandidates` 改为与
+  `InputSession` 完全一致的**双键并查**:原始 latin + `Romanize(ConvertBuffer())`
+  (罗马化经增量 3 已含格式符剥离),合并去重按分排序,两者皆空才回退。至此
+  三端(TSF / IMK / IBus)查询行为统一,Windows 也支持改键盘与格式无关匹配。
+  上屏仍发原始 latin(与 InputSession 一致,命中 gloss 键 + 静态词库上下文)。
+- 后续增量:辅音骨架输入;设置页软等价开关;合成侧 MVS 插入 + 后缀谐元。
 
 ### Phase 3 实现落点
 

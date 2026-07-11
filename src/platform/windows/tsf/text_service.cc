@@ -4,7 +4,10 @@
 
 #include <olectl.h>
 
+#include <algorithm>
+
 #include "common/logging.h"
+#include "core/romanization.h"
 #include "tsf/guids.h"
 #include "tsf/module.h"
 
@@ -342,8 +345,34 @@ std::wstring TextService::ConvertBuffer() {
 
 void TextService::RefreshCandidates() {
   const std::wstring converted = ConvertBuffer();
+  // Dual query, identical to the cross-platform InputSession: the raw typed
+  // latin (gloss / literal keys) plus the romanization of the preedit (the
+  // layout-independent, digraph-aware key that is the same regardless of how
+  // the user remapped the keyboard). They coincide for default-layout input.
   candidates_ = engine_.QueryCandidates(latin_buffer_, 27,  // 3 pages of 9.
-                                        converted);
+                                        L"");
+  const std::string canonical = Romanize(converted);
+  if (!canonical.empty() && canonical != latin_buffer_) {
+    const auto extra = engine_.QueryCandidates(canonical, 27, L"");
+    for (const Candidate& c : extra) {
+      const bool dup = std::any_of(
+          candidates_.begin(), candidates_.end(),
+          [&c](const Candidate& e) { return e.text == c.text; });
+      if (!dup) candidates_.push_back(c);
+    }
+    std::stable_sort(candidates_.begin(), candidates_.end(),
+                     [](const Candidate& a, const Candidate& b) {
+                       return a.score > b.score;
+                     });
+    if (candidates_.size() > 27) candidates_.resize(27);
+  }
+  if (candidates_.empty() && !converted.empty()) {
+    // Fallback so typing keeps working with the service down (mirrors
+    // EngineProxy's own fallback, applied after the merge).
+    Candidate fallback;
+    fallback.text = converted;
+    candidates_.push_back(std::move(fallback));
+  }
   ui::CandidateWindow* window = EnsureCandidateWindow();
   window->SetFontFamily(ReadCandidateFontSetting());
   // The popup shows the preedit with the user's Mongolian font: the
