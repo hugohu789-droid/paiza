@@ -35,14 +35,11 @@ class StaticLexicon : public CandidateSource {
   bool Load(const std::wstring& bin_path);
   bool is_loaded() const { return header_ != nullptr; }
 
-  // Optional tuning: scoring weights (key=value) and key-equivalence groups.
-  // Missing files leave the built-in defaults (sensible weights, no
-  // equivalences) untouched.
+  // Optional runtime tuning: scoring weights (key=value) and, only when the
+  // file exists, an override of the equivalence groups embedded in the
+  // lexicon. Missing files leave the embedded/default values untouched.
   void LoadTuning(const std::wstring& scoring_path,
-                  const std::wstring& equivalences_path) {
-    scorer_.LoadWeights(scoring_path);
-    equivalences_.LoadFromFile(equivalences_path);
-  }
+                  const std::wstring& equivalences_path);
   Scorer& scorer() { return scorer_; }
   EquivalenceTable& equivalences() { return equivalences_; }
 
@@ -99,8 +96,8 @@ class StaticLexicon : public CandidateSource {
   uint32_t LowerBoundKey(const std::string& s) const;
 
   // Appends every entry under key index `key_i` to `out` with the given edit
-  // cost, deduplicating by word_id via `seen`.
-  void CollectKeyEntries(uint32_t key_i, int edit_cost,
+  // and soft-equivalence (variant) costs, deduplicating by word_id via `seen`.
+  void CollectKeyEntries(uint32_t key_i, int edit_cost, int variant_cost,
                          const std::vector<uint32_t>& bigram_row,
                          std::vector<uint32_t>& seen_ids,
                          std::vector<Candidate>& out) const;

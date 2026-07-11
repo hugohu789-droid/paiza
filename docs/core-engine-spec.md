@@ -247,6 +247,20 @@ extern "C" {
   `CandidateService`（Windows `kCommitCandidate` IPC）
 * 单测：`tests/{static_lexicon,scorer,equivalence_table}_test.cc`
 
+### 输入规范化(进行中)—— 软等价 · 增量 1
+
+用户可改 keymap,但词库 `latin_key` 固定;为解耦并处理蒙古文同形歧义,分增量做「输入规范化层」(设计见项目记忆):
+
+- **增量 1(已实现)**:软等价匹配。`data/equivalences.txt` 定义同形/近音键对
+  (o/u=1825/1826、q/v=1823/1824、h/g=182C/182D、t/d=1832/1833),由编译器
+  **内嵌进 `lexicon.bin`**(格式升 v3),运行期由 `StaticLexicon` 从二进制读取,
+  保证编译==查询一致。匹配语义是**软等价**而非硬归一:精确拼写恒排第一
+  (edit 0 / variant 0),同形变体经容错自动机以**编辑距离 0** 命中并标记
+  `variant_cost`,由打分器施加 `w_variant`(默认 2.0,介于 0 与 w_edit=6 之间)
+  惩罚,排在精确之下、真错拼之上。后续可在设置页做每对开关。
+- 后续增量:无损中间层罗马化 + 编译器从蒙古文列生成词库键;GB/T 固定序列
+  规则表;Windows TSF 对齐;辅音骨架输入。
+
 ### Phase 3 实现落点
 
 * 最小化编号 DAWG（Daciuk 增量最小化 + word_count 编号）：

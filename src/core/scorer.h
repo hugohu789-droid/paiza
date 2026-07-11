@@ -22,7 +22,10 @@
 namespace paiza {
 
 struct ScoringWeights {
-  double w_edit = 6.0;    // Penalty per edit-distance unit (tolerant match).
+  double w_edit = 6.0;    // Penalty per edit-distance unit (typo tolerance).
+  double w_variant = 2.0; // Penalty per soft-equivalence substitution. Must be
+                          // < w_edit (a variant beats a typo) and > 0 (an
+                          // exact spelling beats its variant).
   double w_bigram = 2.0;  // Bonus when the previous word predicts this one.
   double w_sys = 1.0;     // Weight on ln(system frequency).
   double w_user = 1.2;    // Weight on ln(decayed user frequency).
@@ -32,7 +35,10 @@ struct ScoringWeights {
 struct ScoreSignals {
   uint32_t system_frequency = 0;
   uint32_t user_frequency = 0;
-  int edit_cost = 0;           // 0 for exact/prefix, 1 for tolerant matches.
+  int edit_cost = 0;      // 0 for exact/prefix/variant, 1 for typo matches.
+  int variant_cost = 0;   // Count of soft-equivalence substitutions used
+                          // (o/u, q/v, h/g, t/d): recalled but ranked below
+                          // the exact spelling.
   bool bigram_hit = false;
   int64_t last_used_unix = 0;  // 0 = never used (no decay applied).
 };

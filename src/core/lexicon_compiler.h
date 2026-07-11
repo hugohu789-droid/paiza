@@ -30,6 +30,11 @@ class LexiconCompiler {
   // Returns rows accepted, or -1 if the file could not be opened.
   int AddBigramFile(const std::wstring& path);
 
+  // Loads the soft-equivalence rules file (equivalences.txt) verbatim; its
+  // text is embedded in the lexicon so compile and query time agree. Returns
+  // true if the file was read.
+  bool SetEquivalenceFile(const std::wstring& path);
+
   // Builds and atomically writes the binary lexicon. Returns false on I/O
   // failure or when there are no entries.
   bool Write(const std::wstring& path) const;
@@ -50,6 +55,7 @@ class LexiconCompiler {
 
   std::vector<Entry> entries_;
   std::vector<Bigram> bigrams_;
+  std::string equivalences_;  // Raw equivalences.txt text (embedded verbatim).
 };
 
 }  // namespace paiza

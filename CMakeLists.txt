@@ -118,6 +118,11 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/data/bigrams.txt)
   list(APPEND PAIZA_COMPILE_ARGS --bigram ${CMAKE_SOURCE_DIR}/data/bigrams.txt)
   list(APPEND PAIZA_LEXICON_DEPS ${CMAKE_SOURCE_DIR}/data/bigrams.txt)
 endif()
+if(EXISTS ${CMAKE_SOURCE_DIR}/data/equivalences.txt)
+  list(APPEND PAIZA_COMPILE_ARGS
+    --equiv ${CMAKE_SOURCE_DIR}/data/equivalences.txt)
+  list(APPEND PAIZA_LEXICON_DEPS ${CMAKE_SOURCE_DIR}/data/equivalences.txt)
+endif()
 add_custom_command(OUTPUT ${PAIZA_LEXICON_BIN}
   COMMAND compile_lexicon ${PAIZA_COMPILE_ARGS}
   DEPENDS ${PAIZA_LEXICON_DEPS}

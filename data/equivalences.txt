@@ -1,0 +1,18 @@
+# Paiza Mongolian IME soft-equivalence rules.
+#
+# Keys on one line are treated as the "same" for RECALL only: a word spelled
+# with one is offered when the other is typed, ranked just BELOW the exact
+# spelling (a small "variant cost", not a free merge). This keeps precise
+# input precise while still surfacing the visually identical / near-homophone
+# variants that users routinely don't distinguish.
+#
+# The pairs below are the traditional Mongolian same-glyph vowel pairs and the
+# commonly confused consonant pairs (keys are default-layout latin):
+#   o u   ->  U+1825 / U+1826  feminine oe / ue
+#   q v   ->  U+1823 / U+1824  masculine o / u
+#   h g   ->  U+182C / U+182D  velar qa / ga
+#   t d   ->  U+1832 / U+1833  ta / da
+o u
+q v
+h g
+t d

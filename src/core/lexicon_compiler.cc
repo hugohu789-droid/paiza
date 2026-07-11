@@ -90,6 +90,15 @@ int LexiconCompiler::AddBigramFile(const std::wstring& path) {
   return accepted;
 }
 
+bool LexiconCompiler::SetEquivalenceFile(const std::wstring& path) {
+  std::ifstream file(std::filesystem::path(path), std::ios::binary);
+  if (!file.is_open()) return false;
+  std::ostringstream buffer;
+  buffer << file.rdbuf();
+  equivalences_ = buffer.str();
+  return true;
+}
+
 bool LexiconCompiler::Write(const std::wstring& path) const {
   if (entries_.empty()) return false;
 
@@ -232,6 +241,13 @@ bool LexiconCompiler::Write(const std::wstring& path) const {
     header.dawg_trans_offset = offset;
     for (const DawgTrans& t : dawg_trans) AppendPod(payload, t);
     offset += static_cast<uint64_t>(dawg_trans.size()) * sizeof(DawgTrans);
+  }
+
+  header.equiv_blob_size = static_cast<uint32_t>(equivalences_.size());
+  if (!equivalences_.empty()) {
+    header.equiv_blob_offset = offset;
+    payload.insert(payload.end(), equivalences_.begin(), equivalences_.end());
+    offset += equivalences_.size();
   }
 
   header.file_size = header_size + payload.size();

@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <cstring>
+#include <filesystem>
+#include <system_error>
 
 #include "common/logging.h"
 #include "common/string_utils.h"
@@ -11,6 +13,19 @@
 #include "core/scorer.h"
 
 namespace paiza {
+
+void StaticLexicon::LoadTuning(const std::wstring& scoring_path,
+                              const std::wstring& equivalences_path) {
+  scorer_.LoadWeights(scoring_path);
+  // The lexicon already carries its equivalence set; only override it when the
+  // user actually placed a file, so a missing path doesn't wipe the embedded
+  // rules.
+  std::error_code ec;
+  if (!equivalences_path.empty() &&
+      std::filesystem::exists(std::filesystem::path(equivalences_path), ec)) {
+    equivalences_.LoadFromFile(equivalences_path);
+  }
+}
 
 bool StaticLexicon::Load(const std::wstring& bin_path) {
   file_.Close();
@@ -44,6 +59,13 @@ bool StaticLexicon::Load(const std::wstring& bin_path) {
                      header_->dawg_trans_count, header_->dawg_root);
   } else {
     dawg_ = DawgView();
+  }
+  // Soft-equivalence rules travel inside the lexicon so compile and query
+  // time use the same set (a later LoadTuning file can still override).
+  if (header_->equiv_blob_size > 0) {
+    const char* blob = reinterpret_cast<const char*>(file_.data() +
+                                                     header_->equiv_blob_offset);
+    equivalences_.LoadFromString(std::string(blob, header_->equiv_blob_size));
   }
   Logf(LogLevel::kInfo, L"Static lexicon mapped: %u entries",
        header_->entry_count);
@@ -138,6 +160,7 @@ bool StaticLexicon::RowContains(const std::vector<uint32_t>& row,
 }
 
 void StaticLexicon::CollectKeyEntries(uint32_t key_i, int edit_cost,
+                                      int variant_cost,
                                       const std::vector<uint32_t>& bigram_row,
                                       std::vector<uint32_t>& seen_ids,
                                       std::vector<Candidate>& out) const {
@@ -156,6 +179,7 @@ void StaticLexicon::CollectKeyEntries(uint32_t key_i, int edit_cost,
     ScoreSignals signals;
     signals.system_frequency = rec.frequency;
     signals.edit_cost = edit_cost;
+    signals.variant_cost = variant_cost;
     signals.bigram_hit = bigram_hit;
     candidate.score = scorer_.ScoreToInt(signals, 0);
     out.push_back(std::move(candidate));
@@ -180,7 +204,8 @@ std::vector<Candidate> StaticLexicon::Query(const std::string& latin_input,
                     latin_input.size()) != 0) {
       break;  // Sorted: the prefix run has ended.
     }
-    CollectKeyEntries(idx, 0, bigram_row, seen_ids, out);
+    CollectKeyEntries(idx, /*edit_cost=*/0, /*variant_cost=*/0, bigram_row,
+                      seen_ids, out);
   }
 
   // Fault tolerance only when the exact/prefix pass is thin and the input is
@@ -213,7 +238,17 @@ void StaticLexicon::IntersectDfs(uint32_t node_index,
   if (node.is_final && automaton.IsAccept(state)) {
     const int cost = automaton.Distance(state);
     if (rank < header_->key_count) {
-      CollectKeyEntries(rank, cost, bigram_row, seen_ids, out);
+      // Reached here through the tolerant pass. A zero edit distance means the
+      // key differs from the input only by soft-equivalence substitutions
+      // (o/u, q/v, h/g, t/d) -> a variant, recalled but ranked below exact.
+      // A positive distance is a genuine typo.
+      if (cost == 0) {
+        CollectKeyEntries(rank, /*edit_cost=*/0, /*variant_cost=*/1, bigram_row,
+                          seen_ids, out);
+      } else {
+        CollectKeyEntries(rank, /*edit_cost=*/cost, /*variant_cost=*/0,
+                          bigram_row, seen_ids, out);
+      }
     }
   }
   // Descend each transition in ascending label order, threading the rank:

@@ -38,6 +38,23 @@ TEST(ScorerTest, EditCostPenalisesTolerantMatches) {
   EXPECT_GT(scorer.Score(rare_exact, 0), scorer.Score(common_tolerant, 0));
 }
 
+TEST(ScorerTest, ExactBeatsVariantBeatsTypo) {
+  Scorer scorer;
+  ScoreSignals exact;      // Same spelling.
+  exact.system_frequency = 100;
+  ScoreSignals variant;    // Reached via a soft-equivalence substitution.
+  variant.system_frequency = 100;
+  variant.variant_cost = 1;
+  ScoreSignals typo;       // Reached via a real edit.
+  typo.system_frequency = 100;
+  typo.edit_cost = 1;
+  const double e = scorer.Score(exact, 0);
+  const double v = scorer.Score(variant, 0);
+  const double t = scorer.Score(typo, 0);
+  EXPECT_GT(e, v);  // Exact spelling ranks above its variant...
+  EXPECT_GT(v, t);  // ...and the variant ranks above a genuine typo.
+}
+
 TEST(ScorerTest, BigramHitAddsBonus) {
   Scorer scorer;
   ScoreSignals no_hit;

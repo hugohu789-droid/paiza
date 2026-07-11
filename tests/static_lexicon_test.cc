@@ -171,6 +171,86 @@ TEST_F(StaticLexiconTest, MissingFileStaysUnloaded) {
   EXPECT_TRUE(lex.Query("sain", 9).empty());
 }
 
+// Builds a lexicon from raw dictionary lines plus an embedded equivalences
+// blob, returning the .bin path.
+std::wstring BuildLexiconWithEquiv(const std::string& dict_lines,
+                                   const std::string& equiv_lines,
+                                   const char* tag) {
+  const std::wstring dict = TempFile((std::string("pz_eq_dict_") + tag).c_str());
+  const std::wstring equiv =
+      TempFile((std::string("pz_eq_rules_") + tag).c_str());
+  const std::wstring bin = TempFile((std::string("pz_eq_bin_") + tag).c_str());
+  {
+    std::ofstream f(std::filesystem::path(dict),
+                    std::ios::binary | std::ios::trunc);
+    f << dict_lines;
+  }
+  {
+    std::ofstream f(std::filesystem::path(equiv),
+                    std::ios::binary | std::ios::trunc);
+    f << equiv_lines;
+  }
+  LexiconCompiler compiler;
+  EXPECT_GE(compiler.AddDictionaryFile(dict), 0);
+  EXPECT_TRUE(compiler.SetEquivalenceFile(equiv));
+  EXPECT_TRUE(compiler.Write(bin));
+  return bin;
+}
+
+TEST(StaticLexiconSoftEquivTest, ExactRanksAboveVariant) {
+  // "tal" and "dal" differ only by the t/d soft-equivalence pair.
+  const std::wstring bin = BuildLexiconWithEquiv(
+      "tal\tTT\t100\ndal\tDD\t100\n", "t d\n", "td");
+  StaticLexicon lex;
+  ASSERT_TRUE(lex.Load(bin));
+
+  // Typing "tal": the exact spelling TT ranks first; DD is recalled as a
+  // variant just below it.
+  const auto tal = lex.Query("tal", 9);
+  ASSERT_GE(tal.size(), 2u);
+  EXPECT_EQ(tal[0].text, L"TT");
+  EXPECT_EQ(tal[1].text, L"DD");
+  EXPECT_GT(tal[0].score, tal[1].score);
+
+  // Symmetric: typing "dal" puts DD first, TT as the variant.
+  const auto dal = lex.Query("dal", 9);
+  ASSERT_GE(dal.size(), 2u);
+  EXPECT_EQ(dal[0].text, L"DD");
+  EXPECT_EQ(dal[1].text, L"TT");
+}
+
+TEST(StaticLexiconSoftEquivTest, AllFourPairsRecall) {
+  // One word per pair; typing the partner key must recall it.
+  const std::wstring bin = BuildLexiconWithEquiv(
+      "oro\tOO\t50\nqrq\tQQ\t50\nhag\tHH\t50\ntad\tDD2\t50\n",
+      "o u\nq v\nh g\nt d\n", "pairs");
+  StaticLexicon lex;
+  ASSERT_TRUE(lex.Load(bin));
+
+  auto recalls = [&](const char* typed, const wchar_t* want) {
+    for (const auto& c : lex.Query(typed, 9))
+      if (c.text == want) return true;
+    return false;
+  };
+  EXPECT_TRUE(recalls("uru", L"OO"));   // o<->u
+  EXPECT_TRUE(recalls("vrv", L"QQ"));   // q<->v
+  EXPECT_TRUE(recalls("gag", L"HH"));   // h<->g
+  EXPECT_TRUE(recalls("dad", L"DD2"));  // t<->d
+}
+
+TEST(StaticLexiconSoftEquivTest, EquivalencesTravelInsideBinary) {
+  // The equivalence rules are embedded; a freshly loaded lexicon honours them
+  // without any runtime LoadTuning call.
+  const std::wstring bin = BuildLexiconWithEquiv(
+      "tal\tTT\t100\n", "t d\n", "embed");
+  StaticLexicon lex;
+  ASSERT_TRUE(lex.Load(bin));
+  bool found = false;
+  for (const auto& c : lex.Query("dal", 9))
+    if (c.text == L"TT") found = true;
+  EXPECT_TRUE(found);
+}
+
 TEST_F(StaticLexiconTest, EquivalenceMakesSubstitutionFree) {
   StaticLexicon lex;
   ASSERT_TRUE(lex.Load(bin_path_));
