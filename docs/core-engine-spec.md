@@ -1,7 +1,7 @@
 # 跨平台蒙古文智能输入法核心引擎（Core Engine）架构与实现规格说明书
 
 版本：v1.1（工程化修订版）
-状态：Phase 1 已实现（见 §7 分期路线）；Phase 2/3 为设计定稿待实现。
+状态：Phase 1、Phase 2 已实现（见 §7 分期路线）；Phase 3 为设计定稿待实现。
 
 ---
 
@@ -226,8 +226,23 @@ extern "C" {
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | **Phase 1** | SQLite 内置；`UserDictionary` 双轨动态层（内存 + 异步落盘 + 调频 + TXT 导入）；上屏通知三端打通（进程内 / IPC）；C FFI 骨架（含 Search/Commit/Import）；设置页导入 UI；单测全覆盖 | **本次实现** |
-| **Phase 2** | 离线编译器（SQLite→二进制）；mmap 静态层替换文本词库；等价类表；Trie 容错检索（编辑距离≤1）；对数域打分器 + 时间衰减；Bigram/CSR 联想与 `context_word_id` 生效 | 设计定稿 |
+| **Phase 2** | 离线编译器（TXT→二进制 `lexicon.bin`，magic/版本/字节序/CRC 头，构建期生成并随三平台部署）；`StaticLexicon` mmap 静态层（零解析启动，二分前缀检索）；数据驱动等价类表；隐式 Trie 上的 Damerau 容错检索（编辑距离≤1：增删改 + 相邻交换）；对数域 `Scorer`（w1 编辑代价 + w2 bigram + w3·ln(系统频) + w4·ln(用户频)，30 天半衰期时间衰减，`scoring.txt` 可调）；Bigram/CSR 联想与 `SetContextWord`/`PredictNext`（上屏后 `context_word_id` 生效，三端打通） | **本次实现** |
 | **Phase 3** | FST/DAT 替换 Trie；Levenshtein DFA × FST 交集遍历；百万级词库性能验收（P99 < 5ms）；打分权重调参工具 | 规划 |
 
 验收基线：每阶段保持既有 GoogleTest 全绿 + 三平台 CI 通过；
 `InputSession` 行为契约测试不变即前端零改动。
+
+### Phase 2 实现落点
+
+* 二进制格式与 CRC：`src/core/lexicon_binary.{h,cc}`
+* 离线编译器（库 + CLI）：`src/core/lexicon_compiler.{h,cc}`、
+  `tools/compile_lexicon/main.cc`（构建期 `compile_lexicon` 目标生成
+  `lexicon.bin`，随各平台二进制部署）
+* mmap 只读映射：`src/common/mapped_file.{h,cc}`
+  （Windows `MapViewOfFile` / POSIX `mmap`）
+* 静态层检索 + 容错 + bigram：`src/core/static_lexicon.{h,cc}`
+* 打分器：`src/core/scorer.{h,cc}`；等价类：
+  `src/core/equivalence_table.{h,cc}`
+* 上屏上下文：`InputSession::set_static_lexicon`（mac/linux 进程内）、
+  `CandidateService`（Windows `kCommitCandidate` IPC）
+* 单测：`tests/{static_lexicon,scorer,equivalence_table}_test.cc`

@@ -18,6 +18,7 @@
 #include "core/candidate_engine.h"
 #include "core/cloud_candidate_source.h"
 #include "core/local_dictionary_source.h"
+#include "core/static_lexicon.h"
 #include "core/user_dictionary.h"
 #include "ipc/ime_client.h"
 #include "ipc/named_pipe_server.h"
@@ -134,6 +135,19 @@ int Run(bool show_settings_on_start) {
   UserDictionary* user_dictionary_ptr = user_dictionary.get();
   engine->AddSource(std::move(user_dictionary));
 
+  // Compiled static lexicon (mmap): prefix + fault-tolerant search + bigram
+  // context. Falls back silently to the plain-text dictionary if absent.
+  auto static_lexicon = std::make_unique<StaticLexicon>();
+  StaticLexicon* static_lexicon_ptr = nullptr;
+  if (static_lexicon->Load(ExecutableDirectory() + L"\\lexicon.bin")) {
+    // Optional tuning knobs from the user profile (missing => defaults).
+    const std::wstring cfg = UserConfigDirectory();
+    static_lexicon->LoadTuning(cfg + L"\\scoring.txt",
+                               cfg + L"\\equivalences.txt");
+    static_lexicon_ptr = static_lexicon.get();
+    engine->AddSource(std::move(static_lexicon));
+  }
+
   auto dictionary = std::make_unique<LocalDictionarySource>();
   dictionary->LoadFromFile(ExecutableDirectory() + L"\\dictionary.txt");
   engine->AddSource(std::move(dictionary));
@@ -151,9 +165,11 @@ int Run(bool show_settings_on_start) {
   g_settings_window = &settings_window;
 
   // IPC callbacks arrive on worker threads; hop to the UI thread.
-  CandidateService service(engine, user_dictionary_ptr, [message_window] {
-    ::PostMessageW(message_window, kMsgShowSettings, 0, 0);
-  });
+  CandidateService service(engine, user_dictionary_ptr, static_lexicon_ptr,
+                           [message_window] {
+                             ::PostMessageW(message_window, kMsgShowSettings, 0,
+                                            0);
+                           });
   ipc::NamedPipeServer server(
       [&service](const ipc::Message& request) {
         return service.HandleMessage(request);

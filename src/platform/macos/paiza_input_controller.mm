@@ -48,6 +48,9 @@ paiza::CloudCandidateSource* g_cloud_source = nullptr;
 // user-coined words, TXT imports. Persisted to
 // ~/Library/Application Support/PaizaIME/user.db asynchronously.
 paiza::UserDictionary* g_user_dictionary = nullptr;
+// Static lexicon (compiled lexicon.bin, mmap): prefix + fault-tolerant
+// search, bigram context. Ranked below the user overlay, above cloud.
+paiza::StaticLexicon* g_static_lexicon = nullptr;
 
 // The engine and key-mapping store are process-wide (the input method app
 // serves every client through one process); sessions are per client.
@@ -59,6 +62,18 @@ paiza::CandidateEngine* SharedEngine() {
             .wstring());
     g_user_dictionary = user.get();
     built->AddSource(std::move(user));
+    // Compiled static lexicon, if the bundle carries one; otherwise the
+    // plain-text dictionary below still serves queries.
+    auto lexicon = std::make_unique<paiza::StaticLexicon>();
+    NSString* bin = [[NSBundle mainBundle] pathForResource:@"lexicon"
+                                                    ofType:@"bin"];
+    if (bin != nil && lexicon->Load(paiza::Utf8ToWide([bin UTF8String]))) {
+      const std::filesystem::path cfg(paiza::UserConfigDirectory());
+      lexicon->LoadTuning((cfg / L"scoring.txt").wstring(),
+                          (cfg / L"equivalences.txt").wstring());
+      g_static_lexicon = lexicon.get();
+      built->AddSource(std::move(lexicon));
+    }
     auto dictionary = std::make_unique<paiza::LocalDictionarySource>();
     NSString* path = [[NSBundle mainBundle] pathForResource:@"dictionary"
                                                      ofType:@"txt"];
@@ -122,8 +137,10 @@ PaizaSettingsWindowController* SharedSettingsWindow() {
     ApplySettings(CurrentSettings());  // Applies the cloud toggle once.
     _session = std::make_unique<paiza::InputSession>(SharedEngine(),
                                                      SharedMappings());
-    // Commits feed the dynamic user lexicon (frequency + coined words).
+    // Commits feed the dynamic user lexicon (frequency + coined words) and
+    // set the static lexicon's bigram context for the next word.
     _session->set_user_dictionary(g_user_dictionary);
+    _session->set_static_lexicon(g_static_lexicon);
     _panel = [[PaizaCandidatePanel alloc] init];
 
     // Mouse interaction on the panel drives the same session the keyboard

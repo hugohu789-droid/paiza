@@ -26,6 +26,7 @@
 #include "core/candidate.h"
 #include "core/candidate_engine.h"
 #include "core/key_mapping_store.h"
+#include "core/static_lexicon.h"
 #include "core/user_dictionary.h"
 
 namespace paiza {
@@ -112,6 +113,14 @@ class InputSession {
     user_dictionary_ = dictionary;
   }
 
+  // Optional static lexicon: on each commit the session resolves the chosen
+  // word to its word_id and sets it as the bigram context, so the next
+  // query can reward likely successors. Usually the same object registered
+  // as a CandidateSource on the engine; must outlive the session.
+  void set_static_lexicon(StaticLexicon* lexicon) {
+    static_lexicon_ = lexicon;
+  }
+
  private:
   void RefreshCandidates();
   KeyResult Commit(std::wstring text);
@@ -119,6 +128,7 @@ class InputSession {
   CandidateEngine* engine_;
   KeyMappingStore* mappings_;
   UserDictionary* user_dictionary_ = nullptr;
+  StaticLexicon* static_lexicon_ = nullptr;
   Config config_;
 
   std::string latin_buffer_;

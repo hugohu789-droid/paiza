@@ -15,6 +15,7 @@
 #include "core/key_mapping_store.h"
 #include "core/local_dictionary_source.h"
 #include "core/localization.h"
+#include "core/static_lexicon.h"
 #include "core/user_dictionary.h"
 #include "candidate_window.h"
 #include "settings_store.h"
@@ -30,6 +31,9 @@ paiza::CloudCandidateSource* g_cloud_source = nullptr;
 // Dynamic user lexicon (dual-track overlay, spec §3.2); persisted to
 // ~/.config/paiza-ime/user.db asynchronously.
 paiza::UserDictionary* g_user_dictionary = nullptr;
+// Static lexicon (compiled lexicon.bin, mmap): prefix + fault-tolerant
+// search + bigram context; ranked below the user overlay, above cloud.
+paiza::StaticLexicon* g_static_lexicon = nullptr;
 
 // Directory of the running executable (build-tree fallback lookups).
 std::string ExecutableDirectory() {
@@ -52,6 +56,19 @@ paiza::CandidateEngine* SharedEngine() {
             .wstring());
     g_user_dictionary = user.get();
     built->AddSource(std::move(user));
+    // Compiled static lexicon: installed location first, then build tree.
+    auto lexicon = std::make_unique<paiza::StaticLexicon>();
+    const std::string lexicon_installed =
+        std::string(PAIZA_DATA_DIR) + "/lexicon.bin";
+    if (lexicon->Load(paiza::Utf8ToWide(lexicon_installed)) ||
+        lexicon->Load(paiza::Utf8ToWide(ExecutableDirectory() +
+                                        "/lexicon.bin"))) {
+      const std::filesystem::path cfg(paiza::UserConfigDirectory());
+      lexicon->LoadTuning((cfg / L"scoring.txt").wstring(),
+                          (cfg / L"equivalences.txt").wstring());
+      g_static_lexicon = lexicon.get();
+      built->AddSource(std::move(lexicon));
+    }
     auto dictionary = std::make_unique<paiza::LocalDictionarySource>();
     // Installed location first, then next to the binary (build tree).
     const std::string installed =
@@ -248,8 +265,10 @@ static void paiza_engine_init(PaizaEngine* engine) {
   engine->state = new EngineState();
   engine->state->session = std::make_unique<paiza::InputSession>(
       SharedEngine(), SharedMappings());
-  // Commits feed the dynamic user lexicon (frequency + coined words).
+  // Commits feed the dynamic user lexicon (frequency + coined words) and
+  // set the static lexicon's bigram context for the next word.
   engine->state->session->set_user_dictionary(g_user_dictionary);
+  engine->state->session->set_static_lexicon(g_static_lexicon);
 
   IBusLookupTable* table = ibus_lookup_table_new(
       /*page_size=*/7, /*cursor_pos=*/0, /*cursor_visible=*/TRUE,

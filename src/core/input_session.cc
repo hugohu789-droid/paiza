@@ -48,6 +48,11 @@ InputSession::KeyResult InputSession::Commit(std::wstring text) {
       !text.empty()) {
     user_dictionary_->RecordCommit(latin_buffer_, text);
   }
+  // Set the bigram context so the next query can favour likely successors.
+  if (static_lexicon_ != nullptr && !latin_buffer_.empty() && !text.empty()) {
+    static_lexicon_->SetContextWord(
+        static_lexicon_->WordIdOf(latin_buffer_, text));
+  }
   Reset();
   KeyResult result;
   result.handled = true;

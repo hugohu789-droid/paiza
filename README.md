@@ -63,18 +63,39 @@ candidate window.
 
 ## Core engine v2 (dual-track, SQLite-backed)
 
-The engine is evolving toward the architecture in
-**docs/core-engine-spec.md** (SQLite offline management + FST/DAT static
-lexicon + Levenshtein-DFA tolerance + CSR bigram prediction + in-memory
-user overlay, exposed through a C FFI). **Phase 1 is implemented**: the
-dynamic **user dictionary** (`core/user_dictionary`) — an in-memory
-overlay ranked above the static lexicon, fed by every committed candidate
-(frequency boosting + user-coined words), persisted asynchronously to
-SQLite (vendored, `third_party/sqlite`) in the user profile, with a
-settings-page **Import…** button for TAB-separated TXT files whose
-entries may be single letters or whole phrases. External hosts can use
-the C API in `core/engine_c_api.h` (`Engine_Initialize / Search /
-CommitCandidate / ImportUserDictionary / Destroy`).
+The engine follows the architecture in **docs/core-engine-spec.md**
+(SQLite offline management + a compiled mmap static lexicon + tolerant
+search + bigram prediction + in-memory user overlay, exposed through a C
+FFI). **Phases 1 and 2 are implemented.**
+
+**Phase 1 — dynamic user layer.** The **user dictionary**
+(`core/user_dictionary`) is an in-memory overlay ranked above the static
+lexicon, fed by every committed candidate (frequency boosting +
+user-coined words), persisted asynchronously to SQLite (vendored,
+`third_party/sqlite`) in the user profile, with a settings-page
+**Import…** button for TAB-separated TXT files whose entries may be
+single letters or whole phrases.
+
+**Phase 2 — compiled static layer.** An offline compiler
+(`tools/compile_lexicon`, run at build time) turns the plain-text
+dictionary into a compact binary `lexicon.bin` — a CRC-validated,
+versioned, endian-checked file that the runtime memory-maps for zero
+parse at startup (`core/static_lexicon`). Lookups do exact + prefix
+search by binary search over the sorted key table, plus Damerau
+edit-distance≤1 fault tolerance (insert/delete/substitute + adjacent
+transposition) over an implicit trie. Candidates rank through a shared
+log-domain scorer (`core/scorer`: edit-cost penalty + bigram bonus +
+ln(system freq) + ln(user freq) with 30-day recency decay, tunable via
+`scoring.txt`). A CSR bigram table gives context-aware ranking: each
+commit sets the previous word so the next query rewards its likely
+successors (and `PredictNext` exposes zero-input suggestions).
+Data-driven key equivalences (`core/equivalence_table`,
+`equivalences.txt`) make configured "same sound, different key"
+confusions cost-free.
+
+External hosts can use the C API in `core/engine_c_api.h`
+(`Engine_Initialize / Search / CommitCandidate / ImportUserDictionary /
+Destroy`).
 
 ## Design decisions
 

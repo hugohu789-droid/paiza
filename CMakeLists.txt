@@ -56,6 +56,7 @@ endif()
 # ------------------------------------------------------- portable: common ---
 add_library(paiza_common STATIC
   src/common/logging.cc
+  src/common/mapped_file.cc
   src/common/paths.cc
   src/common/string_utils.cc
 )
@@ -71,18 +72,46 @@ add_library(paiza_core STATIC
   src/core/candidate_engine.cc
   src/core/cloud_candidate_source.cc
   src/core/engine_c_api.cc
+  src/core/equivalence_table.cc
   src/core/input_session.cc
   src/core/font_stem_config.cc
   src/core/key_mapping.cc
   src/core/key_mapping_store.cc
+  src/core/lexicon_binary.cc
+  src/core/lexicon_compiler.cc
   src/core/local_dictionary_source.cc
   src/core/localization.cc
   src/core/mapping_preview.cc
+  src/core/scorer.cc
+  src/core/static_lexicon.cc
   src/core/transliterator.cc
   src/core/user_dictionary.cc
 )
 target_link_libraries(paiza_core PUBLIC paiza_common)
 target_link_libraries(paiza_core PRIVATE paiza_sqlite)
+
+# ----------------------------------------------- offline lexicon compiler ---
+# Build-time tool: compiles data/dictionary.txt (+ optional data/bigrams.txt)
+# into the binary lexicon.bin that StaticLexicon memory-maps at runtime.
+add_executable(compile_lexicon tools/compile_lexicon/main.cc)
+target_link_libraries(compile_lexicon PRIVATE paiza_core)
+
+set(PAIZA_LEXICON_BIN ${CMAKE_BINARY_DIR}/lexicon.bin)
+set(PAIZA_COMPILE_ARGS
+  --out ${PAIZA_LEXICON_BIN}
+  --dict ${CMAKE_SOURCE_DIR}/data/dictionary.txt)
+set(PAIZA_LEXICON_DEPS
+  compile_lexicon ${CMAKE_SOURCE_DIR}/data/dictionary.txt)
+if(EXISTS ${CMAKE_SOURCE_DIR}/data/bigrams.txt)
+  list(APPEND PAIZA_COMPILE_ARGS --bigram ${CMAKE_SOURCE_DIR}/data/bigrams.txt)
+  list(APPEND PAIZA_LEXICON_DEPS ${CMAKE_SOURCE_DIR}/data/bigrams.txt)
+endif()
+add_custom_command(OUTPUT ${PAIZA_LEXICON_BIN}
+  COMMAND compile_lexicon ${PAIZA_COMPILE_ARGS}
+  DEPENDS ${PAIZA_LEXICON_DEPS}
+  COMMENT "Compiling static lexicon -> lexicon.bin"
+  VERBATIM)
+add_custom_target(paiza_lexicon ALL DEPENDS ${PAIZA_LEXICON_BIN})
 
 # ------------------------------------------------------- Windows platform ---
 if(WIN32)
@@ -145,11 +174,16 @@ if(WIN32)
     user32 advapi32 shell32 comdlg32
   )
 
-  # Copy the sample dictionary next to the binaries so the service finds it.
+  # Copy the sample dictionary + compiled lexicon next to the binaries so the
+  # service finds them.
+  add_dependencies(PaizaService paiza_lexicon)
   add_custom_command(TARGET PaizaService POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/data/dictionary.txt
             $<TARGET_FILE_DIR:PaizaService>/dictionary.txt
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${PAIZA_LEXICON_BIN}
+            $<TARGET_FILE_DIR:PaizaService>/lexicon.bin
   )
 endif()
 
@@ -169,10 +203,12 @@ if(APPLE)
     ${PAIZA_MAC}/settings_store.mm
     ${PAIZA_MAC}/settings_window.mm
     data/dictionary.txt
+    ${PAIZA_LEXICON_BIN}
     ${PAIZA_MAC}/resources/MenuIcon.tiff
     ${PAIZA_MAC}/en.lproj/InfoPlist.strings
     ${PAIZA_MAC}/zh-Hans.lproj/InfoPlist.strings
   )
+  add_dependencies(PaizaIMK paiza_lexicon)
   set_target_properties(PaizaIMK PROPERTIES
     OUTPUT_NAME "PaizaMongolian"
     MACOSX_BUNDLE_INFO_PLIST ${CMAKE_SOURCE_DIR}/src/platform/macos/Info.plist
@@ -184,6 +220,8 @@ if(APPLE)
     ${PAIZA_MAC}/resources/MenuIcon.tiff
     PROPERTIES MACOSX_PACKAGE_LOCATION Resources
   )
+  set_source_files_properties(${PAIZA_LEXICON_BIN}
+    PROPERTIES GENERATED TRUE MACOSX_PACKAGE_LOCATION Resources)
   set_source_files_properties(${PAIZA_MAC}/en.lproj/InfoPlist.strings
     PROPERTIES MACOSX_PACKAGE_LOCATION Resources/en.lproj)
   set_source_files_properties(${PAIZA_MAC}/zh-Hans.lproj/InfoPlist.strings
@@ -288,11 +326,16 @@ if(UNIX AND NOT APPLE)
     configure_file(${PAIZA_LINUX}/paiza.xml.in
                    ${CMAKE_BINARY_DIR}/paiza.xml @ONLY)
 
-    # Build-tree runs find the dictionary next to the binary.
+    # Build-tree runs find the dictionary + compiled lexicon next to the
+    # binary.
+    add_dependencies(ibus-engine-paiza paiza_lexicon)
     add_custom_command(TARGET ibus-engine-paiza POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
               ${CMAKE_SOURCE_DIR}/data/dictionary.txt
               $<TARGET_FILE_DIR:ibus-engine-paiza>/dictionary.txt
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              ${PAIZA_LEXICON_BIN}
+              $<TARGET_FILE_DIR:ibus-engine-paiza>/lexicon.bin
     )
 
     install(TARGETS ibus-engine-paiza paiza-ime-settings
@@ -300,6 +343,7 @@ if(UNIX AND NOT APPLE)
     install(FILES ${CMAKE_BINARY_DIR}/paiza.xml
             DESTINATION ${PAIZA_IBUS_COMPONENT_DIR})
     install(FILES data/dictionary.txt
+                  ${PAIZA_LEXICON_BIN}
                   ${PAIZA_LINUX}/resources/paiza-mn.png
             DESTINATION share/ibus-paiza)
     # GNOME Shell extension: vertical Mongolian in the shell's IBus
@@ -335,11 +379,14 @@ if(PAIZA_BUILD_TESTS)
     src/platform/linux/settings_store.cc
     tests/candidate_engine_test.cc
     tests/engine_c_api_test.cc
+    tests/equivalence_table_test.cc
     tests/input_session_test.cc
     tests/key_mapping_test.cc
     tests/linux_settings_store_test.cc
     tests/local_dictionary_source_test.cc
     tests/localization_test.cc
+    tests/scorer_test.cc
+    tests/static_lexicon_test.cc
     tests/string_utils_test.cc
     tests/transliterator_test.cc
     tests/user_dictionary_test.cc
