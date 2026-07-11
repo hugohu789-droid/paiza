@@ -50,6 +50,13 @@ class InverseTable {
   std::map<wchar_t, std::string> map_;
 };
 
+// Format / control characters that are part of the stored text but not of the
+// lookup key: BIRGA, NIRUGU, FVS1-4 + MVS (U+180A..U+180F), NNBSP. Users don't
+// type these, so they are stripped from keys on both sides.
+bool IsFormatCodepoint(wchar_t cp) {
+  return cp == 0x1800 || (cp >= 0x180A && cp <= 0x180F) || cp == 0x202F;
+}
+
 }  // namespace
 
 std::string Romanize(const std::wstring& text) {
@@ -57,6 +64,7 @@ std::string Romanize(const std::wstring& text) {
   std::string out;
   out.reserve(text.size());
   for (wchar_t cp : text) {
+    if (IsFormatCodepoint(cp)) continue;  // Not part of the lookup key.
     if (const std::string* token = table.Find(cp)) {
       out += *token;
     } else if (cp < 0x80) {

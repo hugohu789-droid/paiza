@@ -265,7 +265,15 @@ extern "C" {
   `InputSession` 查询时**双键并查**:原始按键(命中手写/gloss 键)+ `Romanize(preedit)`
   (命中罗马化键,布局无关、消化二合)。既不破坏"打 gloss"旧习,又让改键盘后仍
   命中同一词。实测:`mongol`(gloss)与 `mqnggql`(蒙古字母)均命中 ᠮᠣᠩᠭᠣᠯ。
-- 后续增量:GB/T 固定序列规则表;格式符从查询键剥离;Windows TSF 对齐;辅音骨架输入。
+- **增量 3(已实现)**:格式符剥离 + GB/T 固定序列内嵌。`Romanize` 现在从查询键
+  **剥离格式/控制码点**(BIRGA 1800、NIRUGU 180A、FVS1-4 180B/C/D/F、MVS 180E、
+  NNBSP 202F)——编译期生成键与运行期查询键两侧一致剥离,含 MVS 的词无需敲 MVS
+  即可命中。`data/fixed_sequences.txt`(GB/T 表 D.2 的 33 条格附加成分固定序列 +
+  表 D.3 的 3 条固定搭配,格式:空格分隔十六进制码点,`A|B` 谐元变体,`MVS` 标记)
+  由编译器 `--fixed` **内嵌进 `lexicon.bin`(格式升 v4)**,运行期 `StaticLexicon`
+  加载并经 `fixed_sequences()` 暴露,供合成层使用(合成期 MVS 插入与后缀谐元归一
+  在后续合成增量落地)。
+- 后续增量:Windows TSF 对齐(发送罗马化键 + 剥离);辅音骨架输入;设置页软等价开关。
 
 ### Phase 3 实现落点
 

@@ -199,6 +199,49 @@ std::wstring BuildLexiconWithEquiv(const std::string& dict_lines,
   return bin;
 }
 
+TEST(StaticLexiconFixedSeqTest, EmbedsAndExposesFixedSequences) {
+  const std::wstring dict = TempFile("pz_fx_dict.txt");
+  const std::wstring fixed = TempFile("pz_fx_rules.txt");
+  const std::wstring bin = TempFile("pz_fx_bin.bin");
+  const std::string rules = "MVS 1820|1821\n1824 1824\n";
+  {
+    std::ofstream f(std::filesystem::path(dict),
+                    std::ios::binary | std::ios::trunc);
+    f << "a\t" << WideToUtf8(L"\x1820") << "\t1\n";
+  }
+  {
+    std::ofstream f(std::filesystem::path(fixed),
+                    std::ios::binary | std::ios::trunc);
+    f << rules;
+  }
+  LexiconCompiler compiler;
+  ASSERT_GE(compiler.AddDictionaryFile(dict), 0);
+  ASSERT_TRUE(compiler.SetFixedSequenceFile(fixed));
+  ASSERT_TRUE(compiler.Write(bin));
+  StaticLexicon lex;
+  ASSERT_TRUE(lex.Load(bin));
+  EXPECT_EQ(lex.fixed_sequences(), rules);  // Round-trips inside the binary.
+}
+
+TEST(StaticLexiconFixedSeqTest, FindsWordWithStrippedMvs) {
+  // A word stored with a medial MVS is found by typing without it (the MVS is
+  // stripped from the lookup key).
+  const std::wstring dict = TempFile("pz_mvs_dict.txt");
+  const std::wstring bin = TempFile("pz_mvs_bin.bin");
+  {
+    std::ofstream f(std::filesystem::path(dict),
+                    std::ios::binary | std::ios::trunc);
+    // ᠰᠠ + MVS + ᠨ ; romanizes (MVS stripped) to "san".
+    f << "gloss\t" << WideToUtf8(L"\x1830\x1820\x180E\x1828") << "\t50\n";
+  }
+  LexiconCompiler compiler;
+  ASSERT_GE(compiler.AddDictionaryFile(dict), 0);
+  ASSERT_TRUE(compiler.Write(bin));
+  StaticLexicon lex;
+  ASSERT_TRUE(lex.Load(bin));
+  EXPECT_FALSE(lex.Query("san", 9).empty());  // No MVS typed.
+}
+
 TEST(StaticLexiconRomanizedKeyTest, CompilerAddsRomanizedKey) {
   // A dictionary entry keyed on a gloss is also reachable by the romanized
   // key derived from its Mongolian word (layout-independent lookup).

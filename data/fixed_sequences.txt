@@ -1,0 +1,54 @@
+# Paiza Mongolian IME — traditional Mongolian fixed character sequences.
+#
+# Source: GB/T national standard, appendix D (传统蒙古文固定字符序列):
+#   Table D.2 — 格附加成分固定字符序列 (case/suffix presentation forms that
+#               depend on a leading MVS to render correctly), 33 sequences.
+#   Table D.3 — 固定搭配的固定字符序列 (fixed collocations), 3 sequences.
+#
+# These are canonical ENCODING rules, not vocabulary: they drive correct
+# MVS/suffix composition and harmony normalisation in the compose layer. They
+# are embedded verbatim into lexicon.bin so compile and runtime agree.
+#
+# Format: one sequence per line, space-separated hex codepoints. "A|B" marks a
+# vowel-harmony variant position (either codepoint is valid). "MVS" = U+180E.
+# '#' begins a comment.
+
+# --- Table D.2: MVS-dependent suffix presentation forms ---
+MVS 1820|1821
+MVS 1820 1834 1820
+MVS 1820 1834 1820 182D 1820 1828
+MVS 1822
+MVS 1822 1836 1820|1821 1837
+MVS 1822 1836 1820|1821 1828
+MVS 1824|1826
+MVS 1824|1826 1828
+MVS 1824|1826 1833
+MVS 1834 1824|1826
+MVS 1832 1824|1826
+MVS 1832 1826 1837
+MVS 1832 1826 1828 1822
+MVS 1836 1826 182D 1821 1828
+MVS 182F 1826 182D 1821
+MVS 1828 1826 182D 1826 1833
+MVS 1828 1826 182D 1821 1828
+MVS 1836 1826 182E
+MVS 1836 1826 182E 1830 1821 1828
+MVS 182C 1826
+MVS 1836 1822
+MVS 1836 1822 1828
+MVS 1833 1820 182D 1820 1828
+MVS 1833 1821 182D 1821 1828
+MVS 1833 1824|1826
+MVS 1833 1820 182D
+MVS 1833 1821 182D
+MVS 1833 1820|1821 182C 1822
+MVS 1833 1824|1826 1837
+MVS 1833 1824|1826 1828 1822
+MVS 1833 1824 182D 1820 1837
+MVS 1833 1826 182D 1821 1837
+MVS 1833 1820|1821
+
+# --- Table D.3: fixed collocations ---
+1824 1824
+1826 1826
+182A 1826 1826

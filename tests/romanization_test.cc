@@ -42,6 +42,14 @@ TEST(RomanizationTest, PassesAsciiThroughAndDropsUnknown) {
   EXPECT_EQ(Romanize(L"\x1820z\x1821"), "aze");  // Mixed: a + 'z' + e.
 }
 
+TEST(RomanizationTest, StripsFormatCharacters) {
+  // MVS/FVS/NIRUGU/BIRGA/NNBSP are not part of the lookup key.
+  EXPECT_EQ(Romanize(L"\x1830\x180E\x1820"), "sa");  // s + MVS + a
+  EXPECT_EQ(Romanize(L"\x1820\x180B\x1821"), "ae");  // a + FVS1 + e
+  EXPECT_EQ(Romanize(L"\x1820\x202F\x1821"), "ae");  // a + NNBSP + e
+  EXPECT_EQ(Romanize(L"\x1800\x1830"), "s");         // BIRGA + s
+}
+
 TEST(RomanizationTest, DetectsMongolianLetters) {
   EXPECT_TRUE(ContainsMongolianLetter(L"\x1820"));            // U+1820.
   EXPECT_TRUE(ContainsMongolianLetter(L"x\x1842y"));          // U+1842.

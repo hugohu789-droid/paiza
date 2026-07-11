@@ -35,6 +35,10 @@ class LexiconCompiler {
   // true if the file was read.
   bool SetEquivalenceFile(const std::wstring& path);
 
+  // Loads the GB/T fixed-sequence rules file (fixed_sequences.txt) verbatim,
+  // embedded for the compose layer. Returns true if the file was read.
+  bool SetFixedSequenceFile(const std::wstring& path);
+
   // Builds and atomically writes the binary lexicon. Returns false on I/O
   // failure or when there are no entries.
   bool Write(const std::wstring& path) const;
@@ -55,7 +59,8 @@ class LexiconCompiler {
 
   std::vector<Entry> entries_;
   std::vector<Bigram> bigrams_;
-  std::string equivalences_;  // Raw equivalences.txt text (embedded verbatim).
+  std::string equivalences_;    // Raw equivalences.txt (embedded verbatim).
+  std::string fixed_sequences_; // Raw fixed_sequences.txt (embedded verbatim).
 };
 
 }  // namespace paiza

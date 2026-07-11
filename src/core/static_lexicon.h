@@ -71,6 +71,9 @@ class StaticLexicon : public CandidateSource {
   uint32_t entry_count() const {
     return header_ ? header_->entry_count : 0;
   }
+  // GB/T fixed-sequence rules embedded at compile time (raw text), for the
+  // compose layer. Empty when the lexicon carries none.
+  const std::string& fixed_sequences() const { return fixed_sequences_; }
   uint32_t key_count() const { return header_ ? header_->key_count : 0; }
   uint32_t dawg_node_count() const {
     return header_ ? header_->dawg_node_count : 0;
@@ -121,6 +124,7 @@ class StaticLexicon : public CandidateSource {
   DawgView dawg_;
   Scorer scorer_;
   EquivalenceTable equivalences_;
+  std::string fixed_sequences_;  // Raw GB/T rules blob (compose layer).
   std::atomic<uint32_t> context_word_id_{0};
 };
 

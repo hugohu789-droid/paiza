@@ -67,6 +67,12 @@ bool StaticLexicon::Load(const std::wstring& bin_path) {
                                                      header_->equiv_blob_offset);
     equivalences_.LoadFromString(std::string(blob, header_->equiv_blob_size));
   }
+  fixed_sequences_.clear();
+  if (header_->fixed_blob_size > 0) {
+    const char* blob = reinterpret_cast<const char*>(file_.data() +
+                                                     header_->fixed_blob_offset);
+    fixed_sequences_.assign(blob, header_->fixed_blob_size);
+  }
   Logf(LogLevel::kInfo, L"Static lexicon mapped: %u entries",
        header_->entry_count);
   return true;

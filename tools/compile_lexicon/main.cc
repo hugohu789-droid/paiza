@@ -29,6 +29,7 @@ void PrintUsage(const char* argv0) {
 int main(int argc, char** argv) {
   std::wstring out_path;
   std::wstring equiv_path;
+  std::wstring fixed_path;
   std::vector<std::wstring> dict_paths;
   std::vector<std::wstring> bigram_paths;
 
@@ -49,6 +50,8 @@ int main(int argc, char** argv) {
       bigram_paths.push_back(next("--bigram"));
     } else if (arg == "--equiv") {
       equiv_path = next("--equiv");
+    } else if (arg == "--fixed") {
+      fixed_path = next("--fixed");
     } else {
       std::fprintf(stderr, "Unknown argument: %s\n", arg.c_str());
       PrintUsage(argv[0]);
@@ -90,6 +93,15 @@ int main(int argc, char** argv) {
     }
     std::fprintf(stderr, "  equiv %s: embedded\n",
                  paiza::WideToUtf8(equiv_path).c_str());
+  }
+  if (!fixed_path.empty()) {
+    if (!compiler.SetFixedSequenceFile(fixed_path)) {
+      std::fprintf(stderr, "Cannot open fixed sequences: %s\n",
+                   paiza::WideToUtf8(fixed_path).c_str());
+      return 1;
+    }
+    std::fprintf(stderr, "  fixed %s: embedded\n",
+                 paiza::WideToUtf8(fixed_path).c_str());
   }
 
   if (!compiler.Write(out_path)) {

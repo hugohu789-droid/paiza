@@ -27,8 +27,9 @@
 namespace paiza {
 
 inline constexpr uint32_t kLexiconMagic = 0x584C5A50;  // "PZLX"
-// v2 adds the DAWG section; v3 adds the embedded equivalence-rules blob.
-inline constexpr uint32_t kLexiconVersion = 3;
+// v2 adds the DAWG section; v3 the equivalence-rules blob; v4 the GB/T
+// fixed-sequence rules blob.
+inline constexpr uint32_t kLexiconVersion = 4;
 inline constexpr uint32_t kLexiconEndianMark = 0x01020304;
 
 #pragma pack(push, 1)
@@ -58,10 +59,15 @@ struct LexiconHeader {
   // Equivalence-rules blob (v3): the raw equivalences.txt text, parsed by the
   // reader into soft-equivalence classes. equiv_blob_size == 0 means none.
   uint64_t equiv_blob_offset = 0;
+  // GB/T fixed-sequence rules blob (v4): raw fixed_sequences.txt text for the
+  // compose layer. fixed_blob_size == 0 means none.
+  uint64_t fixed_blob_offset = 0;
   uint32_t dawg_node_count = 0;
   uint32_t dawg_trans_count = 0;
   uint32_t dawg_root = 0;
   uint32_t equiv_blob_size = 0;
+  uint32_t fixed_blob_size = 0;
+  uint32_t reserved = 0;
 };
 
 // A DAWG state. Transitions live contiguously in the trans array, sorted by
@@ -101,7 +107,7 @@ struct BigramEdge {
 
 #pragma pack(pop)
 
-static_assert(sizeof(LexiconHeader) == 144, "header layout is the contract");
+static_assert(sizeof(LexiconHeader) == 160, "header layout is the contract");
 static_assert(sizeof(KeyRecord) == 16, "key record layout is the contract");
 static_assert(sizeof(EntryRecord) == 16, "entry layout is the contract");
 static_assert(sizeof(BigramEdge) == 8, "edge layout is the contract");

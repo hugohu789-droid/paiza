@@ -111,6 +111,15 @@ bool LexiconCompiler::SetEquivalenceFile(const std::wstring& path) {
   return true;
 }
 
+bool LexiconCompiler::SetFixedSequenceFile(const std::wstring& path) {
+  std::ifstream file(std::filesystem::path(path), std::ios::binary);
+  if (!file.is_open()) return false;
+  std::ostringstream buffer;
+  buffer << file.rdbuf();
+  fixed_sequences_ = buffer.str();
+  return true;
+}
+
 bool LexiconCompiler::Write(const std::wstring& path) const {
   if (entries_.empty()) return false;
 
@@ -260,6 +269,14 @@ bool LexiconCompiler::Write(const std::wstring& path) const {
     header.equiv_blob_offset = offset;
     payload.insert(payload.end(), equivalences_.begin(), equivalences_.end());
     offset += equivalences_.size();
+  }
+
+  header.fixed_blob_size = static_cast<uint32_t>(fixed_sequences_.size());
+  if (!fixed_sequences_.empty()) {
+    header.fixed_blob_offset = offset;
+    payload.insert(payload.end(), fixed_sequences_.begin(),
+                   fixed_sequences_.end());
+    offset += fixed_sequences_.size();
   }
 
   header.file_size = header_size + payload.size();

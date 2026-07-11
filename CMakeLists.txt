@@ -124,6 +124,11 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/data/equivalences.txt)
     --equiv ${CMAKE_SOURCE_DIR}/data/equivalences.txt)
   list(APPEND PAIZA_LEXICON_DEPS ${CMAKE_SOURCE_DIR}/data/equivalences.txt)
 endif()
+if(EXISTS ${CMAKE_SOURCE_DIR}/data/fixed_sequences.txt)
+  list(APPEND PAIZA_COMPILE_ARGS
+    --fixed ${CMAKE_SOURCE_DIR}/data/fixed_sequences.txt)
+  list(APPEND PAIZA_LEXICON_DEPS ${CMAKE_SOURCE_DIR}/data/fixed_sequences.txt)
+endif()
 add_custom_command(OUTPUT ${PAIZA_LEXICON_BIN}
   COMMAND compile_lexicon ${PAIZA_COMPILE_ARGS}
   DEPENDS ${PAIZA_LEXICON_DEPS}

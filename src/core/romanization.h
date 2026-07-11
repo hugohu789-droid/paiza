@@ -20,9 +20,11 @@
 
 namespace paiza {
 
-// Maps each codepoint of `text` to its default-layout latin token; codepoints
-// with no mapping pass through if ASCII, and are dropped otherwise. Total
-// function (never fails). For the default keymap this inverts Convert exactly.
+// Maps each codepoint of `text` to its default-layout latin token; format /
+// control characters (BIRGA, NIRUGU, FVS1-4, MVS, NNBSP) are stripped since
+// users don't type them; unmapped codepoints pass through if ASCII, else are
+// dropped. Total function. For the default keymap this inverts Convert exactly
+// (apart from the stripped format chars and the "ng" digraph).
 std::string Romanize(const std::wstring& text);
 
 // True if `text` contains at least one traditional-Mongolian letter
