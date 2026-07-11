@@ -24,6 +24,10 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #include "common/string_utils.h"
 #include "core/candidate_engine.h"
 #include "core/input_session.h"
@@ -52,6 +56,12 @@ std::string Codepoints(const std::wstring& w) {
 }  // namespace
 
 int main(int argc, char** argv) {
+#ifdef _WIN32
+  // Emit UTF-8 so the Mongolian output isn't mis-decoded in the console's
+  // default (non-UTF-8) code page. The U+ codepoints stay readable either
+  // way; a console font without Mongolian glyphs shows boxes, not garbage.
+  ::SetConsoleOutputCP(CP_UTF8);
+#endif
   std::wstring lexicon_path = L"lexicon.bin";
   std::wstring dict_path = L"dictionary.txt";
   std::wstring keymap_path;   // Empty => built-in default mapping.
