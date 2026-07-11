@@ -199,6 +199,63 @@ std::wstring BuildLexiconWithEquiv(const std::string& dict_lines,
   return bin;
 }
 
+TEST(StaticLexiconSkeletonTest, MatchesConsonantSkeleton) {
+  // Keys use ASCII vowels a/i (also Mongolian-vowel keys) and consonants.
+  const std::wstring bin = BuildLexiconWithEquiv(
+      "sain\tS1\t100\nsar\tS2\t80\n", "", "skel");
+  StaticLexicon lex;
+  ASSERT_TRUE(lex.Load(bin));
+  // "sn" is the consonant skeleton of "sain" (skip a, i).
+  bool found = false;
+  for (const auto& c : lex.Query("sn", 9))
+    if (c.text == L"S1") found = true;
+  EXPECT_TRUE(found);
+}
+
+TEST(StaticLexiconSkeletonTest, MiddleVowelsOptional) {
+  const std::wstring bin =
+      BuildLexiconWithEquiv("bagsi\tB1\t100\n", "", "skel2");
+  StaticLexicon lex;
+  ASSERT_TRUE(lex.Load(bin));
+  auto has = [&](const char* q) {
+    for (const auto& c : lex.Query(q, 9))
+      if (c.text == L"B1") return true;
+    return false;
+  };
+  EXPECT_TRUE(has("bgs"));    // Skip both vowels.
+  EXPECT_TRUE(has("bags"));   // Keep one vowel.
+  EXPECT_TRUE(has("bagsi"));  // Exact.
+}
+
+TEST(StaticLexiconSkeletonTest, LeadingVowelCannotBeOmitted) {
+  // "aral" starts with the vowel 'a'. Its consonant-only skeleton "rl" omits
+  // the leading vowel and two vowels total (beyond edit-distance-1 tolerance),
+  // so it must NOT match; "arl" (leading vowel typed) does.
+  const std::wstring bin =
+      BuildLexiconWithEquiv("aral\tA1\t100\n", "", "skel3");
+  StaticLexicon lex;
+  ASSERT_TRUE(lex.Load(bin));
+  auto has = [&](const char* q) {
+    for (const auto& c : lex.Query(q, 9))
+      if (c.text == L"A1") return true;
+    return false;
+  };
+  EXPECT_FALSE(has("rl"));   // Leading vowel omitted -> rejected.
+  EXPECT_TRUE(has("arl"));   // Leading vowel typed -> matched.
+}
+
+TEST(StaticLexiconSkeletonTest, ExactRanksAboveSkeleton) {
+  // Two words: "sn" is exact for one, a skeleton match for the other.
+  const std::wstring bin = BuildLexiconWithEquiv(
+      "sn\tEXACT\t50\nsan\tSKEL\t100\n", "", "skel4");
+  StaticLexicon lex;
+  ASSERT_TRUE(lex.Load(bin));
+  const auto results = lex.Query("sn", 9);
+  ASSERT_GE(results.size(), 2u);
+  // Even though SKEL has higher frequency, the exact "sn" match ranks first.
+  EXPECT_EQ(results[0].text, L"EXACT");
+}
+
 TEST(StaticLexiconFixedSeqTest, EmbedsAndExposesFixedSequences) {
   const std::wstring dict = TempFile("pz_fx_dict.txt");
   const std::wstring fixed = TempFile("pz_fx_rules.txt");

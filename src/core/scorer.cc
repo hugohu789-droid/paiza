@@ -39,6 +39,7 @@ void Scorer::LoadWeights(const std::wstring& path) {
     const double v = std::atof(value.c_str());
     if (key == "w_edit") weights_.w_edit = v;
     else if (key == "w_variant") weights_.w_variant = v;
+    else if (key == "w_skeleton") weights_.w_skeleton = v;
     else if (key == "w_bigram") weights_.w_bigram = v;
     else if (key == "w_sys") weights_.w_sys = v;
     else if (key == "w_user") weights_.w_user = v;
@@ -56,6 +57,7 @@ double Scorer::Score(const ScoreSignals& signals, int64_t now_unix) const {
   }
   return weights_.w_edit * (-static_cast<double>(signals.edit_cost)) +
          weights_.w_variant * (-static_cast<double>(signals.variant_cost)) +
+         weights_.w_skeleton * (-static_cast<double>(signals.skeleton_cost)) +
          weights_.w_bigram * (signals.bigram_hit ? 1.0 : 0.0) +
          weights_.w_sys * std::log1p(static_cast<double>(signals.system_frequency)) +
          weights_.w_user * std::log1p(user_freq);

@@ -32,6 +32,11 @@ std::string Romanize(const std::wstring& text);
 // (placeholder / non-Mongolian text yields no romanized key).
 bool ContainsMongolianLetter(const std::wstring& text);
 
+// True if `key` is a latin key that maps to a Mongolian vowel (U+1820..U+1827)
+// in the default layout: a e i o q u v E. Used by consonant-skeleton input to
+// decide which key characters may be omitted.
+bool IsMongolianVowelKey(char key);
+
 }  // namespace paiza
 
 #endif  // PAIZA_CORE_ROMANIZATION_H_

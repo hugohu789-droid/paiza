@@ -26,6 +26,8 @@ struct ScoringWeights {
   double w_variant = 2.0; // Penalty per soft-equivalence substitution. Must be
                           // < w_edit (a variant beats a typo) and > 0 (an
                           // exact spelling beats its variant).
+  double w_skeleton = 3.0;  // Penalty per vowel omitted in consonant-skeleton
+                            // input, so full spellings outrank abbreviations.
   double w_bigram = 2.0;  // Bonus when the previous word predicts this one.
   double w_sys = 1.0;     // Weight on ln(system frequency).
   double w_user = 1.2;    // Weight on ln(decayed user frequency).
@@ -39,6 +41,7 @@ struct ScoreSignals {
   int variant_cost = 0;   // Count of soft-equivalence substitutions used
                           // (o/u, q/v, h/g, t/d): recalled but ranked below
                           // the exact spelling.
+  int skeleton_cost = 0;  // Vowels omitted in consonant-skeleton input.
   bool bigram_hit = false;
   int64_t last_used_unix = 0;  // 0 = never used (no decay applied).
 };

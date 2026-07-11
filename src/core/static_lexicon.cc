@@ -10,6 +10,7 @@
 #include "common/logging.h"
 #include "common/string_utils.h"
 #include "core/equivalence_table.h"
+#include "core/romanization.h"
 #include "core/scorer.h"
 
 namespace paiza {
@@ -166,7 +167,7 @@ bool StaticLexicon::RowContains(const std::vector<uint32_t>& row,
 }
 
 void StaticLexicon::CollectKeyEntries(uint32_t key_i, int edit_cost,
-                                      int variant_cost,
+                                      int variant_cost, int skeleton_cost,
                                       const std::vector<uint32_t>& bigram_row,
                                       std::vector<uint32_t>& seen_ids,
                                       std::vector<Candidate>& out) const {
@@ -186,6 +187,7 @@ void StaticLexicon::CollectKeyEntries(uint32_t key_i, int edit_cost,
     signals.system_frequency = rec.frequency;
     signals.edit_cost = edit_cost;
     signals.variant_cost = variant_cost;
+    signals.skeleton_cost = skeleton_cost;
     signals.bigram_hit = bigram_hit;
     candidate.score = scorer_.ScoreToInt(signals, 0);
     out.push_back(std::move(candidate));
@@ -210,8 +212,8 @@ std::vector<Candidate> StaticLexicon::Query(const std::string& latin_input,
                     latin_input.size()) != 0) {
       break;  // Sorted: the prefix run has ended.
     }
-    CollectKeyEntries(idx, /*edit_cost=*/0, /*variant_cost=*/0, bigram_row,
-                      seen_ids, out);
+    CollectKeyEntries(idx, /*edit_cost=*/0, /*variant_cost=*/0,
+                      /*skeleton_cost=*/0, bigram_row, seen_ids, out);
   }
 
   // Fault tolerance only when the exact/prefix pass is thin and the input is
@@ -221,6 +223,14 @@ std::vector<Candidate> StaticLexicon::Query(const std::string& latin_input,
     LevenshteinAutomaton automaton(latin_input, 1, &equivalences_);
     IntersectDfs(dawg_.root(), automaton, automaton.Start(), 0, bigram_row,
                  seen_ids, out);
+  }
+
+  // Consonant-skeleton input: match keys of which the input is a vowel-
+  // skipping subsequence (abbreviated typing). Lowest-priority pass, only when
+  // still thin, so it never crowds out exact/prefix/tolerant results.
+  if (out.size() < max_results && latin_input.size() >= 2 && dawg_.valid()) {
+    SkeletonDfs(latin_input, dawg_.root(), 0, 0, 0, /*is_root=*/true,
+                bigram_row, seen_ids, out);
   }
 
   std::stable_sort(out.begin(), out.end(),
@@ -249,11 +259,11 @@ void StaticLexicon::IntersectDfs(uint32_t node_index,
       // (o/u, q/v, h/g, t/d) -> a variant, recalled but ranked below exact.
       // A positive distance is a genuine typo.
       if (cost == 0) {
-        CollectKeyEntries(rank, /*edit_cost=*/0, /*variant_cost=*/1, bigram_row,
-                          seen_ids, out);
+        CollectKeyEntries(rank, /*edit_cost=*/0, /*variant_cost=*/1,
+                          /*skeleton_cost=*/0, bigram_row, seen_ids, out);
       } else {
         CollectKeyEntries(rank, /*edit_cost=*/cost, /*variant_cost=*/0,
-                          bigram_row, seen_ids, out);
+                          /*skeleton_cost=*/0, bigram_row, seen_ids, out);
       }
     }
   }
@@ -271,6 +281,58 @@ void StaticLexicon::IntersectDfs(uint32_t node_index,
       IntersectDfs(edge.target, automaton, next, child_rank, bigram_row,
                    seen_ids, out);
     }
+    child_rank += dawg_.node(edge.target).word_count;
+  }
+}
+
+void StaticLexicon::SkeletonDfs(const std::string& input, uint32_t node_index,
+                                size_t input_pos, uint32_t rank, int skipped,
+                                bool is_root,
+                                const std::vector<uint32_t>& bigram_row,
+                                std::vector<uint32_t>& seen_ids,
+                                std::vector<Candidate>& out) const {
+  const DawgNode& node = dawg_.node(node_index);
+
+  if (input_pos == input.size()) {
+    // Input fully consumed: this key matches if it ends here...
+    if (node.is_final && rank < header_->key_count) {
+      CollectKeyEntries(rank, /*edit_cost=*/0, /*variant_cost=*/0,
+                        /*skeleton_cost=*/skipped, bigram_row, seen_ids, out);
+    }
+    // ...or continues only through further (skippable) vowels to a final node.
+    uint32_t child_rank = rank + (node.is_final ? 1u : 0u);
+    const uint32_t first = node.trans_first;
+    const uint32_t last = first + node.trans_count;
+    for (uint32_t t = first; t < last; ++t) {
+      const DawgTrans& edge = dawg_.trans(t);
+      if (IsMongolianVowelKey(static_cast<char>(edge.label))) {
+        SkeletonDfs(input, edge.target, input_pos, child_rank, skipped + 1,
+                    false, bigram_row, seen_ids, out);
+      }
+      child_rank += dawg_.node(edge.target).word_count;
+    }
+    return;
+  }
+
+  const char want = input[input_pos];
+  uint32_t child_rank = rank + (node.is_final ? 1u : 0u);
+  const uint32_t first = node.trans_first;
+  const uint32_t last = first + node.trans_count;
+  for (uint32_t t = first; t < last; ++t) {
+    const DawgTrans& edge = dawg_.trans(t);
+    const char c = static_cast<char>(edge.label);
+    const bool match = c == want || equivalences_.Equivalent(c, want);
+    if (match) {
+      // Consume the input character.
+      SkeletonDfs(input, edge.target, input_pos + 1, child_rank, skipped, false,
+                  bigram_row, seen_ids, out);
+    } else if (!is_root && IsMongolianVowelKey(c)) {
+      // Omit a vowel (never at the first key character: a leading vowel must
+      // be typed).
+      SkeletonDfs(input, edge.target, input_pos, child_rank, skipped + 1, false,
+                  bigram_row, seen_ids, out);
+    }
+    // A consonant that doesn't match prunes this branch.
     child_rank += dawg_.node(edge.target).word_count;
   }
 }

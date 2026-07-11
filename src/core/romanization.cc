@@ -2,6 +2,7 @@
 
 #include "core/romanization.h"
 
+#include <array>
 #include <map>
 
 #include "core/key_mapping.h"
@@ -80,6 +81,26 @@ bool ContainsMongolianLetter(const std::wstring& text) {
     if (cp >= 0x1820 && cp <= 0x1842) return true;
   }
   return false;
+}
+
+bool IsMongolianVowelKey(char key) {
+  // Latin keys whose default-layout codepoint is a Mongolian vowel
+  // (U+1820..U+1827), computed once from the inverse table.
+  static const std::array<bool, 128> vowel = [] {
+    std::array<bool, 128> v{};
+    const InverseTable& table = InverseTable::Get();
+    for (wchar_t cp = 0x1820; cp <= 0x1827; ++cp) {
+      if (const std::string* token = table.Find(cp)) {
+        if (token->size() == 1 &&
+            static_cast<unsigned char>((*token)[0]) < 128) {
+          v[static_cast<unsigned char>((*token)[0])] = true;
+        }
+      }
+    }
+    return v;
+  }();
+  const auto uc = static_cast<unsigned char>(key);
+  return uc < 128 && vowel[uc];
 }
 
 }  // namespace paiza

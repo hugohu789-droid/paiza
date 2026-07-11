@@ -98,9 +98,10 @@ class StaticLexicon : public CandidateSource {
   // Index of the first key >= s (binary search over the sorted key table).
   uint32_t LowerBoundKey(const std::string& s) const;
 
-  // Appends every entry under key index `key_i` to `out` with the given edit
-  // and soft-equivalence (variant) costs, deduplicating by word_id via `seen`.
+  // Appends every entry under key index `key_i` to `out` with the given edit,
+  // soft-equivalence (variant) and skeleton costs, deduplicating by word_id.
   void CollectKeyEntries(uint32_t key_i, int edit_cost, int variant_cost,
+                         int skeleton_cost,
                          const std::vector<uint32_t>& bigram_row,
                          std::vector<uint32_t>& seen_ids,
                          std::vector<Candidate>& out) const;
@@ -114,6 +115,16 @@ class StaticLexicon : public CandidateSource {
                     const std::vector<uint32_t>& bigram_row,
                     std::vector<uint32_t>& seen_ids,
                     std::vector<Candidate>& out) const;
+
+  // Consonant-skeleton search: input must be a subsequence of the key where
+  // every omitted key character is a vowel, and the key's first character is
+  // never omitted (so a leading vowel must be typed). A joint DFS over the
+  // DAWG; `is_root` forbids skipping the first key character.
+  void SkeletonDfs(const std::string& input, uint32_t node_index,
+                   size_t input_pos, uint32_t rank, int skipped, bool is_root,
+                   const std::vector<uint32_t>& bigram_row,
+                   std::vector<uint32_t>& seen_ids,
+                   std::vector<Candidate>& out) const;
 
   // Sorted list of successor word_ids for a context (empty if none).
   std::vector<uint32_t> BigramRow(uint32_t context_word_id) const;
