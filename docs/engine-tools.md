@@ -152,20 +152,25 @@ CandidateEngine
 
 ```
 cmake --build build --config Debug --target build_dictionary
-./build/bin/Debug/build_dictionary --out out.txt [--min-freq N] [--phrase-min N] a.txt b.txt ...
+./build/bin/Debug/build_dictionary --out words.txt --suffix-out sfx.txt \
+    --phrase-out phrases.txt [--min-freq N] [--phrase-min N] a.txt b.txt ...
 ```
 
-- **切词**：按 ASCII 空格/数字/标点切分,但把**词内连接符 MVS(U+180E)、NNBSP
-  (U+202F)、FVS(180B–180F)、NIRUGU(180A) 当作词内字符不切开**——所以带附加成分
-  的屈折形（如 `词干<NNBSP>格附加成分`）整体保留为一个词条。
-- **latin key**：用项目的 `Romanize`（默认布局逆映射,自动剥离上述连接符）生成,
-  与引擎查询键一致。
-- **短语**：相邻词二元组,出现次数 ≥ `--phrase-min`（默认 2,设 0 关闭）输出为短语
-  条目（蒙古文字段两词以空格分隔,键为两词罗马化拼接）。
-- `--min-freq`（默认 1）过滤低频词;不给 `--out` 则输出到标准输出。
+三份**独立输出**(均为 `latin_key<TAB>蒙古文<TAB>词频`,短语除外):
 
-产物可直接作为 `data/dictionary.txt`,或喂给 `compile_lexicon --dict` 编译成
-`lexicon.bin`。
+- **词干**(`--out`,缺省 stdout):在 **MVS(U+180E)/NNBSP(U+202F) 处切开词干与附加
+  成分**——词干计入单词。FVS/NIRUGU 是字形选择符,留在词内不切。
+- **附加成分**(`--suffix-out`):词干之后的每段**单独统计**,存储时**不带前导连接符**。
+- **短语**(`--phrase-out`):相邻词干二元组,频次 ≥ `--phrase-min`(默认 2),以
+  **bigram 格式**输出(`latin1<TAB>m1<TAB>latin2<TAB>m2<TAB>权重`),可直接喂
+  `compile_lexicon --bigram`,驱动引擎的**下一词联想 / 上下文重排**(见 Phase 2/3
+  的 `SetContextWord`/`PredictNext`)。
+
+- **latin key** 用项目的 `Romanize`(默认布局逆映射,剥离连接符)生成,与引擎查询键一致。
+- **切词**:按 ASCII 空格/数字/标点切分,词内连接符暂不切;`--min-freq`(默认 1)过滤低频。
+
+词干产物可作为 `data/dictionary.txt`;短语 bigram 喂 `compile_lexicon --bigram`
+即启用联想。
 
 编译示例：
 
