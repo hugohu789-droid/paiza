@@ -55,6 +55,18 @@ TEST(ScorerTest, ExactBeatsVariantBeatsTypo) {
   EXPECT_GT(v, t);  // ...and the variant ranks above a genuine typo.
 }
 
+TEST(ScorerTest, PhraseRanksBelowSingleWord) {
+  Scorer scorer;
+  ScoreSignals word;  // Single word.
+  word.system_frequency = 100;
+  ScoreSignals phrase;  // Whole-phrase candidate committing one extra word.
+  phrase.system_frequency = 100;
+  phrase.phrase_cost = 1;
+  EXPECT_GT(scorer.Score(word, 0), scorer.Score(phrase, 0));
+  // A phrase frequency never exceeds its first word's, so a phrase never
+  // outranks that word: even at equal frequency the penalty keeps it below.
+}
+
 TEST(ScorerTest, BigramHitAddsBonus) {
   Scorer scorer;
   ScoreSignals no_hit;

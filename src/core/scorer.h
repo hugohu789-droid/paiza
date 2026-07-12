@@ -28,6 +28,9 @@ struct ScoringWeights {
                           // exact spelling beats its variant).
   double w_skeleton = 3.0;  // Penalty per vowel omitted in consonant-skeleton
                             // input, so full spellings outrank abbreviations.
+  double w_phrase = 4.0;    // Penalty per extra word in a whole-phrase
+                            // candidate, so a phrase is offered below the
+                            // single word the user actually typed.
   double w_bigram = 2.0;  // Bonus when the previous word predicts this one.
   double w_sys = 1.0;     // Weight on ln(system frequency).
   double w_user = 1.2;    // Weight on ln(decayed user frequency).
@@ -42,6 +45,7 @@ struct ScoreSignals {
                           // (o/u, q/v, h/g, t/d): recalled but ranked below
                           // the exact spelling.
   int skeleton_cost = 0;  // Vowels omitted in consonant-skeleton input.
+  int phrase_cost = 0;    // Extra words in a whole-phrase candidate (words-1).
   bool bigram_hit = false;
   int64_t last_used_unix = 0;  // 0 = never used (no decay applied).
 };

@@ -119,6 +119,11 @@ set(PAIZA_COMPILE_ARGS
   --dict ${CMAKE_SOURCE_DIR}/data/dictionary.txt)
 set(PAIZA_LEXICON_DEPS
   compile_lexicon ${CMAKE_SOURCE_DIR}/data/dictionary.txt)
+if(EXISTS ${CMAKE_SOURCE_DIR}/data/phrases.txt)
+  # Whole-phrase candidates keyed on the first word (from build_dictionary).
+  list(APPEND PAIZA_COMPILE_ARGS --dict ${CMAKE_SOURCE_DIR}/data/phrases.txt)
+  list(APPEND PAIZA_LEXICON_DEPS ${CMAKE_SOURCE_DIR}/data/phrases.txt)
+endif()
 if(EXISTS ${CMAKE_SOURCE_DIR}/data/bigrams.txt)
   list(APPEND PAIZA_COMPILE_ARGS --bigram ${CMAKE_SOURCE_DIR}/data/bigrams.txt)
   list(APPEND PAIZA_LEXICON_DEPS ${CMAKE_SOURCE_DIR}/data/bigrams.txt)

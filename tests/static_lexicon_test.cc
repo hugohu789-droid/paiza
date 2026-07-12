@@ -199,6 +199,22 @@ std::wstring BuildLexiconWithEquiv(const std::string& dict_lines,
   return bin;
 }
 
+TEST(StaticLexiconPhraseTest, WholePhraseSurfacesBelowFirstWord) {
+  // A phrase entry keyed on the first word: typing "sn" (= sain's key... use
+  // ASCII placeholders) surfaces both the single word and the phrase, with the
+  // phrase ranked below the single word.
+  const std::wstring bin = BuildLexiconWithEquiv(
+      "sain\tS1\t100\nsain\tS1 S2\t90\n", "", "phrase");
+  StaticLexicon lex;
+  ASSERT_TRUE(lex.Load(bin));
+  const auto results = lex.Query("sain", 9);
+  ASSERT_GE(results.size(), 2u);
+  EXPECT_EQ(results[0].text, L"S1");        // Single word first.
+  EXPECT_EQ(results[1].text, L"S1 S2");     // Phrase (multi-word) below it.
+  EXPECT_EQ(results[1].comment, L"phrase");  // Tagged as a phrase.
+  EXPECT_GT(results[0].score, results[1].score);
+}
+
 TEST(StaticLexiconSkeletonTest, MatchesConsonantSkeleton) {
   // Keys use ASCII vowels a/i (also Mongolian-vowel keys) and consonants.
   const std::wstring bin = BuildLexiconWithEquiv(

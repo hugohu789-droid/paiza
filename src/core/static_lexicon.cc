@@ -182,13 +182,19 @@ void StaticLexicon::CollectKeyEntries(uint32_t key_i, int edit_cost,
     const EntryRecord& rec = entries()[e];
     Candidate candidate;
     candidate.text = EntryText(e);
-    candidate.comment = L"lexicon";
+    // A multi-word entry is a whole-phrase candidate; each embedded space is
+    // one extra word committed, penalised so it sits below the single word.
+    const int phrase_cost =
+        static_cast<int>(std::count(candidate.text.begin(),
+                                    candidate.text.end(), L' '));
+    candidate.comment = phrase_cost > 0 ? L"phrase" : L"lexicon";
     const bool bigram_hit = RowContains(bigram_row, word_id);
     ScoreSignals signals;
     signals.system_frequency = rec.frequency;
     signals.edit_cost = edit_cost;
     signals.variant_cost = variant_cost;
     signals.skeleton_cost = skeleton_cost;
+    signals.phrase_cost = phrase_cost;
     signals.bigram_hit = bigram_hit;
     candidate.score = scorer_.ScoreToInt(signals, 0);
     out.push_back(std::move(candidate));
@@ -238,6 +244,18 @@ std::vector<Candidate> StaticLexicon::Query(const std::string& latin_input,
                    [](const Candidate& a, const Candidate& b) {
                      return a.score > b.score;
                    });
+  // Keep at most a few whole-phrase candidates so common first words are not
+  // crowded out by their collocations (the sort already ranked phrases below
+  // single words).
+  constexpr int kMaxPhraseCandidates = 3;
+  int phrases_kept = 0;
+  out.erase(std::remove_if(out.begin(), out.end(),
+                           [&phrases_kept](const Candidate& c) {
+                             if (c.text.find(L' ') == std::wstring::npos)
+                               return false;
+                             return ++phrases_kept > kMaxPhraseCandidates;
+                           }),
+            out.end());
   if (out.size() > max_results) out.resize(max_results);
   return out;
 }

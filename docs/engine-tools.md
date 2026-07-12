@@ -161,10 +161,15 @@ cmake --build build --config Debug --target build_dictionary
 - **词干**(`--out`,缺省 stdout):在 **MVS(U+180E)/NNBSP(U+202F) 处切开词干与附加
   成分**——词干计入单词。FVS/NIRUGU 是字形选择符,留在词内不切。
 - **附加成分**(`--suffix-out`):词干之后的每段**单独统计**,存储时**不带前导连接符**。
-- **短语**(`--phrase-out`):相邻词干二元组,频次 ≥ `--phrase-min`(默认 2),以
+- **短语·联想**(`--phrase-out`):相邻词干二元组,频次 ≥ `--phrase-min`(默认 2),以
   **bigram 格式**输出(`latin1<TAB>m1<TAB>latin2<TAB>m2<TAB>权重`),可直接喂
   `compile_lexicon --bigram`,驱动引擎的**下一词联想 / 上下文重排**(见 Phase 2/3
   的 `SetContextWord`/`PredictNext`)。
+- **短语·整串候选**(`--phrase-as-entry`):把强搭配做成**词条**,键=首词罗马化,
+  文本=`"词1 词2"`——**打首词即出整串**,选中一次上屏两词。只保留条件概率
+  `P(词2|词1) ≥ --phrase-cond`(默认 0.2)的固定搭配。产物当普通 `--dict` 喂
+  `compile_lexicon`(或放 `data/phrases.txt`,构建期自动编入)。引擎按 `w_phrase`
+  (默认 4)惩罚使其排在同频单词之下、每次查询最多显示 3 条。
 
 - **latin key** 用项目的 `Romanize`(默认布局逆映射,剥离连接符)生成,与引擎查询键一致。
 - **切词**:按 ASCII 空格/数字/标点切分,词内连接符暂不切;`--min-freq`(默认 1)过滤低频。

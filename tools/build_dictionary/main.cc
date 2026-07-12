@@ -153,8 +153,10 @@ int main(int argc, char** argv) {
   std::string out_path;
   std::string suffix_path;
   std::string phrase_path;
+  std::string phrase_entry_path;
   uint32_t min_freq = 1;
   uint32_t phrase_min = 2;
+  double phrase_cond = 0.2;  // Min P(word2|word1) for a whole-phrase entry.
   std::vector<std::string> inputs;
 
   for (int i = 1; i < argc; ++i) {
@@ -165,6 +167,10 @@ int main(int argc, char** argv) {
       suffix_path = argv[++i];
     } else if (arg == "--phrase-out" && i + 1 < argc) {
       phrase_path = argv[++i];
+    } else if (arg == "--phrase-as-entry" && i + 1 < argc) {
+      phrase_entry_path = argv[++i];
+    } else if (arg == "--phrase-cond" && i + 1 < argc) {
+      phrase_cond = std::atof(argv[++i]);
     } else if (arg == "--min-freq" && i + 1 < argc) {
       min_freq = static_cast<uint32_t>(std::atoi(argv[++i]));
     } else if (arg == "--phrase-min" && i + 1 < argc) {
@@ -278,7 +284,48 @@ int main(int argc, char** argv) {
     f << out.str();
   }
 
-  std::fprintf(stderr, "%zu words, %zu suffixes, %zu phrases written\n",
-               word_entries.size(), suffix_count, phrase_count);
+  // Whole-phrase candidates -> --phrase-as-entry, dictionary.txt format but
+  // keyed on the FIRST word only (so typing it surfaces the phrase), kept
+  // only for strong collocations: P(w2|w1) >= cond.
+  size_t phrase_entry_count = 0;
+  if (!phrase_entry_path.empty() && phrase_min > 0) {
+    // (key = Romanize(w1), mongolian = "w1 w2", freq), sorted by freq.
+    std::vector<std::pair<std::wstring, uint32_t>> selected;  // w1<TAB>w2.
+    for (const auto& [key, freq] : phrases) {
+      if (freq < phrase_min) continue;
+      const std::wstring w1 = key.substr(0, key.find(L'\t'));
+      const uint32_t w1_total = words.count(w1) ? words[w1] : 0;
+      if (w1_total == 0) continue;
+      if (static_cast<double>(freq) / w1_total < phrase_cond) continue;
+      selected.emplace_back(key, freq);
+    }
+    std::sort(selected.begin(), selected.end(),
+              [](const auto& a, const auto& b) { return a.second > b.second; });
+    std::ostringstream out;
+    out << "# Whole-phrase candidates (keyed on the first word).\n"
+        << "# Format: <latin_key>\\t<mongolian_utf8>\\t<frequency>\n";
+    for (const auto& [key, freq] : selected) {
+      const size_t tab = key.find(L'\t');
+      const std::wstring w1 = key.substr(0, tab);
+      const std::wstring w2 = key.substr(tab + 1);
+      const std::string k = KeyFor(w1);  // First word only.
+      if (k.empty()) continue;
+      out << k << '\t' << paiza::WideToUtf8(w1 + L' ' + w2) << '\t' << freq
+          << '\n';
+      ++phrase_entry_count;
+    }
+    std::ofstream f(phrase_entry_path, std::ios::binary | std::ios::trunc);
+    if (!f.is_open()) {
+      std::fprintf(stderr, "Cannot write %s\n", phrase_entry_path.c_str());
+      return 1;
+    }
+    f << out.str();
+  }
+
+  std::fprintf(stderr,
+               "%zu words, %zu suffixes, %zu phrase-bigrams, "
+               "%zu phrase-entries written\n",
+               word_entries.size(), suffix_count, phrase_count,
+               phrase_entry_count);
   return 0;
 }
