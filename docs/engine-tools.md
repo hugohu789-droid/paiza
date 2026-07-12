@@ -141,8 +141,31 @@ CandidateEngine
 | 工具 | 用途 | 源码 |
 |---|---|---|
 | `compile_lexicon` | 离线编译器：`dictionary.txt`(+`bigrams.txt`) → `lexicon.bin`（构建期自动运行） | `tools/compile_lexicon/main.cc` |
+| `build_dictionary` | 语料 → `dictionary.txt`：从蒙古文 txt 抽取单词+短语并计频 | `tools/build_dictionary/main.cc` |
 | `lexicon_bench` | 性能台架：合成大词库，测量 P50/P90/P99 查询延迟与 DAWG 压缩比 | `tools/lexicon_bench/main.cc` |
 | `tune_scoring` | 打分权重评测：对带标注的查询集报告 top-1/top-3/MRR | `tools/tune_scoring/main.cc` |
+
+### build_dictionary — 语料转词库
+
+把含蒙古文的 UTF-8 txt（新闻、作文等）转成本项目 `dictionary.txt` 格式
+（`latin_key<TAB>蒙古文<TAB>词频`),抽取单词与短语并计频。
+
+```
+cmake --build build --config Debug --target build_dictionary
+./build/bin/Debug/build_dictionary --out out.txt [--min-freq N] [--phrase-min N] a.txt b.txt ...
+```
+
+- **切词**：按 ASCII 空格/数字/标点切分,但把**词内连接符 MVS(U+180E)、NNBSP
+  (U+202F)、FVS(180B–180F)、NIRUGU(180A) 当作词内字符不切开**——所以带附加成分
+  的屈折形（如 `词干<NNBSP>格附加成分`）整体保留为一个词条。
+- **latin key**：用项目的 `Romanize`（默认布局逆映射,自动剥离上述连接符）生成,
+  与引擎查询键一致。
+- **短语**：相邻词二元组,出现次数 ≥ `--phrase-min`（默认 2,设 0 关闭）输出为短语
+  条目（蒙古文字段两词以空格分隔,键为两词罗马化拼接）。
+- `--min-freq`（默认 1）过滤低频词;不给 `--out` 则输出到标准输出。
+
+产物可直接作为 `data/dictionary.txt`,或喂给 `compile_lexicon --dict` 编译成
+`lexicon.bin`。
 
 编译示例：
 

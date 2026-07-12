@@ -109,6 +109,9 @@ target_link_libraries(tune_scoring PRIVATE paiza_core)
 # Headless query REPL: type a key sequence, get the candidate list back.
 add_executable(paiza_query EXCLUDE_FROM_ALL tools/paiza_query/main.cc)
 target_link_libraries(paiza_query PRIVATE paiza_core)
+# Corpus -> dictionary.txt builder (words + phrases, romanized keys).
+add_executable(build_dictionary EXCLUDE_FROM_ALL tools/build_dictionary/main.cc)
+target_link_libraries(build_dictionary PRIVATE paiza_core)
 
 set(PAIZA_LEXICON_BIN ${CMAKE_BINARY_DIR}/lexicon.bin)
 set(PAIZA_COMPILE_ARGS
