@@ -18,6 +18,7 @@ constexpr wchar_t kValueEquivOu[] = L"EquivOU";
 constexpr wchar_t kValueEquivQv[] = L"EquivQV";
 constexpr wchar_t kValueEquivHg[] = L"EquivHG";
 constexpr wchar_t kValueEquivTd[] = L"EquivTD";
+constexpr wchar_t kValueEquivEw[] = L"EquivEW";
 
 uint32_t ReadDword(HKEY key, const wchar_t* name, uint32_t fallback) {
   DWORD value = 0;
@@ -80,6 +81,7 @@ Settings SettingsStore::Load() {
     settings.equiv_qv = ReadDword(key, kValueEquivQv, 1) != 0;
     settings.equiv_hg = ReadDword(key, kValueEquivHg, 1) != 0;
     settings.equiv_td = ReadDword(key, kValueEquivTd, 1) != 0;
+    settings.equiv_ew = ReadDword(key, kValueEquivEw, 1) != 0;
     ::RegCloseKey(key);
   }
   settings.candidates_per_page =
@@ -102,6 +104,7 @@ void SettingsStore::Save(const Settings& settings) {
     WriteDword(key, kValueEquivQv, settings.equiv_qv ? 1 : 0);
     WriteDword(key, kValueEquivHg, settings.equiv_hg ? 1 : 0);
     WriteDword(key, kValueEquivTd, settings.equiv_td ? 1 : 0);
+    WriteDword(key, kValueEquivEw, settings.equiv_ew ? 1 : 0);
     ::RegCloseKey(key);
   }
 }

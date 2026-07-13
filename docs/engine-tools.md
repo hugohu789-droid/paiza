@@ -142,6 +142,7 @@ CandidateEngine
 |---|---|---|
 | `compile_lexicon` | 离线编译器：`dictionary.txt`(+`bigrams.txt`) → `lexicon.bin`（构建期自动运行） | `tools/compile_lexicon/main.cc` |
 | `build_dictionary` | 语料 → `dictionary.txt`：从蒙古文 txt 抽取单词+短语并计频 | `tools/build_dictionary/main.cc` |
+| `corpus_normalize` | 语料清洗（`build_dictionary` 前）：把 NNBSP 后缀标准化为 MVS + 谐元 | `tools/corpus_normalize/main.cc` |
 | `lexicon_bench` | 性能台架：合成大词库，测量 P50/P90/P99 查询延迟与 DAWG 压缩比 | `tools/lexicon_bench/main.cc` |
 | `tune_scoring` | 打分权重评测：对带标注的查询集报告 top-1/top-3/MRR | `tools/tune_scoring/main.cc` |
 
@@ -264,6 +265,19 @@ cmake --build build
 - 整串短语候选默认排在同频单词**之下**(`w_phrase` 惩罚,默认 4),每次查询最多 3 条。
 - 附加成分**从词里切出、不带前导连接符**;末词的附加成分由用户输入时补,合成层
   自动插 MVS(见 [core-engine-spec.md](core-engine-spec.md) 的"输入规范化")。
+
+### corpus_normalize — 语料清洗(第 1 步)
+
+在 `build_dictionary` 之前清洗语料。当前实现 **NNBSP→MVS 后缀标准化**:词形
+`词干⟨NNBSP⟩后缀` 若其后缀正好是 **D.2 标准 MVS 后缀形**,就把 NNBSP(U+202F)换成
+MVS(U+180E)并按词干阴阳性**谐元**;不是标准后缀的 NNBSP(真助词)保留。
+
+```
+corpus_normalize --out standard.txt [--fixed data/fixed_sequences.txt] corpus1.txt ...
+```
+末尾打印报告(处理词数、NNBSP→MVS 转换数)。产物 `standard.txt` 再喂
+`build_dictionary`。**后续(第 2 步)**将加入同形疑难清单(`--review`)与人工纠正
+应用(`--map`);见 [core-engine-spec.md](core-engine-spec.md) 的"输入规范化"。
 
 #### 其余工具编译示例
 

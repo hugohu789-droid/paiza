@@ -100,6 +100,7 @@ class SettingsWindow : public ui::Window {
   ui::Checkbox* equiv_qv_check_ = nullptr;
   ui::Checkbox* equiv_hg_check_ = nullptr;
   ui::Checkbox* equiv_td_check_ = nullptr;
+  ui::Checkbox* equiv_ew_check_ = nullptr;
   std::unique_ptr<ui::DropdownPopup> font_popup_;
   std::vector<ui::FontFamilyInfo> font_families_;  // Lazy cache.
   ui::Label* mapping_title_label_ = nullptr;

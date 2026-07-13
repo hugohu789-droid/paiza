@@ -38,6 +38,12 @@ class FixedSequenceTable {
   // returns `text` unchanged when nothing applies.
   std::wstring InsertSuffixMvs(const std::wstring& text) const;
 
+  // Corpus normalisation: if `token` is "stem<NNBSP>suffix" and the suffix
+  // exactly matches a standard MVS-form (table D.2), replaces the NNBSP with
+  // MVS and harmonises the suffix vowels to the stem's gender. A NNBSP that is
+  // not a standard suffix (a genuine enclitic) is left untouched.
+  std::wstring StandardizeNnbspToMvs(const std::wstring& token) const;
+
  private:
   // One suffix form: the codepoints that follow the MVS, each a small set of
   // harmony alternatives.

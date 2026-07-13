@@ -131,4 +131,35 @@ std::wstring FixedSequenceTable::InsertSuffixMvs(
   return out;
 }
 
+std::wstring FixedSequenceTable::StandardizeNnbspToMvs(
+    const std::wstring& token) const {
+  const size_t pos = token.find(kNnbsp);
+  if (pos == std::wstring::npos || pos == 0 || pos + 1 >= token.size()) {
+    return token;  // No NNBSP, or no stem / no suffix around it.
+  }
+  const std::wstring suffix = token.substr(pos + 1);
+  for (const SuffixForm& form : suffixes_) {
+    if (form.size() != suffix.size()) continue;
+    bool match = true;
+    for (size_t i = 0; i < form.size() && match; ++i) {
+      bool in_position = false;
+      for (wchar_t alt : form[i]) {
+        if (alt == suffix[i]) {
+          in_position = true;
+          break;
+        }
+      }
+      if (!in_position) match = false;
+    }
+    if (!match) continue;
+    // A standard MVS-suffix mis-encoded with NNBSP: fix the joiner + harmony.
+    const Gender gender = StemGender(token, pos);
+    std::wstring out = token.substr(0, pos);
+    out.push_back(kMvs);
+    for (wchar_t cp : suffix) out.push_back(Harmonize(cp, gender));
+    return out;
+  }
+  return token;  // NNBSP not a standard suffix (genuine enclitic): keep it.
+}
+
 }  // namespace paiza

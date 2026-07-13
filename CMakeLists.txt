@@ -112,6 +112,9 @@ target_link_libraries(paiza_query PRIVATE paiza_core)
 # Corpus -> dictionary.txt builder (words + phrases, romanized keys).
 add_executable(build_dictionary EXCLUDE_FROM_ALL tools/build_dictionary/main.cc)
 target_link_libraries(build_dictionary PRIVATE paiza_core)
+# Corpus normaliser: standardise suffix joiners (NNBSP -> MVS) before analysis.
+add_executable(corpus_normalize EXCLUDE_FROM_ALL tools/corpus_normalize/main.cc)
+target_link_libraries(corpus_normalize PRIVATE paiza_core)
 
 set(PAIZA_LEXICON_BIN ${CMAKE_BINARY_DIR}/lexicon.bin)
 set(PAIZA_COMPILE_ARGS

@@ -12,7 +12,9 @@
 #   q v   ->  U+1823 / U+1824  masculine o / u
 #   h g   ->  U+182C / U+182D  velar qa / ga
 #   t d   ->  U+1832 / U+1833  ta / da
+#   E w   ->  U+1827 / U+1838  ee / wa (same glyph: a vowel and a consonant)
 o u
 q v
 h g
 t d
+E w

@@ -32,6 +32,7 @@ struct Settings {
   bool equiv_qv = true;  // U+1823 / U+1824 (masculine o / u).
   bool equiv_hg = true;  // U+182C / U+182D (velar qa / ga).
   bool equiv_td = true;  // U+1832 / U+1833 (ta / da).
+  bool equiv_ew = true;  // U+1827 / U+1838 (ee / wa, same glyph).
 };
 
 class SettingsStore {

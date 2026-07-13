@@ -60,6 +60,7 @@ void ApplySettings(const Settings& settings) {
     if (settings.equiv_qv) equiv += "q v\n";
     if (settings.equiv_hg) equiv += "h g\n";
     if (settings.equiv_td) equiv += "t d\n";
+    if (settings.equiv_ew) equiv += "E w\n";
     g_static_lexicon->equivalences().LoadFromString(equiv);
   }
 }

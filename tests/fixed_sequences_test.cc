@@ -69,6 +69,25 @@ TEST(FixedSequencesTest, RequiresAStemBeforeTheSuffix) {
   EXPECT_EQ(table.InsertSuffixMvs(in), in);
 }
 
+TEST(FixedSequencesTest, StandardizesNnbspSuffixToMvs) {
+  const FixedSequenceTable table = MakeTable();
+  // Stem ᠠᠪ + NNBSP + "dur": the NNBSP becomes MVS, masculine u kept.
+  const std::wstring in = L"\x1820\x182A\x202F\x1833\x1824\x1837";
+  EXPECT_EQ(table.StandardizeNnbspToMvs(in),
+            L"\x1820\x182A\x180E\x1833\x1824\x1837");
+  // Feminine stem ᠡᠪ: NNBSP -> MVS and u harmonised to ü.
+  const std::wstring fem = L"\x1821\x182A\x202F\x1833\x1824\x1837";
+  EXPECT_EQ(table.StandardizeNnbspToMvs(fem),
+            L"\x1821\x182A\x180E\x1833\x1826\x1837");
+}
+
+TEST(FixedSequencesTest, LeavesNonStandardNnbspEnclitic) {
+  const FixedSequenceTable table = MakeTable();
+  // ᠠᠪ + NNBSP + "n" (not a table form) is a genuine enclitic: keep the NNBSP.
+  const std::wstring in = L"\x1820\x182A\x202F\x1828";
+  EXPECT_EQ(table.StandardizeNnbspToMvs(in), in);
+}
+
 TEST(FixedSequencesTest, EmptyTableIsNoOp) {
   FixedSequenceTable table;
   EXPECT_TRUE(table.empty());

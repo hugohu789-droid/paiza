@@ -326,6 +326,10 @@ void SettingsWindow::BuildWidgets() {
                 {cardE_x + se_col_w, row_y, se_col_w, kRowHeight},
                 [this](bool v) { settings_.equiv_td = v; });
   row_y += kRowHeight;
+  equiv_ew_check_ = add_check(L"E  /  w", settings_.equiv_ew,
+                              {cardE_x, row_y, se_col_w, kRowHeight},
+                              [this](bool v) { settings_.equiv_ew = v; });
+  row_y += kRowHeight;
 
   soft_equiv_card_.height = row_y + 12 - soft_equiv_card_.y;
   y = soft_equiv_card_.bottom() + 14;
@@ -527,6 +531,7 @@ void SettingsWindow::RefreshLabels() {
   equiv_qv_check_->SetChecked(settings_.equiv_qv);
   equiv_hg_check_->SetChecked(settings_.equiv_hg);
   equiv_td_check_->SetChecked(settings_.equiv_td);
+  equiv_ew_check_->SetChecked(settings_.equiv_ew);
   Invalidate();
 }
 
