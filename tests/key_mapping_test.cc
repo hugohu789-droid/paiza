@@ -55,6 +55,7 @@ TEST(KeyMappingTest, DefaultPunctuationMappings) {
 TEST(KeyMappingTest, HashKeyRoundTripsEscapedInFile) {
   const std::wstring path = TempFilePath("paiza_keymap_hash.txt");
   KeyMapping original = KeyMapping::CreateDefault();
+  original.Set("#", L"\x1820");  // Non-default value -> written (as a delta).
   ASSERT_TRUE(original.SaveToFile(path));
 
   // The '#' key must be escaped, not written as a comment line.
@@ -62,12 +63,24 @@ TEST(KeyMappingTest, HashKeyRoundTripsEscapedInFile) {
     std::ifstream file(std::filesystem::path(path), std::ios::binary);
     std::string content((std::istreambuf_iterator<char>(file)),
                         std::istreambuf_iterator<char>());
-    EXPECT_NE(content.find("\\#\t180C"), std::string::npos);
+    EXPECT_NE(content.find("\\#\t1820"), std::string::npos);
   }
-  KeyMapping reloaded;
+  KeyMapping reloaded = KeyMapping::CreateDefault();
   ASSERT_TRUE(reloaded.LoadFromFile(path));
-  EXPECT_EQ(reloaded.Lookup("#"), L"\x180C");
-  EXPECT_EQ(original.Entries().size(), reloaded.Entries().size());
+  EXPECT_EQ(reloaded.Lookup("#"), L"\x1820");
+}
+
+TEST(KeyMappingTest, SaveWritesOnlyNonDefaultEntries) {
+  const std::wstring path = TempFilePath("paiza_keymap_delta.txt");
+  KeyMapping original = KeyMapping::CreateDefault();
+  original.Set("x", L"\x1841");  // Override one default key.
+  ASSERT_TRUE(original.SaveToFile(path));
+
+  std::ifstream file(std::filesystem::path(path), std::ios::binary);
+  const std::string content((std::istreambuf_iterator<char>(file)),
+                            std::istreambuf_iterator<char>());
+  EXPECT_NE(content.find("x\t1841"), std::string::npos);  // The override.
+  EXPECT_EQ(content.find("a\t1820"), std::string::npos);   // Default: omitted.
 }
 
 TEST(KeyMappingTest, OtherUppercaseFollowsLowercase) {
@@ -130,10 +143,12 @@ TEST(KeyMappingTest, SaveLoadRoundTrip) {
   original.Set("x", L"\x1841\x1842");
   ASSERT_TRUE(original.SaveToFile(path));
 
-  KeyMapping reloaded;  // Empty, no defaults: file must carry everything.
+  // The file carries only overrides; reload overlays them on the default
+  // (exactly what KeyMappingStore does), so unlisted keys follow the default.
+  KeyMapping reloaded = KeyMapping::CreateDefault();
   ASSERT_TRUE(reloaded.LoadFromFile(path));
-  EXPECT_EQ(reloaded.Lookup("x"), L"\x1841\x1842");
-  EXPECT_EQ(reloaded.Lookup("N"), L"\x1829");
+  EXPECT_EQ(reloaded.Lookup("x"), L"\x1841\x1842");  // Override applied.
+  EXPECT_EQ(reloaded.Lookup("N"), L"\x1829");        // Default preserved.
   EXPECT_EQ(reloaded.Lookup("a"), L"\x1820");
   EXPECT_EQ(reloaded.Convert("ng"), L"\x1829");
   EXPECT_EQ(original.Entries().size(), reloaded.Entries().size());

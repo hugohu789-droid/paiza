@@ -268,8 +268,16 @@ bool KeyMapping::SaveToFile(const std::wstring& path) const {
        << "# Keys are case-sensitive; upper-case = Shift+letter.\n"
        << "# Multi-letter keys (e.g. \"ng\") match greedily.\n"
        << "# Lines starting with '#' are comments; a literal '#' key is\n"
-       << "# written escaped as \\#. Saved as UTF-8.\n";
+       << "# written escaped as \\#. Saved as UTF-8.\n"
+       << "#\n"
+       << "# Only keys that DIFFER from the built-in default are listed; any\n"
+       << "# key not listed follows the current default, so default-layout\n"
+       << "# updates apply automatically to old files.\n";
+  // Persist only overrides: an entry equal to the current default is omitted
+  // so a saved file never pins a codepoint the default later changes.
+  const KeyMapping defaults = KeyMapping::CreateDefault();
   for (const auto& [key, value] : Entries()) {
+    if (defaults.Lookup(key) == value) continue;  // Default: leave unlisted.
     if (!key.empty() && key[0] == '#') file << '\\';
     file << key << "\t";
     bool first = true;
