@@ -136,6 +136,72 @@ CandidateEngine
 
 ---
 
+## 语料 → 词库 总流程
+
+从一堆蒙古文文章到可用的 `lexicon.bin`,整条链路(⚙ = 自动,🧑 = 人工):
+
+```
+      蒙古文语料                 data/equivalences.txt   (软等价 / 同形类)
+      (UTF-8 .txt)               data/fixed_sequences.txt (GB/T D.2 后缀)
+          │                              │  归一 · NNBSP→MVS
+          ▼                              ▼
+   ┌─────────────────────────────────────────────────┐
+   │ ⚙ corpus_normalize  ①分析                         │
+   │   --review review.txt --corrections-skeleton c.tsv│
+   └──────────────┬───────────────────┬────────────────┘
+                  │                   │
+            review.txt            c.tsv (预填骨架)
+          (疑难组:码点/罗马化/           │
+           频次/例句/建议)  ──► 🧑 删/改 ─┘   删行=不纠正,改第3列=改目标
+                                      │
+                                      ▼
+   ┌─────────────────────────────────────────────────┐
+   │ ⚙ corpus_normalize  ②应用 --map c.tsv             │
+   │   NNBSP→MVS + 同形整词纠正                          │
+   └──────────────┬────────────────────────────────────┘
+                  ▼
+           standard.txt  (标准语料)
+                  │
+                  ▼
+   ┌─────────────────────────────────────────────────┐
+   │ ⚙ build_dictionary                                │
+   └──┬──────────┬───────────┬───────────┬─────────────┘
+      ▼          ▼           ▼           ▼
+  dictionary  suffixes    bigrams     phrases
+    .txt      (附加成分)   (下一词联想) (整串候选,键=首词)
+      │                      │           │
+      └──────────┬───────────┴───────────┘
+                 ▼
+   ┌─────────────────────────────────────────────────┐
+   │ ⚙ compile_lexicon   (cmake --build 自动)          │
+   │   --dict dictionary --dict phrases                │
+   │   --bigram bigrams --equiv equivalences           │
+   │   --fixed fixed_sequences                         │
+   └──────────────┬────────────────────────────────────┘
+                  ▼
+             lexicon.bin  (v4 · mmap · CRC 校验)
+                  │  部署到二进制旁 (三平台)
+                  ▼
+        引擎 StaticLexicon (Windows TSF / macOS IMK / Linux IBus)
+   精确·前缀 │ 容错(编辑距离≤1) │ 软等价 │ 辅音骨架 │ 整串短语 │ bigram 联想
+                                        │
+                              合成侧:上屏时插 MVS + 后缀谐元
+```
+
+一条命令示例(把三步串起来):
+
+```
+corpus_normalize --review review.txt --corrections-skeleton c.tsv \
+    --out auto.txt data/corpus/*.txt          # ①分析(先看 review.txt,改 c.tsv)
+corpus_normalize --map c.tsv --out standard.txt data/corpus/*.txt   # ②应用
+build_dictionary --out data/dictionary.txt --suffix-out sfx.txt \
+    --phrase-out data/bigrams.txt --phrase-as-entry data/phrases.txt \
+    --min-freq 2 --phrase-min 3 --phrase-cond 0.3 standard.txt       # ③抽词库
+cmake --build build                            # ④编入 lexicon.bin 并部署
+```
+
+各工具的完整选项/示例见下。
+
 ## 相关工具
 
 | 工具 | 用途 | 源码 |
