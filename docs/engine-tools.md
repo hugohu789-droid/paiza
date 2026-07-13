@@ -266,18 +266,38 @@ cmake --build build
 - 附加成分**从词里切出、不带前导连接符**;末词的附加成分由用户输入时补,合成层
   自动插 MVS(见 [core-engine-spec.md](core-engine-spec.md) 的"输入规范化")。
 
-### corpus_normalize — 语料清洗(第 1 步)
+### corpus_normalize — 语料清洗
 
-在 `build_dictionary` 之前清洗语料。当前实现 **NNBSP→MVS 后缀标准化**:词形
-`词干⟨NNBSP⟩后缀` 若其后缀正好是 **D.2 标准 MVS 后缀形**,就把 NNBSP(U+202F)换成
-MVS(U+180E)并按词干阴阳性**谐元**;不是标准后缀的 NNBSP(真助词)保留。
+在 `build_dictionary` 之前清洗语料。两件事:**NNBSP→MVS 后缀标准化**(总是做)+
+**同形不同编码纠正**(人在环中)。
 
+**A. NNBSP→MVS(自动)**:词形 `词干⟨NNBSP⟩后缀` 若后缀正好是 **D.2 标准 MVS 后缀形**,
+把 NNBSP(U+202F)换成 MVS(U+180E)并按词干阴阳性**谐元**;非标准后缀的 NNBSP(真助词)保留。
+
+**B. 同形纠正(三趟流水)**:
 ```
-corpus_normalize --out standard.txt [--fixed data/fixed_sequences.txt] corpus1.txt ...
+# 1) 分析:出疑难清单 + 预填的纠正骨架
+corpus_normalize --review review.txt --corrections-skeleton corr.tsv \
+    [--out auto.txt] [--review-min 3] corpus.txt ...
+
+# 2) 人工:读 review.txt,在 corr.tsv 上删/改
+
+# 3) 应用:自动 NNBSP→MVS + 人工纠正 → 标准语料
+corpus_normalize --map corr.tsv --out standard.txt corpus.txt ...
 ```
-末尾打印报告(处理词数、NNBSP→MVS 转换数)。产物 `standard.txt` 再喂
-`build_dictionary`。**后续(第 2 步)**将加入同形疑难清单(`--review`)与人工纠正
-应用(`--map`);见 [core-engine-spec.md](core-engine-spec.md) 的"输入规范化"。
+
+- **分组**:把每个词按等价类(o/u、q/v、h/g、t/d、E/w)归一并剥离 FVS/NIRUGU;
+  **归一后同形、原始编码不同**的词 = 一个疑难组;只列组内≥2 变体且组总频次 ≥
+  `--review-min`(默认 3)的组。
+- **`review.txt`**(只读):每组列出各变体的 `freq / U+码点 / 罗马化 / [SUGGESTED]`
+  (最高频为建议规范形)+ 每变体若干例句。
+- **`corr.tsv`**(骨架,人工编辑):4 列 TSV
+  `错误hex ⇥ 错误蒙文 ⇥ 正确hex ⇥ 正确蒙文`;机器读第 1、3 列(hex 权威),第 2、4
+  列蒙古文供人审。删行=不纠正(不同词),改第 3 列=改目标。
+- **应用**:按**整词**匹配替换 + NNBSP→MVS,输出标准语料。
+
+产物 `standard.txt` 再喂 `build_dictionary`。设计详见 [core-engine-spec.md](core-engine-spec.md)
+的"输入规范化"。
 
 #### 其余工具编译示例
 
