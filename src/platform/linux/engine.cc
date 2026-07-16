@@ -126,16 +126,41 @@ G_DEFINE_TYPE(PaizaEngine, paiza_engine, IBUS_TYPE_ENGINE)
 
 namespace {
 
-// Pushes the current settings into this engine's session (page size) and
-// the shared engine (cloud toggle). Cheap and idempotent; called on
-// every sync so saves from the settings dialog apply on the next
-// keystroke (the watcher re-reads the INI when its mtime changes).
+// Packs the five soft-equivalence toggles into a bitmask so the (mildly
+// expensive) LoadFromString only runs when a pair actually changed.
+int EquivBits(const Settings& s) {
+  return (s.equiv_ou << 0) | (s.equiv_qv << 1) | (s.equiv_hg << 2) |
+         (s.equiv_td << 3) | (s.equiv_ew << 4);
+}
+
+// Pushes the current settings into this engine's session (page size), the
+// shared engine (cloud toggle) and the static lexicon (soft-equivalence
+// set). Cheap and idempotent; called on every sync so saves from the
+// settings dialog apply on the next keystroke (the watcher re-reads the
+// INI when its mtime changes).
 void ApplyCurrentSettings(PaizaEngine* engine) {
   const Settings& settings = engine->state->settings.Get();
   engine->state->session->set_page_size(settings.candidates_per_page);
   SharedEngine();
   if (g_cloud_source != nullptr) {
     g_cloud_source->set_enabled(settings.cloud_source_enabled);
+  }
+  // Rebuild the active soft-equivalence set from the per-pair toggles and
+  // load it into the static lexicon — identical to Windows/macOS
+  // ApplySettings. Guarded so it only reloads when a pair changed.
+  static int g_applied_equiv_bits = -1;
+  if (g_static_lexicon != nullptr) {
+    const int bits = EquivBits(settings);
+    if (bits != g_applied_equiv_bits) {
+      g_applied_equiv_bits = bits;
+      std::string equiv;
+      if (settings.equiv_ou) equiv += "o u\n";
+      if (settings.equiv_qv) equiv += "q v\n";
+      if (settings.equiv_hg) equiv += "h g\n";
+      if (settings.equiv_td) equiv += "t d\n";
+      if (settings.equiv_ew) equiv += "E w\n";
+      g_static_lexicon->equivalences().LoadFromString(equiv);
+    }
   }
 }
 

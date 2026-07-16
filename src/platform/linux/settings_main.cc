@@ -13,14 +13,17 @@
 #include <gtk/gtk.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <optional>
 #include <string>
 
+#include "common/paths.h"
 #include "common/string_utils.h"
 #include "core/font_stem_config.h"
 #include "core/key_mapping_store.h"
 #include "core/localization.h"
 #include "core/mapping_preview.h"
+#include "core/user_dictionary.h"
 #include "settings_store.h"
 
 namespace {
@@ -51,6 +54,11 @@ struct Dialog {
   GtkWidget* language_combo = nullptr;
   GtkWidget* font_label = nullptr;
   GtkWidget* font_button = nullptr;
+  GtkWidget* user_dict_label = nullptr;
+  GtkWidget* user_dict_button = nullptr;
+  GtkWidget* soft_equiv_section = nullptr;
+  GtkWidget* soft_equiv_hint = nullptr;
+  GtkWidget* equiv_checks[5] = {};  // o/u, q/v, h/g, t/d, E/w.
   GtkWidget* mapping_section = nullptr;
   GtkWidget* edit_mapping_button = nullptr;
   GtkWidget* mapping_preview = nullptr;
@@ -185,6 +193,13 @@ void ApplyStrings(Dialog* dialog) {
                      Utf8(s.language_label).c_str());
   gtk_label_set_text(GTK_LABEL(dialog->font_label),
                      Utf8(s.candidate_font_label).c_str());
+  gtk_label_set_text(GTK_LABEL(dialog->user_dict_label),
+                     Utf8(s.user_dict_label).c_str());
+  gtk_button_set_label(GTK_BUTTON(dialog->user_dict_button),
+                       Utf8(s.user_dict_import).c_str());
+  set_bold(dialog->soft_equiv_section, Utf8(s.section_soft_equiv), "small");
+  gtk_label_set_text(GTK_LABEL(dialog->soft_equiv_hint),
+                     Utf8(s.soft_equiv_hint).c_str());
   set_bold(dialog->mapping_section, Utf8(s.section_key_mapping), "small");
   gtk_button_set_label(GTK_BUTTON(dialog->edit_mapping_button),
                        Utf8(s.edit_mapping_file).c_str());
@@ -240,6 +255,76 @@ void OnFontSet(GtkFontButton* button, gpointer data) {
   pango_font_description_free(description);
   g_free(font);
   gtk_widget_queue_draw(dialog->vertical_sample);
+}
+
+void OnEquivToggled(GtkToggleButton* toggle, gpointer data) {
+  Dialog* dialog = static_cast<Dialog*>(data);
+  const bool on = gtk_toggle_button_get_active(toggle) != FALSE;
+  const int index = GPOINTER_TO_INT(
+      g_object_get_data(G_OBJECT(toggle), "equiv-index"));
+  switch (index) {
+    case 0: dialog->settings.equiv_ou = on; break;
+    case 1: dialog->settings.equiv_qv = on; break;
+    case 2: dialog->settings.equiv_hg = on; break;
+    case 3: dialog->settings.equiv_td = on; break;
+    case 4: dialog->settings.equiv_ew = on; break;
+    default: break;
+  }
+}
+
+// Imports a user TXT (latin<TAB>mongolian[<TAB>freq]) into the shared
+// user.db. The dialog is a separate process from the engine, so the
+// import is written to the SQLite file and the running engine picks the
+// entries up on its next start (ibus restart / next login).
+void OnImportUserDict(GtkButton* button, gpointer data) {
+  (void)button;
+  Dialog* dialog = static_cast<Dialog*>(data);
+  const paiza::UiStrings& s = paiza::GetStrings(dialog->settings.ui_language);
+
+  GtkWidget* chooser = gtk_file_chooser_dialog_new(
+      Utf8(s.user_dict_import).c_str(), GTK_WINDOW(dialog->window),
+      GTK_FILE_CHOOSER_ACTION_OPEN, Utf8(s.close).c_str(),
+      GTK_RESPONSE_CANCEL, Utf8(s.user_dict_import).c_str(),
+      GTK_RESPONSE_ACCEPT, nullptr);
+  GtkFileFilter* filter = gtk_file_filter_new();
+  gtk_file_filter_set_name(filter, "Text files (*.txt)");
+  gtk_file_filter_add_pattern(filter, "*.txt");
+  gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(chooser), filter);
+
+  const gint response = gtk_dialog_run(GTK_DIALOG(chooser));
+  gchar* filename = nullptr;
+  if (response == GTK_RESPONSE_ACCEPT) {
+    filename = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(chooser));
+  }
+  gtk_widget_destroy(chooser);
+  if (filename == nullptr) return;  // Cancelled.
+
+  paiza::ImportResult result;
+  {
+    // Own SQLite connection on the same db the engine reads (WAL allows
+    // concurrent access); the destructor flushes synchronously.
+    paiza::UserDictionary dictionary(
+        (std::filesystem::path(paiza::UserConfigDirectory()) / L"user.db")
+            .wstring());
+    result = dictionary.ImportFromFile(paiza::Utf8ToWide(filename));
+    dictionary.Flush();
+  }
+  g_free(filename);
+
+  GtkWidget* message;
+  if (!result.opened) {
+    message = gtk_message_dialog_new(
+        GTK_WINDOW(dialog->window), GTK_DIALOG_MODAL, GTK_MESSAGE_WARNING,
+        GTK_BUTTONS_OK, "%s", Utf8(s.user_dict_import_failed).c_str());
+  } else {
+    message = gtk_message_dialog_new(
+        GTK_WINDOW(dialog->window), GTK_DIALOG_MODAL, GTK_MESSAGE_INFO,
+        GTK_BUTTONS_OK, Utf8(s.user_dict_import_result).c_str(),
+        result.imported, result.skipped);
+  }
+  gtk_window_set_title(GTK_WINDOW(message), Utf8(s.user_dict_label).c_str());
+  gtk_dialog_run(GTK_DIALOG(message));
+  gtk_widget_destroy(message);
 }
 
 void OnEditMapping(GtkButton* button, gpointer data) {
@@ -373,7 +458,42 @@ void BuildDialog(Dialog* dialog) {
   gtk_grid_attach(GTK_GRID(general_grid), dialog->font_label, 0, 4, 1, 1);
   gtk_grid_attach(GTK_GRID(general_grid), dialog->font_button, 1, 4, 1, 1);
 
-  // ---- Card 2: Key mapping ---------------------------------------------
+  dialog->user_dict_label = MakeLeftLabel();
+  dialog->user_dict_button = gtk_button_new_with_label("");
+  gtk_widget_set_halign(dialog->user_dict_button, GTK_ALIGN_END);
+  gtk_grid_attach(GTK_GRID(general_grid), dialog->user_dict_label, 0, 5, 1,
+                  1);
+  gtk_grid_attach(GTK_GRID(general_grid), dialog->user_dict_button, 1, 5, 1,
+                  1);
+
+  // ---- Card 2: Soft equivalence (per-pair recall toggles) --------------
+  GtkWidget* equiv_frame = gtk_frame_new(nullptr);
+  GtkWidget* equiv_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+  gtk_container_set_border_width(GTK_CONTAINER(equiv_box), 14);
+  gtk_container_add(GTK_CONTAINER(equiv_frame), equiv_box);
+  gtk_box_pack_start(GTK_BOX(content), equiv_frame, FALSE, FALSE, 6);
+
+  dialog->soft_equiv_section = MakeLeftLabel();
+  gtk_box_pack_start(GTK_BOX(equiv_box), dialog->soft_equiv_section, FALSE,
+                     FALSE, 0);
+  dialog->soft_equiv_hint = MakeLeftLabel();
+  gtk_label_set_line_wrap(GTK_LABEL(dialog->soft_equiv_hint), TRUE);
+  gtk_box_pack_start(GTK_BOX(equiv_box), dialog->soft_equiv_hint, FALSE,
+                     FALSE, 0);
+
+  GtkWidget* checks_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 16);
+  const char* const captions[5] = {"o / u", "q / v", "h / g", "t / d",
+                                    "E / w"};
+  for (int i = 0; i < 5; ++i) {
+    dialog->equiv_checks[i] = gtk_check_button_new_with_label(captions[i]);
+    g_object_set_data(G_OBJECT(dialog->equiv_checks[i]), "equiv-index",
+                      GINT_TO_POINTER(i));
+    gtk_box_pack_start(GTK_BOX(checks_row), dialog->equiv_checks[i], FALSE,
+                       FALSE, 0);
+  }
+  gtk_box_pack_start(GTK_BOX(equiv_box), checks_row, FALSE, FALSE, 0);
+
+  // ---- Card 3: Key mapping ---------------------------------------------
   GtkWidget* mapping_frame = gtk_frame_new(nullptr);
   GtkWidget* mapping_grid = gtk_grid_new();
   gtk_grid_set_row_spacing(GTK_GRID(mapping_grid), 8);
@@ -443,6 +563,19 @@ void BuildDialog(Dialog* dialog) {
   gtk_font_chooser_set_font(GTK_FONT_CHOOSER(dialog->font_button),
                             font_spec.c_str());
 
+  const bool equiv_enabled[5] = {
+      dialog->settings.equiv_ou, dialog->settings.equiv_qv,
+      dialog->settings.equiv_hg, dialog->settings.equiv_td,
+      dialog->settings.equiv_ew};
+  for (int i = 0; i < 5; ++i) {
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dialog->equiv_checks[i]),
+                                 equiv_enabled[i]);
+    g_signal_connect(dialog->equiv_checks[i], "toggled",
+                     G_CALLBACK(OnEquivToggled), dialog);
+  }
+
+  g_signal_connect(dialog->user_dict_button, "clicked",
+                   G_CALLBACK(OnImportUserDict), dialog);
   g_signal_connect(dialog->page_size_spin, "value-changed",
                    G_CALLBACK(OnPageSizeChanged), dialog);
   g_signal_connect(dialog->cloud_switch, "state-set",

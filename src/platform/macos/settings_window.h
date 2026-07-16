@@ -13,6 +13,10 @@
 
 #include "settings_store.h"
 
+namespace paiza {
+class UserDictionary;
+}
+
 @interface PaizaSettingsWindowController : NSObject
 
 // Fired when the window closes (Save or Close). The standalone settings
@@ -21,8 +25,11 @@
 
 // `onChanged` fires after the user saves; the controller re-applies the
 // settings to the live session, candidate panel and engine.
+// `userDictionary` (may be null) receives TXT imports live; when null the
+// window imports into the shared user.db directly (standalone instance).
 - (instancetype)initWithOnChanged:(void (^)(const paiza::mac::Settings&))
-                                      onChanged;
+                                      onChanged
+                   userDictionary:(paiza::UserDictionary*)userDictionary;
 
 // Loads the current settings, (re)builds the window and shows it centred
 // and focused. Safe to call repeatedly.

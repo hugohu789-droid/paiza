@@ -17,6 +17,18 @@ NSString* const kKeyCandidatesPerPage = @"CandidatesPerPage";
 NSString* const kKeyCloudEnabled = @"CloudSourceEnabled";
 NSString* const kKeyUiLanguage = @"UiLanguage";
 NSString* const kKeyCandidateFont = @"CandidateFont";
+NSString* const kKeyEquivOu = @"EquivOU";
+NSString* const kKeyEquivQv = @"EquivQV";
+NSString* const kKeyEquivHg = @"EquivHG";
+NSString* const kKeyEquivTd = @"EquivTD";
+NSString* const kKeyEquivEw = @"EquivEW";
+
+// Reads a bool that defaults to true when the key was never written (an
+// absent NSUserDefaults key reads as NO, which would flip the default).
+bool LoadBoolOrTrue(NSUserDefaults* defaults, NSString* key) {
+  NSNumber* value = [defaults objectForKey:key];
+  return value != nil ? value.boolValue : true;
+}
 
 }  // namespace
 
@@ -39,6 +51,11 @@ Settings SettingsStore::Load() {
   if (font.length > 0) {
     settings.candidate_font = Utf8ToWide([font UTF8String]);
   }
+  settings.equiv_ou = LoadBoolOrTrue(defaults, kKeyEquivOu);
+  settings.equiv_qv = LoadBoolOrTrue(defaults, kKeyEquivQv);
+  settings.equiv_hg = LoadBoolOrTrue(defaults, kKeyEquivHg);
+  settings.equiv_td = LoadBoolOrTrue(defaults, kKeyEquivTd);
+  settings.equiv_ew = LoadBoolOrTrue(defaults, kKeyEquivEw);
   return settings;
 }
 
@@ -52,6 +69,11 @@ void SettingsStore::Save(const Settings& settings) {
   const std::string font = WideToUtf8(settings.candidate_font);
   [defaults setObject:[NSString stringWithUTF8String:font.c_str()] ?: @""
                forKey:kKeyCandidateFont];
+  [defaults setBool:settings.equiv_ou forKey:kKeyEquivOu];
+  [defaults setBool:settings.equiv_qv forKey:kKeyEquivQv];
+  [defaults setBool:settings.equiv_hg forKey:kKeyEquivHg];
+  [defaults setBool:settings.equiv_td forKey:kKeyEquivTd];
+  [defaults setBool:settings.equiv_ew forKey:kKeyEquivEw];
 }
 
 }  // namespace paiza::mac

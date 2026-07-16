@@ -42,7 +42,8 @@
         initWithOnChanged:^(const paiza::mac::Settings&) {
           // Controllers re-read NSUserDefaults on every sync; nothing to
           // push here.
-        }];
+        }
+           userDictionary:nullptr];  // No engine in this process.
   }
   [_settings showSettings];
   return NO;
@@ -78,7 +79,8 @@ int main(int argc, const char* argv[]) {
       PaizaSettingsWindowController* settings =
           [[PaizaSettingsWindowController alloc]
               initWithOnChanged:^(const paiza::mac::Settings&){
-              }];
+              }
+                 userDictionary:nullptr];  // Imports go to the shared db.
       settings.onClosed = ^{
         [NSApp terminate:nil];
       };

@@ -36,6 +36,12 @@ TEST_F(LinuxSettingsStoreTest, MissingFileYieldsDefaults) {
   EXPECT_EQ(settings.candidates_per_page, 7u);
   EXPECT_FALSE(settings.cloud_source_enabled);
   EXPECT_EQ(settings.candidate_font, kDefaultCandidateFont);
+  // Soft-equivalence pairs default to on.
+  EXPECT_TRUE(settings.equiv_ou);
+  EXPECT_TRUE(settings.equiv_qv);
+  EXPECT_TRUE(settings.equiv_hg);
+  EXPECT_TRUE(settings.equiv_td);
+  EXPECT_TRUE(settings.equiv_ew);
   // ui_language follows the OS locale; it must be a supported value.
   EXPECT_LT(static_cast<uint32_t>(settings.ui_language), kUiLanguageCount);
 }
@@ -46,6 +52,9 @@ TEST_F(LinuxSettingsStoreTest, RoundTrip) {
   settings.cloud_source_enabled = true;
   settings.ui_language = UiLanguage::kChinese;
   settings.candidate_font = L"Menk Qagan Tig";
+  // Flip a couple of soft-equivalence pairs off; the rest stay on.
+  settings.equiv_qv = false;
+  settings.equiv_ew = false;
   ASSERT_TRUE(SettingsStore::SaveToFile(settings, path_));
 
   const Settings loaded = SettingsStore::LoadFromFile(path_);
@@ -53,6 +62,11 @@ TEST_F(LinuxSettingsStoreTest, RoundTrip) {
   EXPECT_TRUE(loaded.cloud_source_enabled);
   EXPECT_EQ(loaded.ui_language, UiLanguage::kChinese);
   EXPECT_EQ(loaded.candidate_font, L"Menk Qagan Tig");
+  EXPECT_TRUE(loaded.equiv_ou);
+  EXPECT_FALSE(loaded.equiv_qv);
+  EXPECT_TRUE(loaded.equiv_hg);
+  EXPECT_TRUE(loaded.equiv_td);
+  EXPECT_FALSE(loaded.equiv_ew);
 }
 
 TEST_F(LinuxSettingsStoreTest, MalformedValuesFallBackAndClamp) {

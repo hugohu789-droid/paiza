@@ -17,6 +17,11 @@ constexpr char kKeyCandidatesPerPage[] = "candidates_per_page";
 constexpr char kKeyCloudEnabled[] = "cloud_source_enabled";
 constexpr char kKeyUiLanguage[] = "ui_language";
 constexpr char kKeyCandidateFont[] = "candidate_font";
+constexpr char kKeyEquivOu[] = "equiv_ou";
+constexpr char kKeyEquivQv[] = "equiv_qv";
+constexpr char kKeyEquivHg[] = "equiv_hg";
+constexpr char kKeyEquivTd[] = "equiv_td";
+constexpr char kKeyEquivEw[] = "equiv_ew";
 
 constexpr std::chrono::milliseconds kCheckInterval{500};
 
@@ -26,6 +31,10 @@ std::string Trim(const std::string& s) {
   if (begin == std::string::npos) return {};
   const size_t end = s.find_last_not_of(" \t\r");
   return s.substr(begin, end - begin + 1);
+}
+
+bool ParseBool(const std::string& value) {
+  return value == "1" || value == "true";
 }
 
 }  // namespace
@@ -59,12 +68,22 @@ Settings SettingsStore::LoadFromFile(const std::wstring& path) {
       settings.candidates_per_page =
           static_cast<uint32_t>(std::clamp<long>(parsed, 1, 9));
     } else if (key == kKeyCloudEnabled) {
-      settings.cloud_source_enabled = value == "1" || value == "true";
+      settings.cloud_source_enabled = ParseBool(value);
     } else if (key == kKeyUiLanguage) {
       settings.ui_language = UiLanguageFromValue(
           static_cast<uint32_t>(std::strtoul(value.c_str(), nullptr, 10)));
     } else if (key == kKeyCandidateFont) {
       if (!value.empty()) settings.candidate_font = Utf8ToWide(value);
+    } else if (key == kKeyEquivOu) {
+      settings.equiv_ou = ParseBool(value);
+    } else if (key == kKeyEquivQv) {
+      settings.equiv_qv = ParseBool(value);
+    } else if (key == kKeyEquivHg) {
+      settings.equiv_hg = ParseBool(value);
+    } else if (key == kKeyEquivTd) {
+      settings.equiv_td = ParseBool(value);
+    } else if (key == kKeyEquivEw) {
+      settings.equiv_ew = ParseBool(value);
     }
   }
   return settings;
@@ -92,7 +111,12 @@ bool SettingsStore::SaveToFile(const Settings& settings,
        << kKeyUiLanguage << "="
        << static_cast<uint32_t>(settings.ui_language) << "\n"
        << kKeyCandidateFont << "=" << WideToUtf8(settings.candidate_font)
-       << "\n";
+       << "\n"
+       << kKeyEquivOu << "=" << (settings.equiv_ou ? 1 : 0) << "\n"
+       << kKeyEquivQv << "=" << (settings.equiv_qv ? 1 : 0) << "\n"
+       << kKeyEquivHg << "=" << (settings.equiv_hg ? 1 : 0) << "\n"
+       << kKeyEquivTd << "=" << (settings.equiv_td ? 1 : 0) << "\n"
+       << kKeyEquivEw << "=" << (settings.equiv_ew ? 1 : 0) << "\n";
   return file.good();
 }
 

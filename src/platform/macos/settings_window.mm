@@ -3,19 +3,23 @@
 #import "settings_window.h"
 
 #import <CoreText/CoreText.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <vector>
 
 #include "common/logging.h"
+#include "common/paths.h"
 #include "common/string_utils.h"
 #include "core/font_stem_config.h"
 #include "core/key_mapping_store.h"
 #include "core/localization.h"
 #include "core/mapping_preview.h"
+#include "core/user_dictionary.h"
 
 namespace {
 
@@ -129,6 +133,7 @@ bool FontSupportsMongolian(NSString* family) {
 // appearance-aware so the dialog looks native in light and dark mode.
 @interface PaizaSettingsBackgroundView : NSView
 @property(nonatomic) NSRect generalCard;
+@property(nonatomic) NSRect softEquivCard;
 @property(nonatomic) NSRect mappingCard;
 @end
 
@@ -152,6 +157,7 @@ bool FontSupportsMongolian(NSString* family) {
   NSRectFill(self.bounds);
   for (NSValue* value :
        @[ [NSValue valueWithRect:_generalCard],
+          [NSValue valueWithRect:_softEquivCard],
           [NSValue valueWithRect:_mappingCard] ]) {
     if (NSIsEmptyRect(value.rectValue)) continue;  // Footer instance.
     NSBezierPath* card =
@@ -174,6 +180,7 @@ bool FontSupportsMongolian(NSString* family) {
   void (^_onChanged)(const paiza::mac::Settings&);
   paiza::mac::Settings _settings;
   paiza::KeyMappingStore _mappingStore;
+  paiza::UserDictionary* _userDictionary;  // Not owned; may be null.
   std::vector<std::wstring> _fontFamilies;  // Popup index -> family.
 
   NSWindow* _window;
@@ -202,15 +209,22 @@ bool FontSupportsMongolian(NSString* family) {
   NSTextField* _mappingHint;
   NSTextField* _mappingErrorLabel;
   PaizaVerticalSampleView* _verticalSample;
+  NSTextField* _userDictLabel;
+  NSButton* _userDictButton;
+  NSTextField* _softEquivSection;
+  NSTextField* _softEquivHint;
+  NSButton* _equivChecks[5];  // o/u, q/v, h/g, t/d, E/w.
   NSButton* _saveButton;
   NSButton* _closeButton;
 }
 
 - (instancetype)initWithOnChanged:
-    (void (^)(const paiza::mac::Settings&))onChanged {
+                    (void (^)(const paiza::mac::Settings&))onChanged
+                   userDictionary:(paiza::UserDictionary*)userDictionary {
   self = [super init];
   if (self != nil) {
     _onChanged = [onChanged copy];
+    _userDictionary = userDictionary;
   }
   return self;
 }
@@ -353,13 +367,64 @@ bool FontSupportsMongolian(NSString* family) {
   _fontPopup.target = self;
   _fontPopup.action = @selector(fontChanged:);
   [_background addSubview:_fontPopup];
+  row += kRowHeight + 8;
+
+  // Row: user dictionary import (label + button).
+  _userDictLabel = [self addLabel:NSMakeRect(card1_x, row, 200, kRowHeight)
+                             size:14
+                             bold:NO
+                            color:[NSColor labelColor]];
+  _userDictButton = [[NSButton alloc]
+      initWithFrame:NSMakeRect(controls_right - 150, row + 1, 150, 28)];
+  _userDictButton.bezelStyle = NSBezelStyleRounded;
+  _userDictButton.target = self;
+  _userDictButton.action = @selector(importUserDictionary:);
+  [_background addSubview:_userDictButton];
   row += kRowHeight + 12;
 
   _background.generalCard =
       NSMakeRect(kMargin, card1_top, content_width, row - card1_top);
   y = row + 16;
 
-  // ---- Card 2: Key mapping ---------------------------------------------
+  // ---- Card 2: Soft equivalence (per-pair recall toggles) --------------
+  const CGFloat cardE_top = y;
+  const CGFloat cardE_x = kMargin + kCardPadding;
+  CGFloat rowE = cardE_top + 14;
+
+  _softEquivSection = [self addLabel:NSMakeRect(cardE_x, rowE, 300, 16)
+                                size:11
+                                bold:YES
+                               color:[NSColor tertiaryLabelColor]];
+  rowE += 16 + 8;
+  _softEquivHint =
+      [self addLabel:NSMakeRect(cardE_x, rowE,
+                                content_width - 2 * kCardPadding, 40)
+                size:11
+                bold:NO
+               color:[NSColor secondaryLabelColor]];
+  rowE += 40 + 6;
+
+  // Five checkboxes in a row: o/u  q/v  h/g  t/d  E/w (captions literal,
+  // no localization needed — they are the key pairs themselves).
+  NSArray<NSString*>* labels =
+      @[ @"o / u", @"q / v", @"h / g", @"t / d", @"E / w" ];
+  CGFloat cbx = cardE_x;
+  for (NSUInteger i = 0; i < 5; ++i) {
+    NSButton* check = [NSButton checkboxWithTitle:labels[i]
+                                           target:self
+                                           action:@selector(equivToggled:)];
+    check.tag = static_cast<NSInteger>(i);
+    check.frame = NSMakeRect(cbx, rowE, 84, kRowHeight);
+    [_background addSubview:check];
+    _equivChecks[i] = check;
+    cbx += 84;
+  }
+  rowE += kRowHeight + 12;
+  _background.softEquivCard =
+      NSMakeRect(kMargin, cardE_top, content_width, rowE - cardE_top);
+  y = rowE + 16;
+
+  // ---- Card 3: Key mapping ---------------------------------------------
   const CGFloat card2_top = y;
   const CGFloat card2_x = kMargin + kCardPadding;
   row = card2_top + 14;
@@ -512,6 +577,10 @@ bool FontSupportsMongolian(NSString* family) {
   _cloudLabel.stringValue = Ns(s.cloud_candidates);
   _languageLabel.stringValue = Ns(s.language_label);
   _fontLabel.stringValue = Ns(s.candidate_font_label);
+  _userDictLabel.stringValue = Ns(s.user_dict_label);
+  _userDictButton.title = Ns(s.user_dict_import);
+  _softEquivSection.stringValue = Ns(s.section_soft_equiv);
+  _softEquivHint.stringValue = Ns(s.soft_equiv_hint);
   _mappingSection.stringValue = Ns(s.section_key_mapping);
   _editMappingButton.title = Ns(s.edit_mapping_file);
   _saveButton.title = Ns(s.save);
@@ -600,6 +669,14 @@ bool FontSupportsMongolian(NSString* family) {
   // vertical Mongolian by PaizaVerticalSampleView.
   _verticalSample.fontFamily = NsW(_settings.candidate_font);
   _verticalSample.needsDisplay = YES;
+
+  const bool enabled[5] = {_settings.equiv_ou, _settings.equiv_qv,
+                           _settings.equiv_hg, _settings.equiv_td,
+                           _settings.equiv_ew};
+  for (NSUInteger i = 0; i < 5; ++i) {
+    _equivChecks[i].state =
+        enabled[i] ? NSControlStateValueOn : NSControlStateValueOff;
+  }
 }
 
 - (void)refreshMappingPreview {
@@ -675,6 +752,63 @@ bool FontSupportsMongolian(NSString* family) {
   if (family.length == 0) return;  // Separator row.
   _settings.candidate_font = paiza::Utf8ToWide([family UTF8String]);
   [self refreshValues];
+}
+
+- (void)equivToggled:(id)sender {
+  NSButton* check = sender;
+  const bool on = check.state == NSControlStateValueOn;
+  switch (check.tag) {
+    case 0: _settings.equiv_ou = on; break;
+    case 1: _settings.equiv_qv = on; break;
+    case 2: _settings.equiv_hg = on; break;
+    case 3: _settings.equiv_td = on; break;
+    case 4: _settings.equiv_ew = on; break;
+    default: break;
+  }
+}
+
+// Imports a user TXT (latin<TAB>mongolian[<TAB>freq]). When the engine is
+// live in this process, the shared UserDictionary picks the entries up
+// immediately; otherwise (standalone --settings instance) they are written
+// to the shared user.db and take effect on the next engine start.
+- (void)importUserDictionary:(id)sender {
+  (void)sender;
+  const paiza::UiStrings& s = paiza::GetStrings(_settings.ui_language);
+
+  NSOpenPanel* panel = [NSOpenPanel openPanel];
+  panel.allowsMultipleSelection = NO;
+  panel.canChooseDirectories = NO;
+  if (@available(macOS 11.0, *)) {
+    panel.allowedContentTypes = @[ UTTypePlainText, UTTypeText ];
+  }
+  if ([panel runModal] != NSModalResponseOK) return;
+  NSURL* url = panel.URLs.firstObject;
+  if (url == nil) return;
+  const std::wstring path = paiza::Utf8ToWide([url.path UTF8String]);
+
+  paiza::ImportResult result;
+  if (_userDictionary != nullptr) {
+    result = _userDictionary->ImportFromFile(path);
+  } else {
+    // Standalone settings process: import straight into the shared db.
+    paiza::UserDictionary dictionary(
+        (std::filesystem::path(paiza::UserConfigDirectory()) / L"user.db")
+            .wstring());
+    result = dictionary.ImportFromFile(path);
+    dictionary.Flush();
+  }
+
+  NSAlert* alert = [[NSAlert alloc] init];
+  alert.messageText = Ns(s.user_dict_label);
+  if (!result.opened) {
+    alert.alertStyle = NSAlertStyleWarning;
+    alert.informativeText = Ns(s.user_dict_import_failed);
+  } else {
+    alert.informativeText =
+        [NSString stringWithFormat:Ns(s.user_dict_import_result),
+                                   result.imported, result.skipped];
+  }
+  [alert runModal];
 }
 
 - (void)editMapping:(id)sender {

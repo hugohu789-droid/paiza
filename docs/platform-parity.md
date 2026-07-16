@@ -2,10 +2,14 @@
 
 Status snapshot for handing work over to the macOS/Linux front-ends.
 
-## Windows
+## Status: all three platforms at parity
 
-Complete. No outstanding platform work. (The cloud candidate source is a
-cross-platform stub by design, not a Windows gap.)
+Windows, macOS and Ubuntu now expose the same engine features **and** the
+same settings UI (page size, cloud toggle, UI language, candidate font,
+key-mapping editor, **user-dictionary import**, **soft-equivalence
+per-pair checkboxes**). The two former mac/Linux-only gaps are closed —
+see the "DONE" section below. The cloud candidate source is a
+cross-platform stub by design, not a platform gap.
 
 ## Engine features — already at parity on all three platforms
 
@@ -28,53 +32,40 @@ UI language, and candidate font are also at parity. The offline tools
 `lexicon_bench`, `tune_scoring`) are portable core-only and build everywhere.
 Deployment of `lexicon.bin` already covers the macOS bundle and Linux install.
 
-## The two gaps to implement on macOS & Ubuntu — both are settings UI
+## The two settings-UI gaps on macOS & Ubuntu — DONE
 
-Windows has these; macOS and Ubuntu don't yet. The core APIs and the
-localized strings already exist, so this is UI + settings plumbing only.
+Both are now implemented on macOS and Ubuntu; all three platforms are at
+parity. Verified: macOS full build + 147 tests, Ubuntu container build +
+tests + Xvfb screenshot of the dialog showing both new controls.
 
-### 1. User-dictionary import button
+### 1. User-dictionary import button — done
 
-- **Core (ready):** `UserDictionary::ImportFromFile(const std::wstring&)`
-  returns `ImportResult{opened, imported, skipped}`. The `UserDictionary*` is
-  already created per platform (`g_user_dictionary`).
-- **Strings (ready):** `UiStrings::user_dict_label`, `user_dict_import`,
-  `user_dict_import_result` (printf `%d`/`%d`), `user_dict_import_failed`.
-- **macOS:** add a label + button row in `settings_window.mm`; on click open
-  an `NSOpenPanel` (filter `txt`), call `ImportFromFile`, show the result in
-  an `NSAlert`. Pass the `UserDictionary*` into the settings window.
-- **Ubuntu:** same in `settings_main.cc` with a `GtkFileChooserDialog` +
-  `GtkMessageDialog`.
-- Reference: Windows `settings_window.cc::ImportUserDictionary` +
-  `main.cc` (creates the dictionary, passes it to the settings window).
+- Core: `UserDictionary::ImportFromFile` → `ImportResult{opened,imported,
+  skipped}`; strings `UiStrings::user_dict_*`.
+- **macOS** (`settings_window.mm`): "User dictionary" row in the General
+  card with an "Import…" button → `NSOpenPanel` (plain-text UTType filter)
+  → `ImportFromFile` → `NSAlert`. The live `g_user_dictionary` is passed
+  into the window so imports apply immediately; the standalone `--settings`
+  instance (no engine) imports into the shared `user.db` directly.
+- **Ubuntu** (`settings_main.cc`): same row + `GtkFileChooserDialog` →
+  `GtkMessageDialog`. The dialog is a separate process, so it imports into
+  the shared `user.db`; the running engine picks the entries up on its
+  next start (`ibus restart`). See docs/linux-port.md.
 
-### 2. Soft-equivalence per-pair checkboxes
+### 2. Soft-equivalence per-pair checkboxes — done
 
-Five pairs: `o u`, `q v`, `h g`, `t d`, `E w` (default all on).
+Five pairs `o u / q v / h g / t d / E w` (default all on).
 
-- **Settings struct + store:** add five bools (`equiv_ou/qv/hg/td/ew`,
-  default true) to the platform `Settings` and persist them
-  (macOS `settings_store.mm` NSUserDefaults; Linux `settings_store.cc` INI).
-  Windows reference: `service/settings_store.{h,cc}`.
-- **Strings (ready):** `UiStrings::section_soft_equiv`, `soft_equiv_hint`.
-  The checkbox captions are literal (`o / u`, …), no new strings needed.
-- **UI:** a "Soft equivalence" card with five checkboxes
-  (macOS `NSButton` set to `NSButtonTypeSwitch`/checkbox; Ubuntu
-  `GtkCheckButton`), synced from settings on show, writing back on toggle.
-- **Apply to the engine:** rebuild the active equivalence set from the
-  enabled pairs and load it into the static lexicon — exactly like Windows
-  `main.cc::ApplySettings`:
-  ```cpp
-  std::string equiv;
-  if (s.equiv_ou) equiv += "o u\n";
-  if (s.equiv_qv) equiv += "q v\n";
-  if (s.equiv_hg) equiv += "h g\n";
-  if (s.equiv_td) equiv += "t d\n";
-  if (s.equiv_ew) equiv += "E w\n";
-  g_static_lexicon->equivalences().LoadFromString(equiv);
-  ```
-  macOS: in `ApplySettings` (`paiza_input_controller.mm`). Ubuntu: in
-  `ApplyCurrentSettings` (`engine.cc`). `g_static_lexicon` exists on both.
+- Five bools added to the macOS (`settings_store.mm`, NSUserDefaults) and
+  Linux (`settings_store.cc`, INI) `Settings`, default true.
+- A "Soft equivalence" card with five checkboxes (macOS
+  `NSButton checkboxWithTitle:`; Ubuntu `GtkCheckButton`), synced from
+  settings and written back on toggle.
+- Applied to the engine by rebuilding the equivalence string and calling
+  `g_static_lexicon->equivalences().LoadFromString(equiv)` — macOS in
+  `ApplySettings` (`paiza_input_controller.mm`), Ubuntu in
+  `ApplyCurrentSettings` (`engine.cc`, guarded so it only reloads when a
+  pair actually changed).
 
 ## Notes
 

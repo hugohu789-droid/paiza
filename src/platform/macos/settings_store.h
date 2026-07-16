@@ -29,6 +29,15 @@ struct Settings {
   UiLanguage ui_language = UiLanguage::kEnglish;
   // Font family used for the Mongolian text in the candidate window.
   std::wstring candidate_font = kDefaultCandidateFont;
+  // Soft-equivalence pairs: when on, a word spelled with one key of the
+  // pair is also recalled (ranked below the exact spelling) when the other
+  // is typed. Off = precise. All on by default. Mirrors the Windows
+  // service::Settings fields 1:1 (see docs/platform-parity.md).
+  bool equiv_ou = true;  // U+1825 / U+1826 (feminine oe / ue).
+  bool equiv_qv = true;  // U+1823 / U+1824 (masculine o / u).
+  bool equiv_hg = true;  // U+182C / U+182D (velar qa / ga).
+  bool equiv_td = true;  // U+1832 / U+1833 (ta / da).
+  bool equiv_ew = true;  // U+1827 / U+1838 (ee / wa, same glyph).
 };
 
 class SettingsStore {

@@ -272,6 +272,7 @@ if(APPLE)
     "-framework Cocoa"
     "-framework InputMethodKit"
     "-framework CoreText"
+    "-framework UniformTypeIdentifiers"
   )
 
   # Developer tool: offscreen candidate-panel preview (PNG snapshots, no

@@ -15,6 +15,7 @@
 #include "core/key_mapping_store.h"
 #include "core/local_dictionary_source.h"
 #include "core/localization.h"
+#include "core/static_lexicon.h"
 #include "core/user_dictionary.h"
 
 #import "candidate_panel.h"
@@ -106,19 +107,33 @@ paiza::mac::Settings CurrentSettings() {
 }
 
 void ApplySettings(const paiza::mac::Settings& settings) {
-  SharedEngine();  // Ensure g_cloud_source is created.
+  SharedEngine();  // Ensure g_cloud_source / g_static_lexicon are created.
   if (g_cloud_source != nullptr) {
     g_cloud_source->set_enabled(settings.cloud_source_enabled);
+  }
+  // Rebuild the active soft-equivalence set from the per-pair toggles and
+  // load it into the static lexicon — identical to Windows ApplySettings.
+  if (g_static_lexicon != nullptr) {
+    std::string equiv;
+    if (settings.equiv_ou) equiv += "o u\n";
+    if (settings.equiv_qv) equiv += "q v\n";
+    if (settings.equiv_hg) equiv += "h g\n";
+    if (settings.equiv_td) equiv += "t d\n";
+    if (settings.equiv_ew) equiv += "E w\n";
+    g_static_lexicon->equivalences().LoadFromString(equiv);
   }
 }
 
 // One settings window for the whole process.
 PaizaSettingsWindowController* SharedSettingsWindow() {
-  static PaizaSettingsWindowController* controller =
-      [[PaizaSettingsWindowController alloc]
-          initWithOnChanged:^(const paiza::mac::Settings& settings) {
-            ApplySettings(settings);
-          }];
+  static PaizaSettingsWindowController* controller = [] {
+    SharedEngine();  // Ensure g_user_dictionary exists for imports.
+    return [[PaizaSettingsWindowController alloc]
+        initWithOnChanged:^(const paiza::mac::Settings& settings) {
+          ApplySettings(settings);
+        }
+           userDictionary:g_user_dictionary];
+  }();
   return controller;
 }
 

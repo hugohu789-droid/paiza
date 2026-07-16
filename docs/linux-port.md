@@ -315,7 +315,25 @@ candidates_per_page=7
 cloud_source_enabled=0
 ui_language=0          # 0 en, 1 zh, 2 mn-Cyrillic
 candidate_font=Noto Sans Mongolian
+equiv_ou=1             # soft-equivalence pairs, all on by default
+equiv_qv=1
+equiv_hg=1
+equiv_td=1
+equiv_ew=1
 ```
 
 `candidate_font` takes visual effect in the v2 custom candidate window
 (X11); the v1 lookup-table fallback uses the system panel's font.
+
+The **soft-equivalence** checkboxes hot-reload like the other settings:
+`ApplyCurrentSettings` (engine.cc) rebuilds the equivalence string from
+the five bools and reloads it into `g_static_lexicon->equivalences()` on
+the next keystroke (guarded so it only reloads when a pair changed).
+
+**User-dictionary import** is the one setting that does *not* apply live
+on Linux: the settings dialog is a separate process from the engine, so
+it imports into the shared `~/.config/paiza-ime/user.db` (SQLite WAL,
+safe for concurrent access) and the running engine — which holds its user
+lexicon in memory for a zero-I/O typing path — picks the new entries up
+on its next start (`ibus restart` or next login). Windows and macOS run
+the settings UI in-process, so their imports are immediate.
