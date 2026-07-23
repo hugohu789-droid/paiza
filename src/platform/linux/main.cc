@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Entry point of the IBus engine process. ibus-daemon spawns it with
 // --ibus (per the component XML installed to share/ibus/component/);

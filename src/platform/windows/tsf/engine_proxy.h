@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Loose coupling between the TSF frame and the input algorithm (spec item
 // 3): the TSF module never links the dictionary. It asks the service

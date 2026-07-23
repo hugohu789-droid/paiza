@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Data-driven key-equivalence classes for fault-tolerant matching. Keys that
 // share a class are interchangeable at zero edit cost, so common "same sound,

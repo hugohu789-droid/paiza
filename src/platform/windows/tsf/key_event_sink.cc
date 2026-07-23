@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // ITfKeyEventSink implementation for TextService. Key policy:
 //   a..z          -> append to the Latin buffer, refresh composition

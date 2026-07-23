@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Cairo/Pango drawing core of the Linux vertical candidate window — the
 // port of the macOS candidate_panel.mm drawing (same layout constants,

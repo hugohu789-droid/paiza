@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Settings dialog, hosted in the service process (design decision, spec
 // item 14): the service owns the settings, no UI ever runs inside host

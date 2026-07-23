@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // IBus engine type: a thin GObject adapter around paiza::InputSession
 // (all key policy lives there — keep this layer free of input logic so

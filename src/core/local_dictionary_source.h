@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Candidate source backed by a local plain-text dictionary. File format is
 // one entry per line: "<latin_key>\t<mongolian_word_utf8>\t<frequency>".

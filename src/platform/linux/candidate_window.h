@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // GTK popup hosting the vertical candidate panel (drawing lives in
 // candidate_renderer.{h,cc}). Always runs on the X11 GDK backend: a

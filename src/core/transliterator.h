@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Thin facade over the built-in default KeyMapping. This is the "simple
 // algorithm" fallback used when neither the candidate service nor a user

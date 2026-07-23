@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // On-disk layout of the compiled static lexicon (lexicon.bin), shared by the
 // offline compiler (writer) and StaticLexicon (mmap reader). All integers are

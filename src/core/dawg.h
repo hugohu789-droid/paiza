@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Minimal, numbered directed acyclic word graph (DAWG) over the lexicon's
 // sorted unique keys. Unlike a trie, a DAWG shares both prefixes and suffixes,

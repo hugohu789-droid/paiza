@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Log-domain candidate scorer. Combines four signals into a single ranking
 // score, per docs/core-engine-spec.md:

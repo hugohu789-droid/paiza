@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Traditional vertical Mongolian candidates for GNOME Shell's IBus
 // popup. On Wayland the Paiza engine cannot draw its own candidate

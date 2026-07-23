@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Compatibility shim: the stem calibration store moved to src/core (it is
 // pure portable file parsing, shared with the macOS CoreText renderer).

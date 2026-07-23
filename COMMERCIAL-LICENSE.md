@@ -31,9 +31,10 @@ terms, which may include a license fee.
 
 ## How to obtain a commercial license
 
-Open an issue or contact the repository owner through the project page:
+Contact the author:
 
-> https://github.com/hugohu789-droid/paiza
+> **Email:** hugo.hu.789@gmail.com
+> **Project:** https://github.com/hugohu789-droid/paiza (issues / owner contact)
 
 Please describe your intended use (product, distribution model, scale) so an
 appropriate license can be arranged.

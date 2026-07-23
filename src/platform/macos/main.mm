@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Entry point of the macOS input method (.app bundle installed under
 // ~/Library/Input Methods). InputMethodKit connects host applications to

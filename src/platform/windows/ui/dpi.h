@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Per-monitor DPI helpers. The IME popups are created inside arbitrary
 // host processes whose DPI awareness we do not control; creating and

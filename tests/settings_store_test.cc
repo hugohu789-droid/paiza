@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Round-trips Settings through the registry (HKCU\Software\PaizaIME). The
 // test writes to the real per-user hive but restores the previous values

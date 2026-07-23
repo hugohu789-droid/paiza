@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // The IME candidate popup: a CandidateListView plus paging buttons and a
 // page indicator in the bottom-right corner (spec item 6). Positioned by

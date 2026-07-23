@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Compose-side use of the GB/T traditional-Mongolian fixed sequences (table
 // D.2): case/suffix presentation forms that need a leading MVS (U+180E) to

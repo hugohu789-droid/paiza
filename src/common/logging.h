@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Minimal debug logging. Output goes to the debugger (OutputDebugString) so
 // it is visible in DebugView / VS output window from any host process the

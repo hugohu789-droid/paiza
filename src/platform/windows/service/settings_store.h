@@ -1,4 +1,5 @@
-﻿// Copyright 2026 Paiza. All rights reserved.
+﻿// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Registry-backed user settings (HKCU\Software\PaizaIME). The service
 // process is the single owner of settings; the TSF module never touches

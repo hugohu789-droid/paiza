@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Window: base class wrapping an HWND. Owns a widget tree, a render
 // context and an event dispatcher. Subclasses (CandidateWindow,

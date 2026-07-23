@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Read-only static lexicon backed by the memory-mapped lexicon.bin. Startup is
 // zero-parse: the file is mmap'd and validated (magic/version/endianness/CRC)

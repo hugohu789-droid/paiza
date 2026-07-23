@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // NSUserDefaults-backed user settings for the macOS input method. The
 // fields and their semantics mirror the Windows registry store

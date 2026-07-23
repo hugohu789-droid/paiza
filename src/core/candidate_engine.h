@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Aggregates every registered CandidateSource into a single ranked candidate
 // list. Thread-safe for concurrent Query calls once configuration is done.

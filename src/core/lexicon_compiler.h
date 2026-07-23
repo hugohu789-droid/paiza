@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Offline compiler: turns plain-text dictionary + bigram sources into the
 // compact binary lexicon (lexicon.bin) consumed by StaticLexicon via mmap.

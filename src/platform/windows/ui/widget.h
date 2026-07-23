@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Widget: base class for all controls. Widgets are lightweight (no HWND of
 // their own); the owning Window paints them into its Direct2D target and

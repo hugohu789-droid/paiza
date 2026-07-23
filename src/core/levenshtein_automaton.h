@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Bounded Damerau-Levenshtein automaton over a fixed query string. Feeding it
 // the characters of a candidate key one at a time tracks the edit distance

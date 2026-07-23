@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // The UTF-8 <-> wide conversion is hand-rolled so core builds without
 // Win32; it must behave identically for 16-bit (Windows) and 32-bit

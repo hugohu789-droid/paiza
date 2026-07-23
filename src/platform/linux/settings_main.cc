@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // GTK3 settings dialog — the Linux equivalent of the Windows settings
 // dialog and the macOS settings window, with exactly the same options:

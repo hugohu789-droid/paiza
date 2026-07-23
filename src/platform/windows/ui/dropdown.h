@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // DropdownPopup: a scrollable single-select list popup, used by the
 // settings dialog's font picker. Anchored below a trigger button, closed

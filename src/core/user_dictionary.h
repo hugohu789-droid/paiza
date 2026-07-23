@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Dynamic user lexicon: the read-write half of the engine's dual-track
 // (overlay) architecture — see docs/core-engine-spec.md §3.2.

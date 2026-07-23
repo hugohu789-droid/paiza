@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // High-level facade over NamedPipeClient for the TSF module: typed queries,
 // plus best-effort auto-start of the service executable when the pipe is

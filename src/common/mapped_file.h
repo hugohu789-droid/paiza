@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Read-only memory-mapped file, portable across Windows / macOS / Linux.
 // The mapping is released in the destructor; the view stays valid for the

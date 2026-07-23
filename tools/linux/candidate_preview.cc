@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Offscreen preview of the Linux candidate window — renders PNGs with a
 // plain cairo image surface, so it needs no display, no ibus and no

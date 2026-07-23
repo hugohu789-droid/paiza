@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Routes window mouse input to widgets: hover enter/leave tracking, mouse
 // capture while a button is held, and click synthesis.

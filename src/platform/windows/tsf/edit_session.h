@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Lambda-based ITfEditSession adapter. TSF only lets a TIP touch document
 // text inside an edit session; this wrapper turns the ceremony into:

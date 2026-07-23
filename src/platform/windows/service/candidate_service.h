@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Wires the IPC server to the candidate engine: decodes requests coming
 // from TSF clients, queries the engine, encodes replies. Show-settings

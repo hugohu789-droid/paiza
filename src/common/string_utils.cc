@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Portable UTF-8 <-> wide-string conversion. wchar_t is UTF-16 on Windows
 // and UTF-32 on macOS/Linux; both are handled. Invalid input decodes to

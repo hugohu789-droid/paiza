@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // C-style FFI for external cross-platform hosts (C# Avalonia, Qt, ...).
 // See docs/core-engine-spec.md §5 for the full contract. The in-repo

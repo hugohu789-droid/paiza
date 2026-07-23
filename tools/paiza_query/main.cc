@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Headless query REPL: type a Latin key sequence, get the candidate list back
 // — no IME host, no UI, pure engine. Wires the same pipeline the real

@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Middle-layer romanization: a fixed, lossless map from Mongolian codepoints
 // to latin tokens, defined as the inverse of the *default* key mapping. It

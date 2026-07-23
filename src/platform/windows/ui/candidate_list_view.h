@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Paged candidate list widget. Candidates are laid out as vertical-text
 // columns flowing left to right; each column shows its selection number

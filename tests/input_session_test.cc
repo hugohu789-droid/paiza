@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // InputSession is the cross-platform key-policy contract: these tests
 // pin the exact behaviour every front-end (Windows TSF, macOS IMK,

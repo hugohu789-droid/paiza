@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Per-font calibration for vertical Mongolian stem centring. Each entry
 // maps a font family to its stem ratio — the distance of the Mongolian

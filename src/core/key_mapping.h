@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // User-editable keyboard mapping: Latin key sequences -> Mongolian text.
 // Keys are case-sensitive single ASCII characters ("a", "N") or multi-char

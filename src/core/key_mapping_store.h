@@ -1,4 +1,5 @@
-// Copyright 2026 Paiza. All rights reserved.
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
 //
 // Hot-reloading provider for the user key mapping. Both the input-method
 // module (per keystroke) and the settings dialog (preview) call Get(); the
