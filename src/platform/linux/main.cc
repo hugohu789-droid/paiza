@@ -67,13 +67,13 @@ int main(int argc, char* argv[]) {
     // Developer mode: register the component ourselves.
     IBusComponent* component = ibus_component_new(
         "com.paiza.inputmethod.mongolian", "Paiza Mongolian IME", "0.1.0",
-        "MIT", "Paiza", "https://github.com/hugohu789-droid/paiza",
+        "AGPL-3.0", "Paiza", "https://github.com/hugohu789-droid/paiza",
         /*command_line=*/"", "ibus-paiza");
     ibus_component_add_engine(
         component,
         ibus_engine_desc_new("paiza-mongolian", "Paiza Mongolian",
                              "Traditional Mongolian (vertical script)",
-                             "mn", "MIT", "Paiza",
+                             "mn", "AGPL-3.0", "Paiza",
                              PAIZA_DATA_DIR "/paiza-mn.png", "us"));
     ibus_bus_register_component(bus, component);
   }

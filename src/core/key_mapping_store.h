@@ -29,7 +29,8 @@ std::wstring KeyMappingFilePath();
 // Outcome of the store's last look at the mapping file. When the user
 // saves a file that fails ValidateKeyMapFile, the store keeps the
 // previous mapping, writes the last valid content back over the broken
-// file (spec: 验证失败会提示错误并恢复修改前的) and reports the error
+// file (spec: on validation failure, show an error and restore the
+// pre-edit version) and reports the error
 // here so the settings dialogs can show it.
 struct KeyMapFileStatus {
   bool valid = true;

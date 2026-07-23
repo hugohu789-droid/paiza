@@ -1,71 +1,80 @@
-# 引擎命令行工具 (Engine Command-Line Tools)
+# Engine command-line tools
 
-一组不依赖任何 IME 宿主 / GUI 的命令行工具，用于对核心引擎做纯算法测试、
-性能验收与打分调参。本文重点介绍 **`paiza_query`**（键盘序列 → 候选词列表），
-末尾简述其余三个工具。
+A set of command-line tools that depend on no IME host / GUI, for pure-algorithm
+testing, performance acceptance, and scoring tuning of the core engine. This
+document focuses on **`paiza_query`** (key sequence → candidate list) and
+briefly covers the other tools at the end.
 
-所有工具都链接 `paiza_core`，是构建期/开发期工具（`EXCLUDE_FROM_ALL`，
-不随默认构建产出）。产物位于 `build/bin/<Config>/`。
+All tools link `paiza_core` and are build-time / development tools
+(`EXCLUDE_FROM_ALL`, not produced by the default build). Artifacts land in
+`build/bin/<Config>/`.
 
 ---
 
-## paiza_query — 无界面候选词查询
+## paiza_query — headless candidate query
 
-输入一段拉丁键序，返回引擎给出的候选词列表——没有输入法框架、没有窗口，
-纯引擎。它走的是三端前端相同的管线（键位映射 → `CandidateEngine`
-覆盖「用户词库 + 静态词库」，经由 `InputSession`），因此能真实复现
-精确/前缀匹配、容错匹配、用户调频与 bigram 上下文等全部行为。
+Feed a Latin key sequence and get back the engine's candidate list — no IME
+framework, no window, pure engine. It runs the same pipeline the three
+front-ends use (key mapping → `CandidateEngine` overlaying "user lexicon +
+static lexicon", via `InputSession`), so it faithfully reproduces exact/prefix
+matching, tolerant matching, user frequency boosting, bigram context, and all
+other behaviour.
 
-源码：`tools/paiza_query/main.cc`。
+Source: `tools/paiza_query/main.cc`.
 
-### 编译
+### Build
 
 ```
 cmake --build build --config Debug --target paiza_query
 ```
 
-产物：`build/bin/Debug/paiza_query`（Windows 为 `paiza_query.exe`）。
+Artifact: `build/bin/Debug/paiza_query` (`paiza_query.exe` on Windows).
 
-> 提示：`lexicon.bin` 与 `dictionary.txt` 会在构建时部署到 `build/bin/<Config>/`
-> （紧挨着 `PaizaService`）。在该目录下直接运行，默认路径即可命中。
+> Tip: `lexicon.bin` and `dictionary.txt` are deployed to `build/bin/<Config>/`
+> at build time (next to `PaizaService`). Run in that directory and the default
+> paths resolve.
 
-### 命令行选项
+### Command-line options
 
-| 选项 | 含义 | 默认值 |
+| Option | Meaning | Default |
 |---|---|---|
-| `--lexicon <bin>` | 编译后的静态词库 `lexicon.bin` | 当前目录 `lexicon.bin`（缺失则仅用文本词库） |
-| `--dict <txt>` | 文本词库 `dictionary.txt`（回退层） | 当前目录 `dictionary.txt` |
-| `--keymap <txt>` | 键位映射文件 `keymap.txt` | 内置默认映射 |
-| `--user <db>` | 用户词库 SQLite 文件 | 空（内存态，退出即弃，测试可复现） |
-| `<seq> ...` | 直接给出一个或多个待查键序 | 无（则进入交互模式） |
+| `--lexicon <bin>` | compiled static lexicon `lexicon.bin` | `lexicon.bin` in the current dir (text lexicon only if absent) |
+| `--dict <txt>` | text lexicon `dictionary.txt` (fallback layer) | `dictionary.txt` in the current dir |
+| `--keymap <txt>` | key-mapping file `keymap.txt` | built-in default mapping |
+| `--user <db>` | user-lexicon SQLite file | empty (in-memory, discarded on exit, reproducible for tests) |
+| `<seq> ...` | one or more key sequences to look up directly | none (enters interactive mode) |
 
-### 两种运行模式
+### Two run modes
 
-**一次性（可脚本化）**：把键序作为参数传入，逐条打印结果后退出。
+**One-shot (scriptable)**: pass the key sequences as arguments; each is printed
+in turn, then it exits.
 
-**交互式**：不带任何键序参数运行，从标准输入逐行读取键序。REPL 命令：
+**Interactive**: run with no key-sequence argument; read sequences line by line
+from stdin. REPL commands:
 
-| 命令 | 作用 |
+| Command | Action |
 |---|---|
-| `:N` | 上屏上一次结果中的第 N 个候选：记入用户词库（调频/记忆），并把它设为下一次查询的 bigram 上下文 |
-| `:reset` | 清除 bigram 上下文 |
-| `:q` / `:quit` | 退出 |
+| `:N` | commit the Nth candidate from the last result: record it into the user lexicon (frequency/memory) and set it as the bigram context for the next query |
+| `:reset` | clear the bigram context |
+| `:q` / `:quit` | exit |
 
-### 输出格式
+### Output format
 
-每条键序输出：
-- `preedit:` 行——键位映射对该键序的**直译**（Mongolian 预编辑串），
-  括号内是 `U+XXXX` 码点；
-- 若干候选行——序号、蒙古文（UTF-8）、`[来源]`、`score=` 综合打分、
-  以及 `U+XXXX` 码点串。
+For each key sequence:
+- a `preedit:` line — the key mapping's **direct transliteration** of the
+  sequence (the Mongolian preedit string), with `U+XXXX` codepoints in
+  parentheses;
+- one or more candidate lines — index, Mongolian (UTF-8), `[source]`, `score=`
+  composite score, and the `U+XXXX` codepoint string.
 
-来源标签：`[user]` 用户词库（优先级 200）、`[lexicon]` 静态词库（100）、
-`[predict]` bigram 联想。分数为对数域打分器的缩放整数，越大越靠前；
-容错命中会被编辑代价压成较低甚至负分，因此精确匹配恒排在错拼之前。
+Source tags: `[user]` user lexicon (priority 200), `[lexicon]` static lexicon
+(100), `[predict]` bigram prediction. The score is the log-domain scorer's
+scaled integer; larger is ranked higher. A tolerant hit is pushed down by the
+edit cost, possibly to a negative score, so exact matches always precede typos.
 
-### 示例
+### Examples
 
-**1) 精确匹配**——`sain` 返回两种拼写，按词频排序：
+**1) Exact match** — `sain` returns two spellings, ranked by frequency:
 
 ```
 $ ./paiza_query.exe sain
@@ -75,8 +84,9 @@ $ ./paiza_query.exe sain
   2. ᠰᠠᠢᠨ  [lexicon]  score=3714  U+1830 U+1820 U+1822 U+1828
 ```
 
-**2) 容错匹配**——`mongl`（漏打一个 `o`）、`bicig`（漏打 `h`）仍能命中，
-但分数被编辑代价压低（可能为负），排在任何精确匹配之后：
+**2) Tolerant match** — `mongl` (missing an `o`), `bicig` (missing an `h`) still
+hit, but the score is lowered by the edit cost (possibly negative), ranking
+after any exact match:
 
 ```
 $ ./paiza_query.exe mongl bicig
@@ -89,8 +99,9 @@ $ ./paiza_query.exe mongl bicig
   1. ᠪᠢᠴᠢᠭ  [lexicon]  score=-1489  U+182A U+1822 U+1834 U+1822 U+182D
 ```
 
-**3) 用户词库学习**——交互模式下上屏一个候选，再次查询即见它以
-`[user]` 身份排到最前（优先级高于静态词库）：
+**3) User-lexicon learning** — in interactive mode, commit a candidate, then
+query again to see it rise to the top as `[user]` (higher priority than the
+static lexicon):
 
 ```
 $ printf 'sain\n:2\nsain\n:q\n' | ./paiza_query.exe
@@ -103,64 +114,74 @@ $ printf 'sain\n:2\nsain\n:q\n' | ./paiza_query.exe
   2. ᠰᠠᠶᠢᠨ  [lexicon]  score=4615  ...
 ```
 
-> bigram 上下文同理由 `:N` 触发：`SetContextWord` 会令下一次查询中该词的
-> 后继候选获得增益（前提是 `lexicon.bin` 编入了 bigram 数据；示例词库暂无）。
+> Bigram context is likewise triggered by `:N`: `SetContextWord` gives that
+> word's successor candidates a boost in the next query (provided `lexicon.bin`
+> was compiled with bigram data; the sample lexicon has none).
 
-### Windows 编码与字体说明
+### Windows encoding and font notes
 
-- 工具启动时调用 `SetConsoleOutputCP(CP_UTF8)`，直接在控制台运行不会乱码。
-- **乱码 ≠ 缺字形**：若显示成 `□` 方框（豆腐块），是当前控制台**字体不含
-  蒙古文字形**，与编码无关——换成含蒙古文的字体（如 Noto Sans Mongolian）即可。
-- 无论字体如何，行尾的 **`U+XXXX` 码点始终可读**，是纯算法验证最可靠的依据。
-- 传统蒙古文是**竖排**，控制台横排显示，方向"不像"真正的蒙古文属正常现象，
-  码点顺序才是判据。
-- 在 PowerShell 中**捕获/重定向**输出（`> 文件` 或赋值给变量）时，PowerShell
-  会用自身的 `[Console]::OutputEncoding` 再解码一次，可能引入 UTF-16 等问题。
-  要看原始字节，用 `cmd` 重定向或 Git Bash 管道最干净；直接在终端交互查看则正常。
+- The tool calls `SetConsoleOutputCP(CP_UTF8)` at startup, so running it
+  directly in the console does not produce garbled text.
+- **Garbled text ≠ missing glyph**: if it shows `□` boxes (tofu), the current
+  console **font lacks Mongolian glyphs** — unrelated to encoding; switch to a
+  font with Mongolian coverage (e.g. Noto Sans Mongolian).
+- Regardless of font, the trailing **`U+XXXX` codepoints are always readable**
+  and are the most reliable basis for pure-algorithm verification.
+- Traditional Mongolian is **vertical**; the console shows it horizontally, so
+  the direction "not looking like" real Mongolian is normal — the codepoint
+  order is the criterion.
+- When **capturing/redirecting** output in PowerShell (`> file` or assigning to
+  a variable), PowerShell re-decodes it with its own `[Console]::OutputEncoding`,
+  which can introduce UTF-16 and similar issues. To see raw bytes, `cmd`
+  redirection or a Git Bash pipe is cleanest; viewing interactively in the
+  terminal is fine.
 
-### 工作原理
+### How it works
 
-`paiza_query` 按与真实前端一致的顺序装配引擎：
+`paiza_query` assembles the engine in the same order as the real front-ends:
 
 ```
 CandidateEngine
- ├─ UserDictionary   优先级 200   （--user，缺省内存态）
- ├─ StaticLexicon    优先级 100   （--lexicon，mmap + DAWG×自动机容错）
- └─ LocalDictionary  回退         （--dict，文本词库）
+ ├─ UserDictionary   priority 200   (--user, in-memory by default)
+ ├─ StaticLexicon    priority 100   (--lexicon, mmap + DAWG×automaton tolerance)
+ └─ LocalDictionary  fallback       (--dict, text lexicon)
 ```
 
-键序经 `KeyMappingStore`（`--keymap` 或内置默认）转成预编辑串，再由
-`InputSession`（跨平台键策略契约，见 `src/core/input_session.h`）驱动
-`CandidateEngine::Query`。因此命令行看到的结果，就是真实 IME 对同样按键
-会给出的候选。
+The key sequence is turned into a preedit string by `KeyMappingStore` (`--keymap`
+or the built-in default), then `InputSession` (the cross-platform key-policy
+contract, see `src/core/input_session.h`) drives `CandidateEngine::Query`. So
+what you see on the command line is exactly what the real IME would produce for
+the same keys.
 
 ---
 
-## 语料 → 词库 总流程
+## Corpus → lexicon overall pipeline
 
-从一堆蒙古文文章到可用的 `lexicon.bin`,整条链路(⚙ = 自动,🧑 = 人工):
+From a pile of Mongolian articles to a usable `lexicon.bin`, the whole chain
+(⚙ = automatic, 🧑 = manual):
 
 ```
-      蒙古文语料                 data/equivalences.txt   (软等价 / 同形类)
-      (UTF-8 .txt)               data/fixed_sequences.txt (GB/T D.2 后缀)
-          │                              │  归一 · NNBSP→MVS
+      Mongolian corpus            data/equivalences.txt   (soft equiv / glyph classes)
+      (UTF-8 .txt)                data/fixed_sequences.txt (GB/T D.2 suffixes)
+          │                              │  normalize · NNBSP→MVS
           ▼                              ▼
    ┌─────────────────────────────────────────────────┐
-   │ ⚙ corpus_normalize  ①分析                         │
+   │ ⚙ corpus_normalize  ① analyze                     │
    │   --review review.txt --corrections-skeleton c.tsv│
    └──────────────┬───────────────────┬────────────────┘
                   │                   │
-            review.txt            c.tsv (预填骨架)
-          (疑难组:码点/罗马化/           │
-           频次/例句/建议)  ──► 🧑 删/改 ─┘   删行=不纠正,改第3列=改目标
+            review.txt            c.tsv (prefilled skeleton)
+          (ambiguity groups:            │
+           codepoints/romanization/     │
+           freq/examples/suggestion) ──► 🧑 delete/edit ─┘  delete=don't fix, edit col 3=change target
                                       │
                                       ▼
    ┌─────────────────────────────────────────────────┐
-   │ ⚙ corpus_normalize  ②应用 --map c.tsv             │
-   │   NNBSP→MVS + 同形整词纠正                          │
+   │ ⚙ corpus_normalize  ② apply --map c.tsv           │
+   │   NNBSP→MVS + whole-word homograph correction     │
    └──────────────┬────────────────────────────────────┘
                   ▼
-           standard.txt  (标准语料)
+           standard.txt  (standardized corpus)
                   │
                   ▼
    ┌─────────────────────────────────────────────────┐
@@ -168,217 +189,240 @@ CandidateEngine
    └──┬──────────┬───────────┬───────────┬─────────────┘
       ▼          ▼           ▼           ▼
   dictionary  suffixes    bigrams     phrases
-    .txt      (附加成分)   (下一词联想) (整串候选,键=首词)
+    .txt      (suffixes)  (next-word)  (whole-string cand., key=first word)
       │                      │           │
       └──────────┬───────────┴───────────┘
                  ▼
    ┌─────────────────────────────────────────────────┐
-   │ ⚙ compile_lexicon   (cmake --build 自动)          │
+   │ ⚙ compile_lexicon   (auto via cmake --build)      │
    │   --dict dictionary --dict phrases                │
    │   --bigram bigrams --equiv equivalences           │
    │   --fixed fixed_sequences                         │
    └──────────────┬────────────────────────────────────┘
                   ▼
-             lexicon.bin  (v4 · mmap · CRC 校验)
-                  │  部署到二进制旁 (三平台)
+             lexicon.bin  (v4 · mmap · CRC-checked)
+                  │  deployed next to binaries (three platforms)
                   ▼
-        引擎 StaticLexicon (Windows TSF / macOS IMK / Linux IBus)
-   精确·前缀 │ 容错(编辑距离≤1) │ 软等价 │ 辅音骨架 │ 整串短语 │ bigram 联想
+        engine StaticLexicon (Windows TSF / macOS IMK / Linux IBus)
+   exact·prefix │ tolerant(edit dist ≤1) │ soft equiv │ consonant skeleton │ whole phrase │ bigram
                                         │
-                              合成侧:上屏时插 MVS + 后缀谐元
+                              compose side: insert MVS + suffix harmony on commit
 ```
 
-一条命令示例(把三步串起来):
+A one-command example (chaining the three steps):
 
 ```
 corpus_normalize --review review.txt --corrections-skeleton c.tsv \
-    --out auto.txt data/corpus/*.txt          # ①分析(先看 review.txt,改 c.tsv)
-corpus_normalize --map c.tsv --out standard.txt data/corpus/*.txt   # ②应用
+    --out auto.txt data/corpus/*.txt          # ① analyze (read review.txt, edit c.tsv)
+corpus_normalize --map c.tsv --out standard.txt data/corpus/*.txt   # ② apply
 build_dictionary --out data/dictionary.txt --suffix-out sfx.txt \
     --phrase-out data/bigrams.txt --phrase-as-entry data/phrases.txt \
-    --min-freq 2 --phrase-min 3 --phrase-cond 0.3 standard.txt       # ③抽词库
-cmake --build build                            # ④编入 lexicon.bin 并部署
+    --min-freq 2 --phrase-min 3 --phrase-cond 0.3 standard.txt       # ③ extract lexicon
+cmake --build build                            # ④ compile into lexicon.bin and deploy
 ```
 
-各工具的完整选项/示例见下。
+Full options / examples for each tool follow.
 
-## 相关工具
+## Related tools
 
-| 工具 | 用途 | 源码 |
+| Tool | Purpose | Source |
 |---|---|---|
-| `compile_lexicon` | 离线编译器：`dictionary.txt`(+`bigrams.txt`) → `lexicon.bin`（构建期自动运行） | `tools/compile_lexicon/main.cc` |
-| `build_dictionary` | 语料 → `dictionary.txt`：从蒙古文 txt 抽取单词+短语并计频 | `tools/build_dictionary/main.cc` |
-| `corpus_normalize` | 语料清洗（`build_dictionary` 前）：把 NNBSP 后缀标准化为 MVS + 谐元 | `tools/corpus_normalize/main.cc` |
-| `lexicon_bench` | 性能台架：合成大词库，测量 P50/P90/P99 查询延迟与 DAWG 压缩比 | `tools/lexicon_bench/main.cc` |
-| `tune_scoring` | 打分权重评测：对带标注的查询集报告 top-1/top-3/MRR | `tools/tune_scoring/main.cc` |
+| `compile_lexicon` | offline compiler: `dictionary.txt` (+`bigrams.txt`) → `lexicon.bin` (runs automatically at build time) | `tools/compile_lexicon/main.cc` |
+| `build_dictionary` | corpus → `dictionary.txt`: extract words+phrases from Mongolian txt and count frequency | `tools/build_dictionary/main.cc` |
+| `corpus_normalize` | corpus cleanup (before `build_dictionary`): standardize NNBSP suffixes to MVS + harmony | `tools/corpus_normalize/main.cc` |
+| `lexicon_bench` | performance harness: synthesize a large lexicon, measure P50/P90/P99 query latency and DAWG compression | `tools/lexicon_bench/main.cc` |
+| `tune_scoring` | scoring-weight evaluation: report top-1/top-3/MRR on a labelled query set | `tools/tune_scoring/main.cc` |
 
-### build_dictionary — 语料转词库(详解)
+### build_dictionary — corpus to lexicon (detailed)
 
-从含蒙古文的 UTF-8 文本(新闻、作文等)抽取**单词、附加成分、短语**并计频,产出
-本项目 `dictionary.txt` 格式(`latin_key<TAB>蒙古文<TAB>词频`)的词库文件。
-源码 `tools/build_dictionary/main.cc`。
+Extract **words, suffixes, and phrases** from Mongolian-containing UTF-8 text
+(news, essays, etc.) with frequency counts, producing lexicon files in this
+project's `dictionary.txt` format (`latin_key<TAB>mongolian<TAB>frequency`).
+Source `tools/build_dictionary/main.cc`.
 
-#### 编译
+#### Build
 
 ```
 cmake --build build --config Debug --target build_dictionary
 ```
-产物 `build/bin/Debug/build_dictionary`(Windows 为 `.exe`);`EXCLUDE_FROM_ALL`
-开发工具,按需编译。
+Artifact `build/bin/Debug/build_dictionary` (`.exe` on Windows); `EXCLUDE_FROM_ALL`,
+a dev tool built on demand.
 
-#### 命令行选项
+#### Command-line options
 
-| 选项 | 含义 | 默认 |
+| Option | Meaning | Default |
 |---|---|---|
-| `<input.txt> ...` | 一个或多个 UTF-8 语料文件(位置参数,必填) | — |
-| `--out <file>` | **单词(词干)** 输出 | 缺省打到 stdout |
-| `--suffix-out <file>` | **附加成分** 输出 | 不输出 |
-| `--phrase-out <file>` | **短语 bigram**(联想用)输出 | 不输出 |
-| `--phrase-as-entry <file>` | **整串短语词条**(打首词即出整串)输出 | 不输出 |
-| `--min-freq N` | 单词/附加成分最低频次 | 1 |
-| `--phrase-min N` | 短语最低共现次数 | 2 |
-| `--phrase-cond F` | 整串短语的最低条件概率 P(词2\|词1) | 0.2 |
+| `<input.txt> ...` | one or more UTF-8 corpus files (positional, required) | — |
+| `--out <file>` | **word (stem)** output | prints to stdout by default |
+| `--suffix-out <file>` | **suffix** output | not output |
+| `--phrase-out <file>` | **phrase bigram** (for prediction) output | not output |
+| `--phrase-as-entry <file>` | **whole-string phrase entry** (type the first word to get the whole string) output | not output |
+| `--min-freq N` | minimum word/suffix frequency | 1 |
+| `--phrase-min N` | minimum phrase co-occurrence count | 2 |
+| `--phrase-cond F` | minimum conditional probability P(word2\|word1) for whole-string phrases | 0.2 |
 
-只有给了对应 `--*-out` 才产出该项;不给就跳过。
+Each item is produced only if its corresponding `--*-out` is given; otherwise it
+is skipped.
 
-#### 切词与切分规则
+#### Tokenization and splitting rules
 
-1. **切词**:按 ASCII 空格/数字/标点/拉丁字母切分;蒙古文标点(U+1800–U+1809)也切。
-2. **词内连接符**先留在词内(此步不切):NIRUGU(180A)、FVS1–4(180B–180F)、MVS(180E)、
-   NNBSP(202F)。
-3. **词干 / 附加成分切分**:在 **MVS(U+180E)与 NNBSP(U+202F)** 处把一个词切成
-   `[词干, 附加成分, …]`——**首段=词干**(计入单词),其后各段=**附加成分**(单独统计,
-   存储**不带前导连接符**)。FVS/NIRUGU 是字形选择符,**不作切分点**,留在所在段内。
-4. **latin key**:用 `Romanize`(默认布局逆映射,自动剥离连接符)生成,与引擎查询键一致。
-5. **短语**:同一行内相邻**词干**的二元组;整串短语再按条件概率筛。
+1. **Tokenization**: split on ASCII spaces / digits / punctuation / Latin
+   letters; Mongolian punctuation (U+1800–U+1809) also splits.
+2. **In-word connectors** stay inside the word for now (no split here): NIRUGU
+   (180A), FVS1–4 (180B–180F), MVS (180E), NNBSP (202F).
+3. **Stem / suffix split**: split a word into `[stem, suffix, …]` at **MVS
+   (U+180E) and NNBSP (U+202F)** — the **first segment = stem** (counted as a
+   word), each following segment = **suffix** (counted separately, stored
+   **without the leading connector**). FVS/NIRUGU are glyph selectors and are
+   **not split points**; they stay in their segment.
+4. **latin key**: generated with `Romanize` (inverse of the default layout,
+   auto-stripping connectors), consistent with the engine's query key.
+5. **Phrases**: bigrams of adjacent **stems** within a line; whole-string
+   phrases are further filtered by conditional probability.
 
-#### 四种输出
+#### Four outputs
 
-| 输出 | 选项 | 每行格式 | 用途 |
+| Output | Option | Per-line format | Purpose |
 |---|---|---|---|
-| 单词(词干) | `--out` | `key<TAB>蒙古文<TAB>频次` | 词库主体 → `data/dictionary.txt` |
-| 附加成分 | `--suffix-out` | 同上 | 统计/参考 |
-| 短语·联想 | `--phrase-out` | `k1<TAB>m1<TAB>k2<TAB>m2<TAB>权重` | 喂 `compile_lexicon --bigram`,下一词联想 |
-| 短语·整串 | `--phrase-as-entry` | `key(首词)<TAB>"词1 词2"<TAB>频次` | 整串候选 → `data/phrases.txt` |
+| word (stem) | `--out` | `key<TAB>mongolian<TAB>freq` | lexicon body → `data/dictionary.txt` |
+| suffix | `--suffix-out` | same | stats / reference |
+| phrase · prediction | `--phrase-out` | `k1<TAB>m1<TAB>k2<TAB>m2<TAB>weight` | feeds `compile_lexicon --bigram`, next-word prediction |
+| phrase · whole-string | `--phrase-as-entry` | `key(first word)<TAB>"word1 word2"<TAB>freq` | whole-string candidate → `data/phrases.txt` |
 
-#### 示例
+#### Example
 
-设语料 `news.txt`(以码点示意,`⟨NNBSP⟩`=U+202F 不可见):
+Given corpus `news.txt` (shown by codepoint; `⟨NNBSP⟩` = U+202F, invisible):
 ```
 ᠮᠣᠩᠭᠣᠯ ᠤᠯᠤᠰ ᠰᠠᠶᠢᠨ ᠮᠣᠩᠭᠣᠯ ᠤᠯᠤᠰ
 ᠮᠣᠩᠭᠣᠯ ᠬᠡᠯᠡ ᠮᠣᠩᠭᠣᠯ ᠬᠡᠯᠡ
-ᠤᠯᠤᠰ⟨NNBSP⟩ᠤᠨ ᠤᠯᠤᠰ⟨NNBSP⟩ᠤᠨ        # ᠤᠯᠤᠰ + NNBSP + ᠤᠨ(属格)
+ᠤᠯᠤᠰ⟨NNBSP⟩ᠤᠨ ᠤᠯᠤᠰ⟨NNBSP⟩ᠤᠨ        # ᠤᠯᠤᠰ + NNBSP + ᠤᠨ (genitive)
 ```
-运行:
+Run:
 ```
 build_dictionary --out words.txt --suffix-out sfx.txt \
     --phrase-out bigrams.txt --phrase-as-entry phrases.txt news.txt
 ```
 
-`words.txt`(词干;属格已切走,ᠤᠯᠤᠰ 计 4 次):
+`words.txt` (stems; the genitive is split off, ᠤᠯᠤᠰ counted 4 times):
 ```
 mqNgql   ᠮᠣᠩᠭᠣᠯ   5
 vlvs     ᠤᠯᠤᠰ     4
 hele     ᠬᠡᠯᠡ     2
 sayin    ᠰᠠᠶᠢᠨ    1
 ```
-`sfx.txt`(附加成分,不带 NNBSP 前缀):
+`sfx.txt` (suffixes, without the NNBSP prefix):
 ```
 vn   ᠤᠨ   2
 ```
-`bigrams.txt`(联想):
+`bigrams.txt` (prediction):
 ```
 mqNgql  ᠮᠣᠩᠭᠣᠯ  vlvs  ᠤᠯᠤᠰ  2
 mqNgql  ᠮᠣᠩᠭᠣᠯ  hele  ᠬᠡᠯᠡ  2
 ```
-`phrases.txt`(整串,键=首词;`P(词2|词1)=2/5=0.4 ≥ 0.2` 故保留):
+`phrases.txt` (whole-string, key = first word; `P(word2|word1)=2/5=0.4 ≥ 0.2`,
+so kept):
 ```
 mqNgql   ᠮᠣᠩᠭᠣᠯ ᠤᠯᠤᠰ   2
 mqNgql   ᠮᠣᠩᠭᠣᠯ ᠬᠡᠯᠡ   2
 ```
-把 `phrases.txt` 放到 `data/phrases.txt` 重编后,打 `mqNgql` 即见:
+After placing `phrases.txt` at `data/phrases.txt` and recompiling, typing
+`mqNgql` shows:
 ```
-1. ᠮᠣᠩᠭᠣᠯ        [lexicon]   ← 单词在前
-2. ᠮᠣᠩᠭᠣᠯ ᠤᠯᠤᠰ   [phrase]    ← 整串候选,选中一次上屏两词
+1. ᠮᠣᠩᠭᠣᠯ        [lexicon]   ← the single word first
+2. ᠮᠣᠩᠭᠣᠯ ᠤᠯᠤᠰ   [phrase]    ← whole-string candidate, one commit inserts both words
 3. ᠮᠣᠩᠭᠣᠯ ᠬᠡᠯᠡ   [phrase]
 ```
 
-#### 完整工作流
+#### Full workflow
 
 ```
-# 1) 语料 → 词库 + 短语（大语料建议提高阈值）
+# 1) corpus → lexicon + phrases (raise the thresholds for a large corpus)
 build_dictionary --out data/dictionary.txt --suffix-out sfx.txt \
     --phrase-out data/bigrams.txt --phrase-as-entry data/phrases.txt \
-    --min-freq 2 --phrase-min 3 --phrase-cond 0.3  语料*.txt
+    --min-freq 2 --phrase-min 3 --phrase-cond 0.3  corpus*.txt
 
-# 2) 重编 lexicon.bin（data/phrases.txt、data/bigrams.txt 构建期自动编入）
+# 2) recompile lexicon.bin (data/phrases.txt, data/bigrams.txt embedded at build time)
 cmake --build build
 
-# 3) 验证：打首词看整串候选，打完一词看下一词联想
-./build/bin/Debug/paiza_query.exe <首词的键>
+# 3) verify: type the first word for whole-string candidates; finish a word for next-word prediction
+./build/bin/Debug/paiza_query.exe <keys of the first word>
 ```
 
-#### 调参建议
+#### Tuning tips
 
-- `--min-freq`：大语料调高(3–5)过滤噪声/生僻词。
-- `--phrase-cond`：调高(0.3–0.5)→ 只留最铁的固定搭配,候选更干净;调低 → 覆盖更多但更杂。
-- `--phrase-min`：短语最低共现,大语料可调高。
-- 输出是**原始出现次数**;引擎按对数域打分,数值大小无碍。
+- `--min-freq`: raise (3–5) for a large corpus to filter noise / rare words.
+- `--phrase-cond`: raise (0.3–0.5) → keep only the firmest collocations, cleaner
+  candidates; lower → broader coverage but noisier.
+- `--phrase-min`: minimum phrase co-occurrence; raise for a large corpus.
+- Output is the **raw occurrence count**; the engine scores in the log domain,
+  so the magnitude does not matter.
 
-#### 注意事项
+#### Caveats
 
-- 输入必须是 **UTF-8**(不是 GBK/GB2312)。
-- 整串短语候选默认排在同频单词**之下**(`w_phrase` 惩罚,默认 4),每次查询最多 3 条。
-- 附加成分**从词里切出、不带前导连接符**;末词的附加成分由用户输入时补,合成层
-  自动插 MVS(见 [core-engine-spec.md](core-engine-spec.md) 的"输入规范化")。
+- Input must be **UTF-8** (not GBK/GB2312).
+- Whole-string phrase candidates rank **below** same-frequency single words by
+  default (`w_phrase` penalty, default 4), at most 3 per query.
+- Suffixes are **split out of words, without the leading connector**; the final
+  word's suffix is supplied by the user on input, and the compose layer inserts
+  MVS automatically (see the "Input canonicalization" section in
+  [core-engine-spec.md](core-engine-spec.md)).
 
-### corpus_normalize — 语料清洗
+### corpus_normalize — corpus cleanup
 
-在 `build_dictionary` 之前清洗语料。两件事:**NNBSP→MVS 后缀标准化**(总是做)+
-**同形不同编码纠正**(人在环中)。
+Clean the corpus before `build_dictionary`. Two things: **NNBSP→MVS suffix
+standardization** (always done) + **same-glyph different-encoding correction**
+(human-in-the-loop).
 
-**A. NNBSP→MVS(自动)**:词形 `词干⟨NNBSP⟩后缀` 若后缀正好是 **D.2 标准 MVS 后缀形**,
-把 NNBSP(U+202F)换成 MVS(U+180E)并按词干阴阳性**谐元**;非标准后缀的 NNBSP(真助词)保留。
+**A. NNBSP→MVS (automatic)**: for a word form `stem⟨NNBSP⟩suffix`, if the suffix
+is exactly a **D.2 standard MVS suffix form**, replace NNBSP (U+202F) with MVS
+(U+180E) and **harmonize** by the stem's gender; NNBSP of a non-standard suffix
+(a genuine enclitic) is kept.
 
-**B. 同形纠正(三趟流水)**:
+**B. Same-glyph correction (three-pass flow)**:
 ```
-# 1) 分析:出疑难清单 + 预填的纠正骨架
+# 1) analyze: emit the ambiguity list + a prefilled correction skeleton
 corpus_normalize --review review.txt --corrections-skeleton corr.tsv \
     [--out auto.txt] [--review-min 3] corpus.txt ...
 
-# 2) 人工:读 review.txt,在 corr.tsv 上删/改
+# 2) manual: read review.txt, delete/edit in corr.tsv
 
-# 3) 应用:自动 NNBSP→MVS + 人工纠正 → 标准语料
+# 3) apply: automatic NNBSP→MVS + manual corrections → standardized corpus
 corpus_normalize --map corr.tsv --out standard.txt corpus.txt ...
 ```
 
-- **分组**:把每个词按等价类(o/u、q/v、h/g、t/d、E/w)归一并剥离 FVS/NIRUGU;
-  **归一后同形、原始编码不同**的词 = 一个疑难组;只列组内≥2 变体且组总频次 ≥
-  `--review-min`(默认 3)的组。
-- **`review.txt`**(只读):每组列出各变体的 `freq / U+码点 / 罗马化 / [SUGGESTED]`
-  (最高频为建议规范形)+ 每变体若干例句。
-- **`corr.tsv`**(骨架,人工编辑):4 列 TSV
-  `错误hex ⇥ 错误蒙文 ⇥ 正确hex ⇥ 正确蒙文`;机器读第 1、3 列(hex 权威),第 2、4
-  列蒙古文供人审。删行=不纠正(不同词),改第 3 列=改目标。
-- **应用**:按**整词**匹配替换 + NNBSP→MVS,输出标准语料。
+- **Grouping**: normalize each word by equivalence class (o/u, q/v, h/g, t/d,
+  E/w) and strip FVS/NIRUGU; words that are **same-glyph after normalization but
+  differ in raw encoding** = one ambiguity group; only list groups with ≥2
+  variants and total group frequency ≥ `--review-min` (default 3).
+- **`review.txt`** (read-only): for each group, list each variant's
+  `freq / U+codepoints / romanization / [SUGGESTED]` (the highest-frequency one
+  is the suggested canonical form) + a few example sentences per variant.
+- **`corr.tsv`** (skeleton, human-edited): a 4-column TSV
+  `wrong_hex ⇥ wrong_mongolian ⇥ right_hex ⇥ right_mongolian`; the machine reads
+  columns 1 and 3 (hex authoritative), columns 2 and 4 Mongolian for human
+  review. Delete a row = don't correct (different word); edit column 3 = change
+  the target.
+- **Apply**: **whole-word** match-and-replace + NNBSP→MVS, emitting the
+  standardized corpus.
 
-产物 `standard.txt` 再喂 `build_dictionary`。设计详见 [core-engine-spec.md](core-engine-spec.md)
-的"输入规范化"。
+The resulting `standard.txt` then feeds `build_dictionary`. Design details in
+the "Input canonicalization" section of [core-engine-spec.md](core-engine-spec.md).
 
-#### 其余工具编译示例
+#### Build examples for the remaining tools
 
 ```
 cmake --build build --config Release --target lexicon_bench
-./build/bin/Release/lexicon_bench 500000 30000      # 键数 查询数
+./build/bin/Release/lexicon_bench 500000 30000      # #keys #queries
 
 cmake --build build --config Release --target tune_scoring
 ./tune_scoring --lexicon lexicon.bin --queries labelled.tsv --scoring scoring.txt
 ```
 
-`compile_lexicon` 单独调用：
+Calling `compile_lexicon` directly:
 
 ```
 ./compile_lexicon --out lexicon.bin --dict dictionary.txt [--bigram bigrams.txt]
 ```
 
-引擎架构与分期实现详见 [core-engine-spec.md](core-engine-spec.md)。
+Engine architecture and the phased implementation are detailed in
+[core-engine-spec.md](core-engine-spec.md).

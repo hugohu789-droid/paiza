@@ -1,10 +1,17 @@
 # Paiza Mongolian IME
 
-A Traditional Mongolian (ᠮᠣᠩᠭᠣᠯ ᠪᠢᠴᠢᠭ) input method for Windows 10+, built on
-the Text Services Framework (TSF), modern C++20, with a loosely-coupled
-candidate service process and an extensible candidate-source architecture.
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
+[![Commercial license available](https://img.shields.io/badge/Commercial_license-available-green.svg)](COMMERCIAL-LICENSE.md)
 
-## Architecture
+A Traditional Mongolian (ᠮᠣᠩᠭᠣᠯ ᠪᠢᠴᠢᠭ) input method with a shared,
+platform-neutral C++20 engine and native front-ends on **Windows** (Text
+Services Framework), **macOS** (InputMethodKit) and **Linux** (IBus). All
+three are at feature and settings-UI parity (see
+**docs/platform-parity.md**); Windows is the reference front-end, built on
+a loosely-coupled candidate service process and an extensible
+candidate-source architecture.
+
+## Architecture (Windows reference topology)
 
 ```
  host application process                     service process
@@ -42,8 +49,8 @@ src/
   platform/windows/     TSF DLL, D2D/DWrite UI, named-pipe IPC, service
   platform/macos/       InputMethodKit app: vertical candidate panel,
                         settings window (see docs/macos-port.md)
-  platform/linux/       IBus engine + GTK settings dialog; custom vertical
-                        candidate window is v2 (see docs/linux-port.md)
+  platform/linux/       IBus engine + GTK settings dialog + vertical
+                        candidate window (see docs/linux-port.md)
 tests/                  portable tests run on all three OSes in CI;
                         IPC/registry tests are Windows-only
 data/                   dictionary and default configs, shared by all OSes
@@ -56,17 +63,126 @@ in `common`/`core` with no Win32 dependencies (`std::filesystem`,
 `std::chrono`, hand-rolled UTF-8 conversion that handles both 16-bit and
 32-bit `wchar_t`). The GitHub Actions matrix
 (`.github/workflows/ci.yml`) builds and tests it on Windows, Ubuntu and
-macOS on every push, which is what keeps future macOS/Linux front-ends
+macOS on every push, which is what keeps the macOS/Linux front-ends
 feature-identical to the Windows version. Platform front-ends are thin
 adapters: key events in, committed text out, plus a native-rendered
 candidate window.
+
+## Keystroke → editor flow (object-oriented design)
+
+One key press to committed Mongolian text, on all three platforms. The
+object-oriented idea is **one shared core behind interchangeable platform
+adapters**: each OS front-end is a thin adapter (key event in, committed
+text out) over the *same* `paiza_core`. The adapters differ only at the
+edges (native key events and the native "insert text" call); everything
+that defines behaviour is polymorphism inside the core — `CandidateEngine`
+depends only on the abstract `CandidateSource`, so new candidate providers
+plug in without touching the pipeline.
+
+```mermaid
+flowchart TB
+    K(["Key press — the 's' key"]):::io
+
+    subgraph L1["① Platform adapter — thin, one per OS"]
+        direction LR
+        MAC["macOS<br/>PaizaInputController<br/><i>IMKInputController</i>"]:::ad
+        LNX["Linux<br/>PaizaEngine<br/><i>IBusEngine</i>"]:::ad
+        WIN["Windows<br/>TextService<br/><i>TSF, own key policy</i>"]:::ad
+    end
+
+    subgraph L2["② Shared platform-neutral core · paiza_core"]
+        direction TB
+        IS["InputSession<br/><i>key-policy state machine</i><br/>preedit · candidates · commit"]:::co
+        CE["CandidateEngine<br/>merge · de-dup · rank<br/><i>Scorer · Romanize · Equivalence</i>"]:::co
+        IS --> CE
+    end
+
+    subgraph L3["③ Candidate sources — one interface, many realizations"]
+        direction LR
+        CS{{"«interface»<br/>CandidateSource<br/>Query · priority"}}:::if
+        UD["UserDictionary<br/>priority 200"]:::sr
+        SL["StaticLexicon<br/>priority 100"]:::sr
+        LD["LocalDictionary<br/>fallback"]:::sr
+        CC["CloudSource<br/>extension point"]:::sr
+    end
+
+    subgraph L4["④ Native commit — same adapter, output path"]
+        direction LR
+        MO["macOS<br/>insertText:"]:::ad
+        LO["Linux<br/>commit_text"]:::ad
+        WO["Windows<br/>TSF insert"]:::ad
+    end
+
+    ED(["Editor — ᠰᠠᠶᠢᠨ"]):::io
+
+    K --> MAC & LNX & WIN
+    MAC --> IS
+    LNX --> IS
+    WIN -.->|"named-pipe IPC · CandidateService"| IS
+    CE ==>|query| CS
+    UD & SL & LD & CC -.->|implements| CS
+    CE ==>|ranked candidates| MO & LO & WO
+    MO & LO & WO --> ED
+
+    classDef io fill:#e8eaed,stroke:#9aa0a6,color:#202124
+    classDef ad fill:#d2e3fc,stroke:#1a73e8,color:#0b1b3a
+    classDef co fill:#ceead6,stroke:#188038,color:#0b2a14
+    classDef if fill:#e9d2fc,stroke:#a142f4,color:#2a0b3a
+    classDef sr fill:#fef2c8,stroke:#f29900,color:#3a2a0b
+```
+
+The class relationships that make the pipeline extensible — one interface,
+many realizations, aggregated and queried polymorphically:
+
+```mermaid
+classDiagram
+    class CandidateSource {
+        <<interface>>
+        +name() wstring
+        +priority() int
+        +IsAvailable() bool
+        +Query(latin, max) vector~Candidate~
+    }
+    class CandidateEngine {
+        +AddSource(CandidateSource*)
+        +Query(latin) vector~Candidate~
+    }
+    class InputSession {
+        +HandleLetter(char) KeyResult
+        +HandleDigit(int) KeyResult
+        +preedit() wstring
+        +candidates() vector~Candidate~
+    }
+    CandidateSource <|.. UserDictionary
+    CandidateSource <|.. StaticLexicon
+    CandidateSource <|.. LocalDictionarySource
+    CandidateSource <|.. CloudCandidateSource
+    CandidateEngine o-- "1..*" CandidateSource : holds and queries
+    InputSession --> CandidateEngine : drives
+    InputSession --> KeyMappingStore : uses
+```
+
+Why this is the design's payoff:
+
+* **One behaviour, three shells.** `InputSession` (the key-policy state
+  machine) and `CandidateEngine` live once in `paiza_core`; the Windows,
+  macOS and Linux front-ends are adapters. The CI contract tests on
+  `InputSession` are what keep the three shells identical.
+* **Open/closed via `CandidateSource`.** Local dictionary, mmap lexicon,
+  cloud, and future AI / speech / handwriting are all just another
+  `AddSource(...)` — `CandidateEngine` never changes.
+* **Priority-ordered polymorphism.** Each source advertises a `priority()`;
+  the engine merges and de-duplicates so user words (200) outrank the
+  static lexicon (100) outrank the fallback, with no source-specific code
+  in the merge loop.
 
 ## Core engine v2 (dual-track, SQLite-backed)
 
 The engine follows the architecture in **docs/core-engine-spec.md**
 (SQLite offline management + a compiled mmap static lexicon + tolerant
 search + bigram prediction + in-memory user overlay, exposed through a C
-FFI). **Phases 1 and 2 are implemented.**
+FFI). **Phases 1, 2 and 3 are all implemented**, plus the
+input-canonicalization layer below.
 
 **Phase 1 — dynamic user layer.** The **user dictionary**
 (`core/user_dictionary`) is an in-memory overlay ranked above the static
@@ -107,10 +223,34 @@ states (36.5% of the keys, a 2.7× reduction), mmaps in ~87ms
 (table-driven CRC), and answers queries at **P99 ≈ 1.9ms** — inside the
 5ms target, with real (smaller, less prefix-dense) dictionaries faster.
 
+**Input canonicalization.** On top of the phases, a middle layer makes
+lookup robust to how people actually type (full details in
+docs/core-engine-spec.md, "Input canonicalization" section):
+
+* **Lossless romanization + dual-key/dual-query** (`core/romanization`).
+  Every key is queried both as raw Latin *and* as the romanized preedit
+  (the inverse of the default keymap), so gloss-style and remapped-keyboard
+  input both hit, independent of the user's `keymap.txt`.
+* **Soft equivalence** (`core/equivalence_table`, `equivalences.txt`):
+  same-glyph confusions `o/u · q/v · h/g · t/d · E/w` match at a small
+  `variant_cost` (not a hard merge, so exact spellings still rank first).
+  Each pair is an independent **checkbox in the settings dialog** on all
+  three platforms.
+* **Consonant-skeleton input**: type consonants and omit vowels
+  (vowel-optional subsequence match over the DAWG; the leading letter is
+  never skippable).
+* **Whole-phrase candidates**: typing the first word can commit a whole
+  phrase, keyed on the first word and filtered by conditional probability.
+* **Compose-side MVS insertion + suffix harmony** (`core/fixed_sequences`,
+  `fixed_sequences.txt`): GB/T table D.2 suffix forms get the Mongolian
+  Vowel Separator inserted and gender-harmonized at commit time.
+
 To exercise the engine from the command line with no UI — feed a key
 sequence, get the ranked candidate list back — use the `paiza_query`
-REPL; see **docs/engine-tools.md** for that and the other engine tools
-(`compile_lexicon`, `lexicon_bench`, `tune_scoring`).
+REPL; see **docs/engine-tools.md** for that and the rest of the toolchain:
+`compile_lexicon`, the corpus pipeline (`corpus_normalize` →
+`build_dictionary` → `compile_lexicon` → `lexicon.bin`), `lexicon_bench`
+and `tune_scoring`.
 
 External hosts can use the C API in `core/engine_c_api.h`
 (`Engine_Initialize / Search / CommitCandidate / ImportUserDictionary /
@@ -261,10 +401,10 @@ a window crosses monitors.
 
 ## UI languages
 
-The settings dialog is localized in **English, 简体中文 and Монгол кирилл**
-(`service/localization.cc`). The default follows the OS display language
-(Chinese for `LANG_CHINESE`, Cyrillic for `LANG_MONGOLIAN`, English for
-everything else); the *Language / 界面语言 / Хэл* row in the settings
+The settings dialog is localized in **English, Simplified Chinese and
+Mongolian Cyrillic** (`service/localization.cc`). The default follows the OS
+display language (Chinese for `LANG_CHINESE`, Cyrillic for `LANG_MONGOLIAN`,
+English for everything else); the *Language* row in the settings
 dialog overrides it — clicking cycles through the three languages, the
 whole dialog re-labels immediately, and Save persists the choice
 (`HKCU\Software\PaizaIME\UiLanguage`). Adding a language = one more
@@ -322,6 +462,10 @@ cmake --build build --config Debug
 build\bin\Debug\paiza_tests.exe          # run unit tests
 ```
 
+For the macOS (InputMethodKit) and Linux (IBus) builds and their
+on-device bring-up notes, see **docs/macos-port.md** and
+**docs/linux-port.md**.
+
 ## Installing the IME (requires admin)
 
 ```powershell
@@ -350,7 +494,29 @@ Copied next to `PaizaService.exe` at build time.
 
 ## Testing
 
-31 GoogleTest cases cover the transliterator, candidate engine merging,
-dictionary prefix search, protocol round-trips, malformed-frame rejection,
-and a real named-pipe client/server round-trip. Don't run the tests while
-`PaizaService.exe` is running — both would listen on the same pipe name.
+160 GoogleTest cases cover the transliterator, candidate engine merging,
+dictionary prefix search, protocol round-trips, malformed-frame rejection
+and a real named-pipe client/server round-trip, plus the v2 engine (DAWG,
+Damerau-Levenshtein automaton, log-domain scorer, romanization, key
+equivalences, fixed-sequence MVS insertion, compiled `lexicon.bin`
+round-trips, user dictionary) and the cross-platform settings stores. The
+portable subset runs on all three OSes in CI; IPC/registry cases are
+Windows-only. Don't run the tests while `PaizaService.exe` is running —
+both would listen on the same pipe name.
+
+## License
+
+Paiza Mongolian IME is **dual-licensed**:
+
+* **Open source — GNU AGPL-3.0** ([LICENSE](LICENSE)). Free to use, study,
+  modify and redistribute under the AGPL's copyleft terms: if you convey the
+  software or offer a modified version to users over a network, you must make
+  your complete corresponding source available under the AGPL as well.
+* **Commercial license** ([COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)). For
+  shipping the code inside closed-source or proprietary products/services
+  without the AGPL's source-disclosure obligations, a separate commercial
+  license is available from the author (may involve a license fee). See the
+  commercial-licensing doc for how to get in touch.
+
+Third-party components keep their own licenses — notably the SQLite
+amalgamation in `third_party/sqlite`, which is in the public domain.

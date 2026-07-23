@@ -10,7 +10,7 @@
   <exec>@PAIZA_INSTALL_BIN_DIR@/ibus-engine-paiza --ibus</exec>
   <version>@PROJECT_VERSION@</version>
   <author>Paiza</author>
-  <license>MIT</license>
+  <license>AGPL-3.0</license>
   <homepage>https://github.com/hugohu789-droid/paiza</homepage>
   <textdomain>ibus-paiza</textdomain>
   <engines>
@@ -19,7 +19,7 @@
       <longname>Paiza Mongolian</longname>
       <description>Traditional Mongolian (vertical script) input</description>
       <language>mn</language>
-      <license>MIT</license>
+      <license>AGPL-3.0</license>
       <author>Paiza</author>
       <icon>@PAIZA_INSTALL_DATA_DIR@/paiza-mn.png</icon>
       <layout>us</layout>

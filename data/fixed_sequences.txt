@@ -1,9 +1,10 @@
 # Paiza Mongolian IME — traditional Mongolian fixed character sequences.
 #
-# Source: GB/T national standard, appendix D (传统蒙古文固定字符序列):
-#   Table D.2 — 格附加成分固定字符序列 (case/suffix presentation forms that
-#               depend on a leading MVS to render correctly), 33 sequences.
-#   Table D.3 — 固定搭配的固定字符序列 (fixed collocations), 3 sequences.
+# Source: GB/T national standard, appendix D (traditional Mongolian fixed
+# character sequences):
+#   Table D.2 — case/suffix fixed sequences (case/suffix presentation forms
+#               that depend on a leading MVS to render correctly), 33 sequences.
+#   Table D.3 — fixed-collocation sequences (fixed collocations), 3 sequences.
 #
 # These are canonical ENCODING rules, not vocabulary: they drive correct
 # MVS/suffix composition and harmony normalisation in the compose layer. They

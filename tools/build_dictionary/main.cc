@@ -5,7 +5,7 @@
 // (latin_key <TAB> mongolian_utf8 <TAB> frequency), three separate outputs:
 //
 //   * words     (--out)        : stems, counted on their own
-//   * suffixes  (--suffix-out) : 附加成分, counted separately from the stems
+//   * suffixes  (--suffix-out) : affixes, counted separately from the stems
 //   * phrases   (--phrase-out) : adjacent stem pairs, in BIGRAM format
 //                                (latin1 <TAB> m1 <TAB> latin2 <TAB> m2 <TAB>
 //                                weight) — feeds compile_lexicon --bigram.
@@ -51,7 +51,7 @@ bool IsJoiner(wchar_t cp) {
   return cp == 0x180A || (cp >= 0x180B && cp <= 0x180F) || cp == 0x202F;
 }
 
-// Suffix boundaries: only MVS and NNBSP separate a stem from a 附加成分. FVS /
+// Suffix boundaries: only MVS and NNBSP separate a stem from a suffix. FVS /
 // NIRUGU are glyph selectors and stay inside a segment.
 bool IsSuffixBoundary(wchar_t cp) { return cp == 0x180E || cp == 0x202F; }
 
@@ -213,7 +213,7 @@ int main(int argc, char** argv) {
         words[segments[0]]++;             // Stem.
         stems.push_back(segments[0]);
         for (size_t s = 1; s < segments.size(); ++s) {
-          suffixes[segments[s]]++;        // 附加成分, stored bare.
+          suffixes[segments[s]]++;        // suffix, stored bare.
         }
       }
       if (phrase_min > 0) {
@@ -247,7 +247,7 @@ int main(int argc, char** argv) {
     const std::vector<Entry> suffix_entries =
         SortedByFrequency(suffixes, min_freq);
     suffix_count = suffix_entries.size();
-    if (!WriteDict(suffix_path, "Suffixes (附加成分), counted separately.",
+    if (!WriteDict(suffix_path, "Suffixes, counted separately.",
                    suffix_entries)) {
       std::fprintf(stderr, "Cannot write %s\n", suffix_path.c_str());
       return 1;

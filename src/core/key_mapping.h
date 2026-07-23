@@ -6,8 +6,9 @@
 // physical key a second, independently mappable Mongolian letter.
 //
 // The mapping lives in a plain text file so users can edit it from the
-// settings dialog (spec: 用户可自己编辑对应关系, saved to a separate
-// config file). Format, one entry per line, '#' starts a comment:
+// settings dialog (spec: users can edit the key-to-letter mapping
+// themselves, saved to a separate config file). Format, one entry per line,
+// '#' starts a comment:
 //
 //   <key> <TAB-or-spaces> <hex codepoint> [<hex codepoint> ...]
 //   n     1828

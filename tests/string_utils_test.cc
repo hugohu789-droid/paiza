@@ -30,7 +30,7 @@ TEST(StringUtilsTest, MongolianRoundTrip) {
 }
 
 TEST(StringUtilsTest, ChineseRoundTrip) {
-  const std::string utf8 = "\xE4\xB8\xAD\xE6\x96\x87";  // 中文
+  const std::string utf8 = "\xE4\xB8\xAD\xE6\x96\x87";  // UTF-8 for "中文" (Chinese)
   EXPECT_EQ(WideToUtf8(Utf8ToWide(utf8)), utf8);
 }
 

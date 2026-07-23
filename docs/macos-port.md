@@ -80,8 +80,9 @@ Key differences from Windows:
 
 ## Developer commands (build, test, logs, previews)
 
-All commands run from the repo root. 中文速查：构建/测试、日志、设置窗口、
-候选窗口的调试命令都在这一节。
+All commands run from the repo root. This section collects the debug
+commands for build/test, logs, the settings window, and the candidate
+window.
 
 ### Build + unit tests
 

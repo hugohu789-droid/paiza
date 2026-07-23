@@ -1,58 +1,67 @@
-# 跨平台蒙古文智能输入法核心引擎（Core Engine）架构与实现规格说明书
+# Cross-platform Mongolian Smart IME — Core Engine architecture & implementation spec
 
-版本：v1.1（工程化修订版）
-状态：Phase 1、Phase 2、Phase 3 均已实现（见 §7 分期路线）。
+Version: v1.1 (engineering revision)
+Status: Phase 1, Phase 2 and Phase 3 are all implemented (see §7 milestones).
 
 ---
 
-## 1. 系统概述 (System Overview)
+## 1. System Overview
 
-本项目旨在开发一个支持百万级词库、毫秒级响应、高度容错并具备上下文预测
-能力的跨平台蒙古文输入法核心引擎。
+This project builds a cross-platform Mongolian IME core engine that supports a
+million-word lexicon, millisecond-scale response, high fault tolerance, and
+context-aware prediction.
 
-* **开发语言**：纯 C++（**C++20**，与本仓库既有代码一致），核心逻辑零平台
-  依赖；对外暴露 **C-style FFI 接口**，供上层跨平台 UI 宿主（C# Avalonia、
-  C++ Qt 等）调用。本仓库内置的三个原生前端（Windows TSF / macOS IMK /
-  Linux IBus）**继续通过 `paiza::InputSession` 直接调用 C++ 层**，FFI 是
-  给外部宿主的封装，不是内部前端的必经之路。
-* **核心架构**：SQLite（离线数据管理与持久化）＋ 预编译双数组字典树
-  DAT/FST（静态底库检索）＋ Levenshtein DFA（容错纠正）＋ CSR 稀疏矩阵
-  （N-gram 联想）＋ 内存有序映射（动态用户层）——**双轨重载（Overlay）**。
-* **与既有架构的关系**：新引擎作为 `paiza::CandidateSource` 体系内的实现层
-  演进（静态层替换 `LocalDictionarySource`，动态层为新增的
-  `UserDictionary`），`InputSession`、按键策略与三端前端**保持不变**——
-  这是本仓库既定的三端行为一致性契约。
+* **Language**: pure C++ (**C++20**, consistent with the existing repository),
+  with zero platform dependencies in the core logic. It exposes a **C-style FFI
+  interface** for upper-layer cross-platform UI hosts (C# Avalonia, C++ Qt,
+  etc.). The three native front-ends bundled in this repository (Windows TSF /
+  macOS IMK / Linux IBus) **keep calling the C++ layer directly through
+  `paiza::InputSession`**; the FFI is a wrapper for external hosts, not a
+  mandatory path for the in-repo front-ends.
+* **Core architecture**: SQLite (offline data management and persistence) + a
+  precompiled double-array trie / FST (static base-lexicon lookup) + a
+  Levenshtein DFA (fault-tolerant correction) + a CSR sparse matrix (N-gram
+  prediction) + an in-memory ordered map (dynamic user layer) — a **dual-track
+  overlay**.
+* **Relationship to the existing architecture**: the new engine evolves as an
+  implementation layer inside the `paiza::CandidateSource` system (the static
+  layer replaces `LocalDictionarySource`; the dynamic layer is the new
+  `UserDictionary`). `InputSession`, the key policy, and the three front-ends
+  **remain unchanged** — this is the repository's established cross-platform
+  behavioural-consistency contract.
 
 ```
- 前端 (TSF / IMK / IBus / 外部宿主 via FFI)
-        │ 按键                     ▲ 候选/上屏
+ front-ends (TSF / IMK / IBus / external host via FFI)
+        │ keys                     ▲ candidates / commit
         ▼                          │
-  InputSession（按键策略，平台无关）
+  InputSession (key policy, platform-neutral)
         ▼
-  CandidateEngine（合并/去重/排序）
-   ├─ UserDictionary        动态用户层（内存 + SQLite 异步落盘）  [Phase 1 ✓]
-   ├─ StaticLexicon         静态层（Phase 1: 文本词库；Phase 2: FST+mmap）
-   ├─ BigramPredictor       CSR 联想（上屏后预测）                [Phase 2]
-   └─ CloudCandidateSource  云端（既有占位）
+  CandidateEngine (merge / de-dup / rank)
+   ├─ UserDictionary        dynamic user layer (memory + async SQLite flush) [Phase 1 ✓]
+   ├─ StaticLexicon         static layer (Phase 1: text lexicon; Phase 2: FST+mmap)
+   ├─ BigramPredictor       CSR prediction (post-commit)                     [Phase 2]
+   └─ CloudCandidateSource  cloud (existing placeholder)
 ```
 
-## 2. 数据持久化层设计 (SQLite Schema)
+## 2. Data-persistence layer design (SQLite schema)
 
-SQLite 仅用于**离线词库管理、TXT 导入清洗、用户习惯的异步持久化**，
-不参与打字路径上的实时检索。库文件位于用户配置目录
-（`UserConfigDirectory()`，三平台路径见 `common/paths.h`）。
+SQLite is used only for **offline lexicon management, TXT import cleanup, and
+async persistence of user habits** — it is not on the typing-path real-time
+lookup. The database file lives in the user config directory
+(`UserConfigDirectory()`; see `common/paths.h` for the per-platform paths).
 
 ```sql
--- 1. 核心静态词表 (Unigram)。由离线编译器消费，生成 FST/CSR 二进制。
+-- 1. Core static word table (Unigram). Consumed by the offline compiler to
+--    generate the FST/CSR binaries.
 CREATE TABLE IF NOT EXISTS Lexicon (
     word_id         INTEGER PRIMARY KEY,
-    latin_key       TEXT NOT NULL,      -- 归一化后的拉丁编码
-    mongolian_word  TEXT NOT NULL,      -- 蒙古文正字实体（UTF-8）
-    frequency       INTEGER NOT NULL    -- 全局绝对词频
+    latin_key       TEXT NOT NULL,      -- normalized Latin encoding
+    mongolian_word  TEXT NOT NULL,      -- Mongolian orthographic entity (UTF-8)
+    frequency       INTEGER NOT NULL    -- global absolute word frequency
 );
 CREATE INDEX IF NOT EXISTS idx_latin_key ON Lexicon(latin_key);
 
--- 2. 上下文接续表 (Bigram)。离线压缩为 CSR。
+-- 2. Context continuation table (Bigram). Compressed offline into CSR.
 CREATE TABLE IF NOT EXISTS Bigram (
     word_id_1     INTEGER NOT NULL,
     word_id_2     INTEGER NOT NULL,
@@ -62,256 +71,323 @@ CREATE TABLE IF NOT EXISTS Bigram (
 CREATE INDEX IF NOT EXISTS idx_bigram_freq
     ON Bigram(word_id_1, co_frequency DESC);
 
--- 3. 动态用户词库表 (UserHistory)。运行时唯一被写入的表。
+-- 3. Dynamic user table (UserHistory). The only table written at runtime.
 CREATE TABLE IF NOT EXISTS UserHistory (
     latin_key           TEXT NOT NULL,
     mongolian_word      TEXT NOT NULL,
     user_frequency      INTEGER DEFAULT 1,
-    last_used_timestamp INTEGER DEFAULT 0,   -- Unix 秒；便于时间衰减
+    last_used_timestamp INTEGER DEFAULT 0,   -- Unix seconds; easy time decay
     PRIMARY KEY (latin_key, mongolian_word)
 );
 ```
 
-修订说明（相对 v1.0）：
+Revision notes (relative to v1.0):
 
-* `last_used_timestamp` 用 **INTEGER Unix 秒**而非 `DATETIME` 文本——
-  跨平台可比较、可参与衰减计算，且避免 SQLite 文本日期的隐式转换陷阱。
-* 全部 DDL 加 `IF NOT EXISTS`：引擎首次启动自建 schema，无需安装步骤。
-* SQLite 以 **amalgamation 源码内置**（`third_party/sqlite/`，公有领域
-  许可），三平台零外部依赖；连接打开 `PRAGMA journal_mode=WAL` 以保证
-  异步写入不阻塞潜在的并发读。
+* `last_used_timestamp` uses **INTEGER Unix seconds** rather than `DATETIME`
+  text — cross-platform comparable, usable in decay math, and free of SQLite's
+  implicit text-date conversion traps.
+* Every DDL statement uses `IF NOT EXISTS`: the engine builds the schema on
+  first launch, with no install step.
+* SQLite is **vendored as amalgamation source** (`third_party/sqlite/`,
+  public-domain license) for zero external dependency on all three platforms;
+  connections open `PRAGMA journal_mode=WAL` so async writes never block
+  potential concurrent reads.
 
-## 3. 核心内存检索引擎 (In-Memory Engine)
+## 3. In-memory lookup engine
 
-运行时采用「**静态只读大词库 + 动态读写用户小词库**」双轨重载架构。
+At runtime the engine uses a **"large static read-only lexicon + small dynamic
+read-write user lexicon"** dual-track overlay.
 
-### 3.1 静态只读层 (Static Layer) — Phase 2
+### 3.1 Static read-only layer — Phase 2
 
-离线编译器读取 SQLite 生成紧凑二进制，启动时 `mmap` 直接映射：
+The offline compiler reads SQLite and produces a compact binary that is
+`mmap`-ed directly at startup:
 
-* **字典树 (FST/DAT)**：百万级 `latin_key → word_id` 映射，查询 O(k)，
-  k 为输入长度。
-* **联想矩阵 (CSR)**：Bigram 压缩为两个数组——
-  * `Index_Array[word_id_1]` → 该行在数据区的偏移；
-  * `Data_Array`：按 `co_frequency` 降序连续存放 `(word_id_2, weight)`。
-  * 复杂度修订：O(1) 是**定位行**；取前 k 个联想词为 O(k)（行内已按
-    权重排序，无需再排）。
-* **二进制格式要求**（v1.0 缺失，此处补齐）：文件头含 magic、格式版本、
-  字节序标记、各段偏移/长度与 CRC32 校验；版本不匹配或校验失败时引擎
-  **拒绝加载并回退**到文本词库路径，绝不半加载。
-* mmap 在 Windows 上对应 `CreateFileMapping/MapViewOfFile`，封装为
-  `common/` 下的跨平台工具。
+* **Trie (FST/DAT)**: a million-scale `latin_key → word_id` map, O(k) lookup
+  where k is the input length.
+* **Prediction matrix (CSR)**: bigrams compressed into two arrays —
+  * `Index_Array[word_id_1]` → the row's offset in the data region;
+  * `Data_Array`: `(word_id_2, weight)` stored contiguously in descending
+    `co_frequency` order.
+  * Complexity note: O(1) is the **row lookup**; taking the top k predictions
+    is O(k) (the row is already weight-sorted, no extra sort needed).
+* **Binary-format requirements** (missing in v1.0, added here): the file header
+  carries a magic, format version, byte-order mark, per-section offsets/lengths
+  and a CRC32 checksum; on version mismatch or checksum failure the engine
+  **refuses to load and falls back** to the text-lexicon path — it never
+  half-loads.
+* On Windows, mmap maps to `CreateFileMapping/MapViewOfFile`, wrapped as a
+  cross-platform utility under `common/`.
 
-Phase 1 过渡实现：静态层暂由既有 `LocalDictionarySource`（有序表 +
-二分前缀检索）承担，词库仍为 TAB 分隔文本。数万词内毫秒级响应无压力，
-接口与 FST 版一致，届时原地替换。
+Phase 1 transitional implementation: the static layer is temporarily served by
+the existing `LocalDictionarySource` (ordered table + binary prefix search),
+with the lexicon still a TAB-separated text file. Millisecond response is no
+problem up to tens of thousands of words; the interface matches the FST version,
+so it can be swapped in place later.
 
-### 3.2 动态用户层 (Dynamic User Layer) — Phase 1 ✓
+### 3.2 Dynamic user layer — Phase 1 ✓
 
-C++ 内存态轻量结构，实现动态调频与自造词记忆，打字路径零 I/O：
+A lightweight in-memory C++ structure implementing dynamic frequency boosting
+and user-coined-word memory, with zero I/O on the typing path:
 
-* **`UserDictionary`**（`core/user_dictionary.h`）：
-  `std::map<std::string, std::vector<UserWord>>`。
-  * 修订：v1.0 的 `unordered_map` 改为**有序 `std::map`**——用户词
-    同样要参与**前缀检索**（`lower_bound` 区间扫描），哈希表做不到；
-    用户词库量级（数千～数万）下红黑树开销可忽略。
-  * `UserWord { mongolian, user_frequency, last_used }`。
-* **生命周期**：候选上屏 → `RecordCommit()` 实时更新内存 Map 并标脏 →
-  **专用落盘线程**（条件变量驱动，批量 UPSERT，WAL 模式）在写入间隔
-  ≥3s 时增量落盘；引擎销毁时同步 Flush。打字线程永不等待磁盘。
-* **TXT 导入**（本次新增需求）：`ImportFromFile(path)`——格式与主词库
-  一致：`latin_key<TAB>蒙古文<TAB>词频(可选)`，UTF-8，`#` 行为注释。
-  **每条记录可以是单个字或词组**：蒙古文字段按 TAB 界定、允许包含
-  空格与 NNBSP，故词组天然支持。逐行清洗：非法行跳过并计数，返回
-  `{imported, skipped}` 供 UI 呈现；导入立即生效（写内存 + 异步落盘）。
-* **上屏通知路径**：
-  * macOS / Linux：`InputSession` 持有 `UserDictionary*`，`Commit`
-    内记录（进程内，天然实时）。
-  * Windows：引擎在服务进程，TSF 端上屏时发送 fire-and-forget 的
-    `kCommitCandidate` IPC 消息（协议 v1 追加消息类型，向后兼容）。
+* **`UserDictionary`** (`core/user_dictionary.h`):
+  `std::map<std::string, std::vector<UserWord>>`.
+  * Revision: v1.0's `unordered_map` becomes an **ordered `std::map`** — user
+    words must also participate in **prefix search** (`lower_bound` range scan),
+    which a hash table cannot do; at user-lexicon scale (thousands to tens of
+    thousands) the red-black-tree overhead is negligible.
+  * `UserWord { mongolian, user_frequency, last_used }`.
+* **Lifecycle**: candidate commit → `RecordCommit()` updates the in-memory map
+  in real time and marks it dirty → a **dedicated flush thread** (condition-
+  variable driven, batched UPSERT, WAL mode) writes incrementally when the
+  inter-write interval is ≥3s; a synchronous Flush runs on engine destruction.
+  The typing thread never waits on disk.
+* **TXT import** (newly required feature): `ImportFromFile(path)` — same format
+  as the main lexicon: `latin_key<TAB>mongolian<TAB>frequency(optional)`, UTF-8,
+  `#` for comment lines. **Each record may be a single letter or a phrase**: the
+  Mongolian field is TAB-delimited and may contain spaces and NNBSP, so phrases
+  are naturally supported. Cleaning is line-by-line: invalid lines are skipped
+  and counted, returning `{imported, skipped}` for the UI to display; imports
+  take effect immediately (write memory + async flush).
+* **Commit-notification paths**:
+  * macOS / Linux: `InputSession` holds a `UserDictionary*` and records inside
+    `Commit` (in-process, naturally real-time).
+  * Windows: the engine lives in the service process, so on commit the TSF side
+    sends a fire-and-forget `kCommitCandidate` IPC message (an appended message
+    type in protocol v1, backward-compatible).
 
-## 4. 算法与解码流水线 (Decoding Pipeline)
+## 4. Decoding pipeline
 
-### 4.1 核心步骤
+### 4.1 Core steps
 
-1. **预处理与等价类映射 (Equivalence Class)** — Phase 2
-   * 输入拉丁串先经等价类表展开为归一化检索键。等价类是**数据而非
-     代码**：`equivalences.txt`（与 keymap.txt 同目录、同热重载机制），
-     每行 `变体字符 → 规范字符`。v1.0 中「`w` 等价 `0x1827`」之类的
-     具体规则**由该表配置**，不硬编码——键位布局已数次调整（如近期
-     o/q/u/v 元音修订），硬编码必然过期。
-2. **容错空间裁剪 (Levenshtein DFA × FST 交集)** — Phase 2/3
-   * 输入动态构建编辑距离 ≤1 的 Levenshtein 自动机，与静态 FST 做
-     交集遍历剪枝，提取允许 1 个多输/漏输/错位的候选 `word_id` 集。
-   * 分期修订：词库达十万级前，**Phase 2 先用「Trie 上带容错预算的
-     DFS + 束剪枝」**（实现简单、同样毫秒级）；DFA×FST 交集留待
-     百万级词库与 FST 落地后（Phase 3）。两者对上层暴露同一接口。
-3. **双轨检索合并 (Merge)** — Phase 1 ✓
-   * 静态层容错结果集 ∪ `UserDictionary` 前缀命中集，同键去重
-     （`CandidateEngine` 既有逻辑：先到先得，按源优先级排列）。
-4. **统一打分与重排 (Scoring & Ranking)** — Phase 1 部分 ✓
-   * 修订为**对数域线性模型**（v1.0 的公式混合了概率与对数，量纲
-     不一致）：
+1. **Preprocessing and equivalence-class mapping** — Phase 2
+   * The Latin input string is first expanded into a normalized lookup key via
+     the equivalence-class table. Equivalence classes are **data, not code**:
+     `equivalences.txt` (same directory and same hot-reload mechanism as
+     keymap.txt), one `variant char → canonical char` per line. Concrete rules
+     like v1.0's "`w` is equivalent to `0x1827`" are **configured in that
+     table**, not hardcoded — the key layout has been adjusted several times
+     (e.g. the recent o/q/u/v vowel revision), so hardcoding would inevitably go
+     stale.
+2. **Fault-tolerance space pruning (Levenshtein DFA × FST intersection)** — Phase 2/3
+   * An edit-distance ≤1 Levenshtein automaton is built dynamically from the
+     input and intersected with the static FST to prune the traversal,
+     extracting the set of candidate `word_id`s that allow one extra / missing /
+     transposed key.
+   * Staged revision: before the lexicon reaches hundreds of thousands of words,
+     **Phase 2 first uses "DFS with a tolerance budget + beam pruning over a
+     trie"** (simple to implement, equally millisecond-scale); the DFA×FST
+     intersection waits until a million-word lexicon and the FST land (Phase 3).
+     Both expose the same interface upward.
+3. **Dual-track merge** — Phase 1 ✓
+   * Static-layer tolerant result set ∪ `UserDictionary` prefix-hit set, with
+     same-key de-duplication (existing `CandidateEngine` logic: first-come-
+     first-served, ordered by source priority).
+4. **Unified scoring and re-ranking** — Phase 1 partial ✓
+   * Revised to a **log-domain linear model** (v1.0's formula mixed probability
+     and log terms with inconsistent units):
 
    ```
-   Score = w1·log P_err(输入 | 候选)          — 按键错误模型
-         + w2·log P_lm (候选 | 上文)          — Bigram 语言模型
-         + w3·log(freq_sys  + 1)              — 系统词频（+1 平滑）
-         + w4·log(freq_user + 1)              — 用户词频（+1 平滑）
+   Score = w1·log P_err(input | candidate)     — key-error model
+         + w2·log P_lm (candidate | context)    — bigram language model
+         + w3·log(freq_sys  + 1)                — system frequency (+1 smoothing)
+         + w4·log(freq_user + 1)                — user frequency (+1 smoothing)
    ```
 
-### 4.2 权重策略说明
+### 4.2 Weight strategy
 
-* **P_err（按键惩罚）**：精确匹配 log P_err = 0；每个编辑操作扣固定
-  代价；命中等价类**免罚**（等价即同一输入意图）。
-* **P_lm（语境增益）**：候选存在于上一上屏词的 CSR 联想行中时给予
-  强正向得分；行外回退到 unigram（w3 项已覆盖，不重复计）。
-* **w4（用户态高增益）**：Phase 1 以**源优先级**实现语义等价的强提升
-  （UserDictionary priority 200 > 静态层 100，用户词恒排前）；
-  Phase 2 打分器落地后改为公式内权重，并叠加 `last_used` 时间衰减
-  （半衰期建议 30 天），避免一次误选永久霸榜。
-* 四个权重与衰减参数入配置文件，不硬编码。
+* **P_err (key penalty)**: an exact match has log P_err = 0; each edit
+  operation deducts a fixed cost; an equivalence-class hit is **penalty-free**
+  (equivalence means the same input intent).
+* **P_lm (context gain)**: when the candidate appears in the previous committed
+  word's CSR prediction row it gets a strong positive score; outside the row it
+  falls back to the unigram (already covered by the w3 term, not double-counted).
+* **w4 (strong user-state gain)**: Phase 1 realizes the strong boost via
+  **source priority** (UserDictionary priority 200 > static layer 100, so user
+  words always rank first); once the Phase 2 scorer lands, this becomes an
+  in-formula weight plus a `last_used` time decay (suggested half-life 30 days)
+  so a single misselection does not dominate forever.
+* The four weights and the decay parameter go into a config file, not hardcoded.
 
-## 5. C++ 核心接口定义 (C-API for FFI)
+## 5. C++ core interface definition (C-API for FFI)
 
-`core/engine_c_api.h`，`extern "C"` 导出。**内存与线程约定**（v1.0
-缺失，FFI 边界必须明确）：
+`core/engine_c_api.h`, exported `extern "C"`. **Memory and threading contract**
+(missing in v1.0; the FFI boundary must state it):
 
-* 所有接口**非线程安全**，宿主须从单一线程调用（输入法场景天然满足）；
-  落盘线程为引擎内部实现细节，对宿主透明。
-* `Engine_Search` 返回的字符串由引擎持有，**下一次任何 Engine_ 调用
-  或 Destroy 后失效**；宿主需要留存必须自行拷贝。UTF-8 编码。
-* 所有路径参数为 UTF-8。
+* All interfaces are **not thread-safe**; the host must call from a single
+  thread (naturally satisfied in an IME scenario); the flush thread is an
+  internal engine detail, transparent to the host.
+* The string returned by `Engine_Search` is owned by the engine and **becomes
+  invalid after the next Engine_ call or Destroy**; the host must copy it to
+  retain it. UTF-8 encoded.
+* All path parameters are UTF-8.
 
 ```c
 extern "C" {
-  // 引擎初始化。db_path: 用户词库 SQLite（不存在则自建 schema）。
-  // fst_path/csr_path: 静态二进制，Phase 1 传词库 TXT 路径 / NULL。
+  // Engine init. db_path: user-lexicon SQLite (schema self-built if absent).
+  // fst_path/csr_path: static binaries; Phase 1 passes a lexicon TXT path / NULL.
   bool Engine_Initialize(const char* db_path,
                          const char* lexicon_path,
                          const char* csr_path);
 
-  // 按键检索。latin_input: 归一化前拉丁串；context_word_id: 上一
-  // 上屏词 id（无上下文传 0，Phase 2 生效）。返回 JSON：
+  // Key lookup. latin_input: pre-normalization Latin string; context_word_id:
+  // the previously committed word id (pass 0 with no context; effective in
+  // Phase 2). Returns JSON:
   // {"candidates":[{"text":"…","source":"user|lexicon","freq":N},…]}
   const char* Engine_Search(const char* latin_input,
                             uint32_t context_word_id);
 
-  // 上屏确认：更新用户动态词库（内存实时 + 异步落盘）。
+  // Commit: update the dynamic user lexicon (in-memory real-time + async flush).
   void Engine_CommitCandidate(const char* latin_input,
                               const char* mongolian_word_utf8);
 
-  // 导入用户词库 TXT（格式见 §3.2）。返回成功导入条数，-1 = 打不开。
+  // Import a user-lexicon TXT (format per §3.2). Returns the number of imported
+  // entries, or -1 if the file cannot be opened.
   int Engine_ImportUserDictionary(const char* txt_path_utf8);
 
-  // 资源释放（内部先同步 Flush 用户词库）。
+  // Release resources (internally flushes the user lexicon synchronously first).
   void Engine_Destroy();
 }
 ```
 
-修订说明：`Engine_CommitCandidate` 去掉了 v1.0 的 `word_id` 参数——
-用户自造词没有 word_id，动态层主键就是 `(latin_key, word)`；新增
-`Engine_ImportUserDictionary` 支撑设置页导入功能。
+Revision note: `Engine_CommitCandidate` drops v1.0's `word_id` parameter — a
+user-coined word has no word_id; the dynamic layer's primary key is
+`(latin_key, word)`. `Engine_ImportUserDictionary` is added to support the
+settings-page import feature.
 
-## 6. 设置页「导入用户词库」(本次新增，Phase 1 ✓)
+## 6. Settings page "Import user dictionary" (newly added, Phase 1 ✓)
 
-* 三端设置页新增 **导入用户词库…** 按钮：文件选择器（*.txt）→
-  `UserDictionary::ImportFromFile` → 弹出结果（成功 N 条 / 跳过 M 行）。
-* Windows：设置窗口与引擎同在服务进程，进程内直调；导入即刻参与检索。
-* macOS / Linux：设置窗口与引擎同进程，路径相同。
-* 文案入 `core/localization`（en / 中文 / Монгол кирилл 三语）。
+* All three settings pages get an **Import user dictionary…** button: file
+  picker (*.txt) → `UserDictionary::ImportFromFile` → result popup (N imported /
+  M lines skipped).
+* Windows: the settings window and the engine share the service process, so it
+  is a direct in-process call; imports join lookups immediately.
+* macOS / Linux: the settings window and engine share a process, same path.
+* Copy lives in `core/localization` (en / Chinese / Монгол кирилл, three
+  languages).
 
-## 7. 分期落地路线 (Milestones)
+## 7. Milestones
 
-| 阶段 | 内容 | 状态 |
+| Phase | Contents | Status |
 |---|---|---|
-| **Phase 1** | SQLite 内置；`UserDictionary` 双轨动态层（内存 + 异步落盘 + 调频 + TXT 导入）；上屏通知三端打通（进程内 / IPC）；C FFI 骨架（含 Search/Commit/Import）；设置页导入 UI；单测全覆盖 | **本次实现** |
-| **Phase 2** | 离线编译器（TXT→二进制 `lexicon.bin`，magic/版本/字节序/CRC 头，构建期生成并随三平台部署）；`StaticLexicon` mmap 静态层（零解析启动，二分前缀检索）；数据驱动等价类表；隐式 Trie 上的 Damerau 容错检索（编辑距离≤1：增删改 + 相邻交换）；对数域 `Scorer`（w1 编辑代价 + w2 bigram + w3·ln(系统频) + w4·ln(用户频)，30 天半衰期时间衰减，`scoring.txt` 可调）；Bigram/CSR 联想与 `SetContextWord`/`PredictNext`（上屏后 `context_word_id` 生效，三端打通） | **本次实现** |
-| **Phase 3** | 最小化编号 DAWG（前缀+后缀共享，编号即最小完美哈希，序号=KeyRecord 下标）编入 `lexicon.bin`（格式升 v2，构建期生成）；显式 Damerau-Levenshtein≤1 自动机；容错检索改为 **DAWG × 自动机联合 DFS**（替换 Phase 2 隐式 Trie DFS + 交换回退）；表驱动 CRC32（大词库启动校验 ~数十 ms）；`lexicon_bench` 性能台架 + `tune_scoring` 权重评测工具 | **本次实现** |
+| **Phase 1** | Vendored SQLite; `UserDictionary` dual-track dynamic layer (memory + async flush + frequency boosting + TXT import); commit notification wired on all three platforms (in-process / IPC); C FFI skeleton (incl. Search/Commit/Import); settings-page import UI; full unit-test coverage | **Implemented** |
+| **Phase 2** | Offline compiler (TXT → binary `lexicon.bin`, magic/version/byte-order/CRC header, generated at build time and deployed on all three platforms); `StaticLexicon` mmap static layer (zero-parse startup, binary prefix search); data-driven equivalence-class table; Damerau tolerant search over an implicit trie (edit distance ≤1: insert/delete/substitute + adjacent transposition); log-domain `Scorer` (w1 edit cost + w2 bigram + w3·ln(system freq) + w4·ln(user freq), 30-day half-life time decay, tunable via `scoring.txt`); Bigram/CSR prediction with `SetContextWord`/`PredictNext` (post-commit `context_word_id` effective, wired on all three platforms) | **Implemented** |
+| **Phase 3** | Minimal numbered DAWG (prefix+suffix sharing, the number is a minimal perfect hash, rank = KeyRecord index) embedded in `lexicon.bin` (format bumped to v2, generated at build time); explicit Damerau-Levenshtein ≤1 automaton; tolerant search switched to a **joint DAWG × automaton DFS** (replacing Phase 2's implicit-trie DFS + transposition fallback); table-driven CRC32 (large-lexicon startup check ~tens of ms); `lexicon_bench` performance harness + `tune_scoring` weight evaluator | **Implemented** |
 
-验收基线：每阶段保持既有 GoogleTest 全绿 + 三平台 CI 通过；
-`InputSession` 行为契约测试不变即前端零改动。
+Acceptance baseline: every phase keeps the existing GoogleTest suite green + the
+three-platform CI passing; as long as the `InputSession` behavioural-contract
+tests are unchanged, the front-ends need zero changes.
 
-### Phase 2 实现落点
+### Phase 2 implementation landmarks
 
-* 二进制格式与 CRC：`src/core/lexicon_binary.{h,cc}`
-* 离线编译器（库 + CLI）：`src/core/lexicon_compiler.{h,cc}`、
-  `tools/compile_lexicon/main.cc`（构建期 `compile_lexicon` 目标生成
-  `lexicon.bin`，随各平台二进制部署）
-* mmap 只读映射：`src/common/mapped_file.{h,cc}`
-  （Windows `MapViewOfFile` / POSIX `mmap`）
-* 静态层检索 + 容错 + bigram：`src/core/static_lexicon.{h,cc}`
-* 打分器：`src/core/scorer.{h,cc}`；等价类：
+* Binary format and CRC: `src/core/lexicon_binary.{h,cc}`
+* Offline compiler (library + CLI): `src/core/lexicon_compiler.{h,cc}`,
+  `tools/compile_lexicon/main.cc` (the build-time `compile_lexicon` target
+  generates `lexicon.bin`, deployed alongside each platform's binaries)
+* mmap read-only mapping: `src/common/mapped_file.{h,cc}`
+  (Windows `MapViewOfFile` / POSIX `mmap`)
+* Static-layer lookup + tolerance + bigram: `src/core/static_lexicon.{h,cc}`
+* Scorer: `src/core/scorer.{h,cc}`; equivalence classes:
   `src/core/equivalence_table.{h,cc}`
-* 上屏上下文：`InputSession::set_static_lexicon`（mac/linux 进程内）、
-  `CandidateService`（Windows `kCommitCandidate` IPC）
-* 单测：`tests/{static_lexicon,scorer,equivalence_table}_test.cc`
+* Commit context: `InputSession::set_static_lexicon` (mac/linux in-process),
+  `CandidateService` (Windows `kCommitCandidate` IPC)
+* Unit tests: `tests/{static_lexicon,scorer,equivalence_table}_test.cc`
 
-### 输入规范化(进行中)—— 软等价 · 增量 1
+### Input canonicalization — soft equivalence · increment 1
 
-用户可改 keymap,但词库 `latin_key` 固定;为解耦并处理蒙古文同形歧义,分增量做「输入规范化层」(设计见项目记忆):
+Users may edit the keymap, but the lexicon's `latin_key` is fixed; to decouple
+the two and to handle Mongolian same-glyph ambiguity, the "input-canonicalization
+layer" is built in increments (design in the project memory):
 
-- **增量 1(已实现)**:软等价匹配。`data/equivalences.txt` 定义同形/近音键对
-  (o/u=1825/1826、q/v=1823/1824、h/g=182C/182D、t/d=1832/1833),由编译器
-  **内嵌进 `lexicon.bin`**(格式升 v3),运行期由 `StaticLexicon` 从二进制读取,
-  保证编译==查询一致。匹配语义是**软等价**而非硬归一:精确拼写恒排第一
-  (edit 0 / variant 0),同形变体经容错自动机以**编辑距离 0** 命中并标记
-  `variant_cost`,由打分器施加 `w_variant`(默认 2.0,介于 0 与 w_edit=6 之间)
-  惩罚,排在精确之下、真错拼之上。后续可在设置页做每对开关。
-- **增量 2(已实现)**:无损中间层罗马化(`src/core/romanization`)。罗马化表
-  = **默认 keymap 的逆**(码点→latin token),故默认布局下 `Romanize(Convert(x))
-  == x`(除唯一二合 `ng→ᠩ` 归一为 `N`)。编译器与 `LocalDictionarySource` 为每个
-  含蒙古文字母的词条**在原手写键之外追加一个罗马化键**(`Romanize(蒙古文)`),
-  `InputSession` 查询时**双键并查**:原始按键(命中手写/gloss 键)+ `Romanize(preedit)`
-  (命中罗马化键,布局无关、消化二合)。既不破坏"打 gloss"旧习,又让改键盘后仍
-  命中同一词。实测:`mongol`(gloss)与 `mqnggql`(蒙古字母)均命中 ᠮᠣᠩᠭᠣᠯ。
-- **增量 3(已实现)**:格式符剥离 + GB/T 固定序列内嵌。`Romanize` 现在从查询键
-  **剥离格式/控制码点**(BIRGA 1800、NIRUGU 180A、FVS1-4 180B/C/D/F、MVS 180E、
-  NNBSP 202F)——编译期生成键与运行期查询键两侧一致剥离,含 MVS 的词无需敲 MVS
-  即可命中。`data/fixed_sequences.txt`(GB/T 表 D.2 的 33 条格附加成分固定序列 +
-  表 D.3 的 3 条固定搭配,格式:空格分隔十六进制码点,`A|B` 谐元变体,`MVS` 标记)
-  由编译器 `--fixed` **内嵌进 `lexicon.bin`(格式升 v4)**,运行期 `StaticLexicon`
-  加载并经 `fixed_sequences()` 暴露,供合成层使用(合成期 MVS 插入与后缀谐元归一
-  在后续合成增量落地)。
-- **增量 4(已实现)**:Windows TSF 对齐。TSF DLL(`text_service.cc`)本就持有
-  自己的 `KeyMappingStore` 与 `ConvertBuffer()`,`RefreshCandidates` 改为与
-  `InputSession` 完全一致的**双键并查**:原始 latin + `Romanize(ConvertBuffer())`
-  (罗马化经增量 3 已含格式符剥离),合并去重按分排序,两者皆空才回退。至此
-  三端(TSF / IMK / IBus)查询行为统一,Windows 也支持改键盘与格式无关匹配。
-  上屏仍发原始 latin(与 InputSession 一致,命中 gloss 键 + 静态词库上下文)。
-- **增量 5(已实现)**:辅音骨架输入。把它建模为 **DAWG 上的"跳元音子序列匹配"**
-  (`StaticLexicon::SkeletonDfs`):输入须为词键的子序列,被跳过的键字符**必须都是
-  元音**(`romanization::IsMongolianVowelKey`,由默认布局码点 1820–1827 的 token
-  推出:a e i o q u v E),且**首字符不可跳**(实现"首元音不可省")。作为**最低优先级
-  pass**(在精确/前缀/容错之后、仍不足时才跑),按跳过的元音数经打分器
-  `w_skeleton`(默认 3.0)惩罚,恒排在精确匹配之下。实测:`mngl`→ᠮᠣᠩᠭᠣᠯ、
-  `sn`→ᠰᠠᠶᠢᠨ/ᠰᠥᠨᠢ/ᠰᠠᠢᠨ/ᠰᠠᠨᠠᠭᠠ(共享 s-n 骨架,按跳元音数+词频排序)。
-- **增量 6(已实现)**:设置页软等价开关(Windows,每对 checkbox;`ApplySettings`
-  据勾选重建活跃等价集,关掉即该对精确匹配);合成侧 **MVS 插入 + 后缀谐元**
-  (`src/core/fixed_sequences`):从内嵌的 GB/T 表 D.2 解析后缀固定序列,对**原始转写**
-  在词末做最长匹配(长度≥2、谐元位 `A|B` 灵活匹配、需有词干、前方无 MVS/NNBSP),
-  命中则插入前导 MVS(U+180E)并按词干阴阳性谐元改写后缀 a/e、u/ü。作用于
-  preedit/生转上屏,不动词库候选(词库已合规);MVS 被 `Romanize` 从查询键剥离,
-  查找不受影响。三端接入:`InputSession::set_fixed_sequences`(mac/linux),
-  `TextService`(Windows,从模块目录加载部署的 `fixed_sequences.txt`)。实测:
-  `abdvr`(阳性词干)→ ᠠᠪ᠎ᠳᠤᠷ(插 MVS);`ebdvr`(阴性词干)→ ᠡᠪ᠎ᠳᠦᠷ(插 MVS + u→ü)。
-  **诚实边界**:词尾后缀识别是启发式,无完整形态分析——恰好以后缀形收尾的词干
-  可能误判;故只匹配长度≥2 的形,且仅作用于生转(词库候选不受影响)。
+- **Increment 1 (done)**: soft-equivalence matching. `data/equivalences.txt`
+  defines same-glyph / near-sound key pairs (o/u=1825/1826, q/v=1823/1824,
+  h/g=182C/182D, t/d=1832/1833); the compiler **embeds them into `lexicon.bin`**
+  (format bumped to v3) and `StaticLexicon` reads them from the binary at
+  runtime, guaranteeing compile == query consistency. The matching semantics are
+  **soft equivalence**, not hard normalization: exact spellings always rank
+  first (edit 0 / variant 0), while same-glyph variants are hit at **edit
+  distance 0** by the tolerant automaton and tagged with `variant_cost`; the
+  scorer applies a `w_variant` penalty (default 2.0, between 0 and w_edit=6),
+  ranking them below exact and above true typos. A per-pair toggle can be added
+  to the settings page later.
+- **Increment 2 (done)**: lossless middle-layer romanization
+  (`src/core/romanization`). The romanization table is **the inverse of the
+  default keymap** (codepoint → Latin token), so under the default layout
+  `Romanize(Convert(x)) == x` (except the single digraph `ng→ᠩ`, normalized to
+  `N`). The compiler and `LocalDictionarySource` **append a romanized key**
+  (`Romanize(mongolian)`) for every entry containing Mongolian letters, in
+  addition to the original hand-typed key. On lookup `InputSession` **queries
+  both keys**: the raw keys (hitting the hand-typed / gloss key) + `Romanize(preedit)`
+  (hitting the romanized key, layout-independent, digraph-absorbing). This keeps
+  the old "type gloss" habit working while letting a remapped keyboard still hit
+  the same word. Measured: both `mongol` (gloss) and `mqnggql` (Mongolian
+  letters) hit ᠮᠣᠩᠭᠣᠯ.
+- **Increment 3 (done)**: format-char stripping + GB/T fixed-sequence embedding.
+  `Romanize` now **strips format/control codepoints** from the lookup key (BIRGA
+  1800, NIRUGU 180A, FVS1-4 180B/C/D/F, MVS 180E, NNBSP 202F) — both the
+  build-time generated key and the runtime query key strip identically, so words
+  containing MVS are hit without typing MVS. `data/fixed_sequences.txt` (GB/T
+  table D.2's 33 case/suffix fixed sequences + table D.3's 3 fixed collocations;
+  format: space-separated hex codepoints, `A|B` harmony variant, `MVS` marker)
+  is **embedded into `lexicon.bin` (format bumped to v4)** by the compiler's
+  `--fixed`; at runtime `StaticLexicon` loads it and exposes it via
+  `fixed_sequences()` for the compose layer (compose-time MVS insertion and
+  suffix-harmony normalization land in a later compose increment).
+- **Increment 4 (done)**: Windows TSF alignment. The TSF DLL
+  (`text_service.cc`) already holds its own `KeyMappingStore` and
+  `ConvertBuffer()`; `RefreshCandidates` is changed to the exact same **dual-key
+  query** as `InputSession`: raw Latin + `Romanize(ConvertBuffer())` (the
+  romanization already includes format-char stripping from increment 3), merged
+  and de-duplicated, ranked by score, falling back only when both are empty. The
+  three front-ends (TSF / IMK / IBus) now have unified query behaviour, and
+  Windows also supports keyboard remapping and format-independent matching.
+  Commit still sends the raw Latin (consistent with InputSession, hitting the
+  gloss key + static-lexicon context).
+- **Increment 5 (done)**: consonant-skeleton input, modeled as a **"vowel-
+  skipping subsequence match over the DAWG"** (`StaticLexicon::SkeletonDfs`):
+  the input must be a subsequence of the word key, and every skipped key
+  character **must be a vowel** (`romanization::IsMongolianVowelKey`, derived
+  from the default-layout codepoint 1820–1827 tokens: a e i o q u v E), and
+  **the first character cannot be skipped** (implementing "the leading vowel
+  cannot be omitted"). It runs as the **lowest-priority pass** (after
+  exact/prefix/tolerant, only when those are insufficient), penalized by the
+  scorer's `w_skeleton` (default 3.0) by the number of skipped vowels, always
+  ranking below exact matches. Measured: `mngl`→ᠮᠣᠩᠭᠣᠯ, `sn`→ᠰᠠᠶᠢᠨ/ᠰᠥᠨᠢ/ᠰᠠᠢᠨ/ᠰᠠᠨᠠᠭᠠ
+  (sharing the s-n skeleton, ranked by number of skipped vowels + frequency).
+- **Increment 6 (done)**: settings-page soft-equivalence toggles (Windows, one
+  checkbox per pair; `ApplySettings` rebuilds the active equivalence set from
+  the checkboxes, so unchecking a pair makes it match exactly); compose-side
+  **MVS insertion + suffix harmony** (`src/core/fixed_sequences`): parses the
+  suffix fixed sequences from the embedded GB/T table D.2, does a longest match
+  at the word end against the **raw transliteration** (length ≥2, harmony slot
+  `A|B` flexible match, requires a stem, no preceding MVS/NNBSP), and on a hit
+  inserts a leading MVS (U+180E) and rewrites the suffix a/e, u/ü by the stem's
+  vowel-harmony gender. It acts on the preedit / raw-transliteration commit, not
+  on lexicon candidates (the lexicon is already compliant); MVS is stripped from
+  the query key by `Romanize`, so lookup is unaffected. Wired on all three
+  platforms: `InputSession::set_fixed_sequences` (mac/linux), `TextService`
+  (Windows, loading the deployed `fixed_sequences.txt` from the module
+  directory). Measured: `abdvr` (masculine stem) → ᠠᠪ᠎ᠳᠤᠷ (MVS inserted);
+  `ebdvr` (feminine stem) → ᠡᠪ᠎ᠳᠦᠷ (MVS inserted + u→ü).
+  **Honest boundary**: word-final suffix detection is heuristic, with no full
+  morphological analysis — a stem that happens to end in a suffix form may be
+  misjudged; hence only forms of length ≥2 are matched, and it only acts on the
+  raw transliteration (lexicon candidates are unaffected).
 
-### Phase 3 实现落点
+### Phase 3 implementation landmarks
 
-* 最小化编号 DAWG（Daciuk 增量最小化 + word_count 编号）：
-  `src/core/dawg.{h,cc}`；on-disk `DawgNode`/`DawgTrans` 于
-  `lexicon_binary.h`（header 升 v2，含 dawg 段偏移/计数/root）
-* Damerau-Levenshtein≤1 自动机：`src/core/levenshtein_automaton.{h,cc}`
-* DAWG × 自动机联合 DFS（序号↔KeyRecord 下标）：
-  `StaticLexicon::IntersectDfs`（`static_lexicon.cc`）
-* 表驱动 CRC32：`lexicon_binary.cc`
-* 性能台架：`tools/lexicon_bench`；权重评测：`tools/tune_scoring`；
-  无界面候选查询 REPL：`tools/paiza_query`（用法见
-  [engine-tools.md](engine-tools.md)）
-* 单测：`tests/{dawg,levenshtein_automaton}_test.cc`
-* 实测（Windows Release，随机 50 万键 / 42.7 万唯一键）：DAWG 15.6 万
-  节点（唯一键的 36.5%，2.7× 压缩）；mmap 加载 ~87ms；查询
-  P99 ≈ 1.9ms（exact 与 tolerant 相近），满足 P99 < 5ms。真实词库
-  规模更小、前缀碰撞更少，延迟更低。
+* Minimal numbered DAWG (Daciuk incremental minimization + word_count
+  numbering): `src/core/dawg.{h,cc}`; on-disk `DawgNode`/`DawgTrans` in
+  `lexicon_binary.h` (header bumped to v2, with dawg-section offset/count/root)
+* Damerau-Levenshtein ≤1 automaton: `src/core/levenshtein_automaton.{h,cc}`
+* Joint DAWG × automaton DFS (rank ↔ KeyRecord index):
+  `StaticLexicon::IntersectDfs` (`static_lexicon.cc`)
+* Table-driven CRC32: `lexicon_binary.cc`
+* Performance harness: `tools/lexicon_bench`; weight evaluator:
+  `tools/tune_scoring`; headless candidate-query REPL: `tools/paiza_query`
+  (usage in [engine-tools.md](engine-tools.md))
+* Unit tests: `tests/{dawg,levenshtein_automaton}_test.cc`
+* Measured (Windows Release, random 500k keys / 427k unique keys): DAWG 156k
+  nodes (36.5% of the unique keys, 2.7× compression); mmap load ~87ms; query
+  P99 ≈ 1.9ms (exact and tolerant are close), meeting P99 < 5ms. Real lexicons
+  are smaller with fewer prefix collisions, so latency is lower.
