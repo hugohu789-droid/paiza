@@ -176,6 +176,11 @@ Why this is the design's payoff:
   static lexicon (100) outrank the fallback, with no source-specific code
   in the merge loop.
 
+For the full class reference — every engine class with its attributes,
+methods and relationships, per-layer diagrams, the search cascade, threading
+and lifetime contracts, and an assembly recipe — see
+**[docs/engine-architecture.md](docs/engine-architecture.md)**.
+
 ## Core engine v2 (dual-track, SQLite-backed)
 
 The engine follows the architecture in **docs/core-engine-spec.md**

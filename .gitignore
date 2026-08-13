@@ -4,3 +4,4 @@ out/
 .vs/
 *.user
 CMakeUserPresets.json
+.VSCodeCounter/
