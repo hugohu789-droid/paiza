@@ -11,21 +11,39 @@ three are at feature and settings-UI parity (see
 a loosely-coupled candidate service process and an extensible
 candidate-source architecture.
 
-## Screenshot
+## Screenshots
 
-The candidate window on Windows: the preedit strip (the composition as
-typed) on the left, vertical Mongolian candidates with their selection
-number above each word, the highlighted candidate, and the page indicator
-with page buttons in the bottom-right corner.
+Typing `sa` — vertical Mongolian candidates with their selection number
+above each word, the highlighted candidate, and the page indicator with
+page buttons in the bottom-right corner.
 
-![Paiza candidate window on Windows, showing the preedit strip and seven vertical Mongolian candidates](docs/images/candidates-windows.png)
+**Windows** (Direct2D/DirectWrite). The narrow strip on the left is the
+preedit — the composition as typed:
 
-Reproduce it without registering the TSF DLL or typing in a host
-application: `PaizaService.exe --preview-candidates` renders the real
-candidate window with sample data. The macOS and Linux panels have their
-own offscreen preview harnesses (`tools/macos/panel_preview.mm`,
-`tools/linux/candidate_preview.cc`) that write PNGs with no display
-required — see docs/macos-port.md and docs/linux-port.md.
+![Paiza candidate window on Windows: preedit strip plus seven vertical Mongolian candidates](docs/images/candidates-windows.png)
+
+**Linux** (cairo/Pango), light and dark palettes, rendered at 2x:
+
+| Light | Dark |
+|---|---|
+| ![Paiza candidate panel on Linux, light palette](docs/images/candidates-linux-light.png) | ![Paiza candidate panel on Linux, dark palette](docs/images/candidates-linux-dark.png) |
+
+Both are reproducible without installing the IME. On Windows,
+`PaizaService.exe --preview-candidates` shows the real candidate window
+with sample data, no TSF registration and no host application needed. On
+Linux and macOS the panels have **offscreen** preview harnesses that draw
+to a plain image surface — no display, no ibus, no GTK — so they also run
+in CI and containers:
+
+```bash
+cmake --build build --target paiza_candidate_preview
+OUT_DIR=/tmp PAIZA_INPUT=sa ./build/bin/paiza_candidate_preview
+```
+
+That writes `panel_light.png`, `panel_dark.png`, `panel_page2.png` and
+`panel_spine.png` — the last being a debug overlay that draws a reference
+line per column so stem alignment can be verified. See docs/linux-port.md
+and docs/macos-port.md.
 
 ## Architecture (Windows reference topology)
 

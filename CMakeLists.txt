@@ -333,21 +333,6 @@ if(UNIX AND NOT APPLE)
     target_link_libraries(ibus-engine-paiza PRIVATE
       paiza_core PkgConfig::IBUS PkgConfig::GTK3)
 
-    # Offscreen candidate-window preview: renders PNGs with a plain cairo
-    # image surface (no display needed), for iterating on the visuals in
-    # CI/containers. pangocairo is a GTK3 dependency, so it is present.
-    pkg_check_modules(PANGOCAIRO IMPORTED_TARGET pangocairo)
-    if(PANGOCAIRO_FOUND)
-      add_executable(paiza_candidate_preview
-        tools/linux/candidate_preview.cc
-        ${PAIZA_LINUX}/candidate_renderer.cc
-      )
-      target_include_directories(paiza_candidate_preview PRIVATE
-        ${PAIZA_LINUX})
-      target_link_libraries(paiza_candidate_preview PRIVATE
-        paiza_core PkgConfig::PANGOCAIRO)
-    endif()
-
     add_executable(paiza-ime-settings
       ${PAIZA_LINUX}/settings_main.cc
       ${PAIZA_LINUX}/settings_store.cc
@@ -396,6 +381,26 @@ if(UNIX AND NOT APPLE)
     message(STATUS
       "Paiza: ibus-1.0/gtk+-3.0 dev packages not found — "
       "skipping the Linux IME front-end (core + tests still build)")
+  endif()
+
+  # Offscreen candidate-window preview: renders PNGs with a plain cairo
+  # image surface — no display, no ibus, no GTK — so it works in CI and
+  # containers. Deliberately OUTSIDE the ibus/gtk guard above: the tool
+  # needs only pangocairo, and gating it on the front-end's dev packages
+  # made it unbuildable on exactly the headless machines it exists for.
+  if(PkgConfig_FOUND)
+    pkg_check_modules(PANGOCAIRO IMPORTED_TARGET pangocairo)
+    if(PANGOCAIRO_FOUND)
+      set(PAIZA_LINUX src/platform/linux)
+      add_executable(paiza_candidate_preview
+        tools/linux/candidate_preview.cc
+        ${PAIZA_LINUX}/candidate_renderer.cc
+      )
+      target_include_directories(paiza_candidate_preview PRIVATE
+        ${PAIZA_LINUX})
+      target_link_libraries(paiza_candidate_preview PRIVATE
+        paiza_core PkgConfig::PANGOCAIRO)
+    endif()
   endif()
 endif()
 
