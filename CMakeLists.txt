@@ -349,6 +349,10 @@ if(UNIX AND NOT APPLE)
       ${PAIZA_LINUX}/settings_store.cc
     )
     target_include_directories(paiza-ime-settings PRIVATE ${PAIZA_LINUX})
+    # The settings dialog reads the installed input profiles, so it needs the
+    # same data directory the engine target gets.
+    target_compile_definitions(paiza-ime-settings PRIVATE
+      PAIZA_DATA_DIR="${PAIZA_INSTALL_DATA_DIR}")
     target_link_libraries(paiza-ime-settings PRIVATE
       paiza_core PkgConfig::GTK3)
 
