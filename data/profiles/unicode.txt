@@ -1,0 +1,41 @@
+# Paiza Mongolian IME — input profile: standard Unicode Mongolian.
+#
+# A profile bundles everything that distinguishes one text encoding (and its
+# candidate engine) from another, so several can live in one build and be
+# selected at runtime. See docs/input-profiles.md.
+#
+# Format: "key value" per line; the value is the rest of the line, so a font
+# family may contain spaces. Lines whose first non-blank character is '#' are
+# comments. Unknown keys are ignored. Omitted keys keep their built-in default,
+# and the defaults describe exactly this profile.
+#
+# This file records today's behaviour; it changes nothing on its own.
+
+id               unicode
+display_name     Unicode (GB/T)
+
+# File names, resolved against the deployment directory next to the binaries.
+keymap           keymap.txt
+lexicon          lexicon.bin
+user_db          user.db
+
+# Candidate-window font family.
+font             Noto Sans Mongolian
+
+# GB/T appendix D.2 suffix forms: insert the leading MVS and harmonise the
+# suffix vowels at commit time.
+fixed_sequences  yes
+
+# Query both the raw Latin keys and Romanize(preedit), so a remapped keyboard
+# still reaches the same dictionary entry.
+romanize_query   yes
+
+# Consonant-skeleton input: type consonants and omit vowels. `vowel_keys` lists
+# the Latin keys that may be omitted; they are the default layout's keys for
+# U+1820..U+1827.
+skeleton_input   yes
+vowel_keys       aeioquvE
+
+# How much of the composition the host application shows inline. The user
+# setting wins; this is only the default for this profile.
+inline_default   full

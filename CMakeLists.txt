@@ -75,6 +75,7 @@ add_library(paiza_core STATIC
   src/core/engine_c_api.cc
   src/core/equivalence_table.cc
   src/core/fixed_sequences.cc
+  src/core/input_profile.cc
   src/core/input_session.cc
   src/core/font_stem_config.cc
   src/core/key_mapping.cc
@@ -427,6 +428,7 @@ if(PAIZA_BUILD_TESTS)
     tests/engine_c_api_test.cc
     tests/equivalence_table_test.cc
     tests/fixed_sequences_test.cc
+    tests/input_profile_test.cc
     tests/input_session_test.cc
     tests/key_mapping_test.cc
     tests/levenshtein_automaton_test.cc
@@ -452,6 +454,9 @@ if(PAIZA_BUILD_TESTS)
 
   add_executable(paiza_tests ${PAIZA_TEST_SOURCES})
   target_include_directories(paiza_tests PRIVATE src/platform/linux)
+  # Lets a test read the repository's shipped data files (data/profiles/).
+  target_compile_definitions(paiza_tests PRIVATE
+    PAIZA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
   target_link_libraries(paiza_tests PRIVATE paiza_core gtest gtest_main)
   if(WIN32)
     target_include_directories(paiza_tests PRIVATE src/platform/windows)
