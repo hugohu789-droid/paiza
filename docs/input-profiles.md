@@ -16,12 +16,20 @@ the corpus tools).
 
 We now need to support additional, non-standard input engines whose text is **not**
 standard Unicode Mongolian. The first is **ZCode**, the internal encoding of the
-`east-mod/ime` engine: shape codes living in the Unicode **Private Use Area**
-(U+E000..U+F8FF), rendered by a matching shape-code (形码) font. A third engine is
-anticipated.
+`east-mod/ime` engine: form codes (形码) where each code point is one glyph
+component (tooth, belly, tail), assembled into letters by a splicing engine and
+rendered with a matching form-code font. A third engine is anticipated.
 
-Because ZCode values are PUA codepoints, they are still *valid Unicode scalar
-values*. That matters enormously: a ZCode string is an ordinary `std::wstring`, so
+**ZCode does not use the Private Use Area.** It borrows *assigned* code points
+from the Unicode Mongolian block, **U+1865..U+18AA** (U+1865..U+1878 and
+U+1887..U+18AA, skipping the combining marks), which Unicode assigns to Sibe,
+Manchu and Ali Gali letters. `titem` is U+1865 = MONGOLIAN LETTER SIBE HA;
+`galig_r_malgai` is U+18AA = MANCHU ALI GALI LHA. An earlier draft of this
+document claimed the Private Use Area; the port's Phase 0 analysis established
+otherwise.
+
+Because ZCode values are ordinary BMP scalar values, a ZCode string is still an
+ordinary `std::wstring`, so
 the TSF / InputMethodKit / IBus commit paths, the candidate window, the key policy
 and the platform adapters all carry it unchanged. The problem is therefore
 configuration and wiring, not a rewrite.
@@ -59,12 +67,12 @@ Adding a fourth engine should be *adding a data file*, not editing core code.
 
 | Aspect | Unicode | ZCode |
 |---|---|---|
-| key mapping file | `keymap.txt` (→ U+1820..) | `keymap-zcode.txt` (→ PUA) |
+| key mapping file | `keymap.txt` (→ U+1820..) | n/a — see §2.4 |
 | candidate-window font | Noto Sans Mongolian | the shape-code font |
 | compiled lexicon | `lexicon.bin` | `lexicon-zcode.bin` |
 | user dictionary | `user.db` | `user-zcode.db` |
 | GB/T fixed sequences (MVS insertion + harmony) | yes | no — MVS/FVS do not exist in ZCode |
-| romanized second query leg | yes | no — `Romanize` drops PUA codepoints |
+| romanized second query leg | yes | no — the engine owns the mapping |
 | consonant-skeleton input | yes | no initially (needs a ZCode vowel set) |
 | vowel key set (for skeleton) | `aeioquvE` | n/a |
 | default inline composition | full | hidden (see §5) |
@@ -83,7 +91,26 @@ Worth stating explicitly, because it is most of the system:
   framework, the key policy in `InputSession`, and all three platform adapters are
   untouched.
 - The commit path (`ITfRange::SetText`, `insertText:`, `commit_text`) accepts any
-  valid Unicode text, PUA included.
+  valid Unicode text, and ZCode is ordinary BMP text.
+
+### 1.1 What borrowing assigned code points costs
+
+Worth stating plainly, because it is worse than the Private Use Area would
+have been:
+
+- Text committed in a ZCode profile is **valid Mongolian text that means
+  something else**. Pasted into an application without the form-code font it
+  renders as Sibe/Manchu/Ali Gali letters, not as obvious tofu, so the damage
+  is silent rather than visible.
+- It is **indistinguishable from genuine Sibe/Manchu text**, so nothing can
+  detect or repair it after the fact, and the corpus tools cannot tell the two
+  apart. `build_dictionary`'s `IsMongolianLetter` already spans
+  U+1820..U+1878 and U+1880..U+18AA, which wholly contains the ZCode range.
+
+This is a deliberate trade for compatibility with an existing form-code
+ecosystem, not an oversight. It is the reason the ZCode profile defaults to
+`inline_default hidden` (§5): the host application's font will render the
+composition as the wrong letters rather than as nothing.
 
 ### 2.3 File format
 
@@ -109,7 +136,7 @@ inline_default   full
 # data/profiles/zcode.txt  (added in a later increment)
 id               zcode
 display_name     ZCode (shape codes)
-keymap           keymap-zcode.txt
+# No keymap: the engine decomposes the Latin input itself (§2.4).
 font             <shape-code font family>
 lexicon          lexicon-zcode.bin
 user_db          user-zcode.db
@@ -119,7 +146,25 @@ skeleton_input   no
 inline_default   hidden
 ```
 
-### 2.4 Core types
+### 2.4 A key mapping cannot model ZCode
+
+`KeyMapping` maps a key to a **fixed** code point sequence. That is enough for
+Unicode Mongolian, where a letter has one code point and the shaping engine in
+the font picks its positional form.
+
+It does not work for ZCode. A ZCode code point is one *glyph component*, and
+which components a letter becomes depends on its position in the word and on
+its neighbours; the engine decides that by splicing. There is no key-to-code-point
+table to write, so a ZCode profile has **no keymap file**: the engine decomposes
+the Latin input and produces the shaped candidates itself.
+
+The consequence for the preedit is that it cannot come from
+`KeyMapping::Convert`. It has to come from the engine (its best candidate for
+the keys typed so far). That is wiring work in the candidate-source increment,
+not a data file, which is why adding the ZCode profile is **not** purely
+additive the way adding a second Unicode-style profile would be.
+
+### 2.5 Core types
 
 ```cpp
 struct InputProfile {
@@ -288,13 +333,22 @@ Each additional engine multiplies, not adds:
 | 3c | Settings-page profile dropdown built from the registry, on all three platforms. | 3b |
 | 4 | `inline_composition` setting (full / placeholder / hidden) on all three platforms. | — |
 | 5 | `UserDictionary::set_enabled` plus per-profile registration. | 2 |
-| 6 | Add `zcode.txt`, the ZCode keymap and font; verify switching **without code changes**. | 3, 5 |
-| 7 | Wire the ZCode engine in as a candidate source (separate process, IPC). | external port |
+| 6 | Wire the ZCode engine in as a candidate source, running as a separate process over IPC, and source the preedit from it (§2.4). | external port |
+| 7 | Add `data/profiles/zcode.txt` and the form-code font setting; verify switching end to end. | 3, 5, 6 |
 
 Increment 3 is split because it is the first one with a behaviour change and it
 touches all three platforms: 3a is verifiable locally end to end, 3b is a
 refactor whose effect the existing suite already pins, and only 3c adds UI that
 cannot be compiled outside its own platform.
+
+Increments 6 and 7 were swapped once the port landed: adding the profile data
+file cannot come first, because a ZCode profile has no keymap and its preedit
+must come from the engine (§2.4). The engine has to be wired in before the
+profile is worth selecting.
+
+The ZCode engine is `GPL-2.0-or-later`, so it runs as a **separate process**
+and is never linked into this AGPL-3.0 codebase, keeping the core
+dual-licensable. The existing named-pipe service on Windows is the model.
 
 Increments 1 to 5 do not depend on the external engine port and can land first.
 Every increment must keep the full test suite green and the three-platform CI
