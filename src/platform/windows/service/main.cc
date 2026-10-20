@@ -198,7 +198,8 @@ int Run(bool show_settings_on_start) {
   HWND message_window = CreateMessageWindow();
   if (message_window == nullptr) return 1;
 
-  SettingsWindow settings_window(ApplySettings, user_dictionary_ptr);
+  SettingsWindow settings_window(ApplySettings, user_dictionary_ptr,
+                                 &g_profiles);
   g_settings_window = &settings_window;
 
   // IPC callbacks arrive on worker threads; hop to the UI thread.

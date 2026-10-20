@@ -26,6 +26,7 @@ TEST(LocalizationTest, AllStringTablesComplete) {
           strings.section_general, strings.candidates_per_page,
           strings.cloud_candidates, strings.toggle_on, strings.toggle_off,
           strings.language_label, strings.candidate_font_label,
+          strings.profile_label,
           strings.user_dict_label, strings.user_dict_import,
           strings.user_dict_import_result, strings.user_dict_import_failed,
           strings.section_soft_equiv, strings.soft_equiv_hint,

@@ -22,6 +22,7 @@
 #include "common/string_utils.h"
 #include "core/font_stem_config.h"
 #include "core/key_mapping_store.h"
+#include "core/input_profile.h"
 #include "core/localization.h"
 #include "core/mapping_preview.h"
 #include "core/user_dictionary.h"
@@ -55,6 +56,10 @@ struct Dialog {
   GtkWidget* language_combo = nullptr;
   GtkWidget* font_label = nullptr;
   GtkWidget* font_button = nullptr;
+  GtkWidget* profile_label = nullptr;
+  GtkWidget* profile_combo = nullptr;
+  // Input profiles offered by the dropdown (docs/input-profiles.md).
+  paiza::InputProfileRegistry profiles;
   GtkWidget* user_dict_label = nullptr;
   GtkWidget* user_dict_button = nullptr;
   GtkWidget* soft_equiv_section = nullptr;
@@ -194,6 +199,8 @@ void ApplyStrings(Dialog* dialog) {
                      Utf8(s.language_label).c_str());
   gtk_label_set_text(GTK_LABEL(dialog->font_label),
                      Utf8(s.candidate_font_label).c_str());
+  gtk_label_set_text(GTK_LABEL(dialog->profile_label),
+                     Utf8(s.profile_label).c_str());
   gtk_label_set_text(GTK_LABEL(dialog->user_dict_label),
                      Utf8(s.user_dict_label).c_str());
   gtk_button_set_label(GTK_BUTTON(dialog->user_dict_button),
@@ -241,6 +248,15 @@ void OnLanguageChanged(GtkComboBox* combo, gpointer data) {
   dialog->settings.ui_language = paiza::UiLanguageFromValue(
       static_cast<uint32_t>(gtk_combo_box_get_active(combo)));
   ApplyStrings(dialog);
+}
+
+void OnProfileChanged(GtkComboBox* combo, gpointer data) {
+  Dialog* dialog = static_cast<Dialog*>(data);
+  const gint index = gtk_combo_box_get_active(combo);
+  const auto& all = dialog->profiles.All();
+  if (index >= 0 && static_cast<size_t>(index) < all.size()) {
+    dialog->settings.active_profile = all[index].id;
+  }
 }
 
 void OnFontSet(GtkFontButton* button, gpointer data) {
@@ -459,12 +475,28 @@ void BuildDialog(Dialog* dialog) {
   gtk_grid_attach(GTK_GRID(general_grid), dialog->font_label, 0, 4, 1, 1);
   gtk_grid_attach(GTK_GRID(general_grid), dialog->font_button, 1, 4, 1, 1);
 
+  // Row: input profile (text encoding + candidate engine). Profiles are
+  // installed next to the other data; a missing directory falls back to the
+  // built-in Unicode profile.
+  dialog->profile_label = MakeLeftLabel();
+  dialog->profile_combo = gtk_combo_box_text_new();
+  dialog->profiles.LoadFromDirectory(
+      paiza::Utf8ToWide(std::string(PAIZA_DATA_DIR) + "/profiles"));
+  dialog->profiles.EnsureDefault();
+  for (const paiza::InputProfile& profile : dialog->profiles.All()) {
+    gtk_combo_box_text_append_text(
+        GTK_COMBO_BOX_TEXT(dialog->profile_combo),
+        paiza::WideToUtf8(profile.display_name).c_str());
+  }
+  gtk_grid_attach(GTK_GRID(general_grid), dialog->profile_label, 0, 5, 1, 1);
+  gtk_grid_attach(GTK_GRID(general_grid), dialog->profile_combo, 1, 5, 1, 1);
+
   dialog->user_dict_label = MakeLeftLabel();
   dialog->user_dict_button = gtk_button_new_with_label("");
   gtk_widget_set_halign(dialog->user_dict_button, GTK_ALIGN_END);
-  gtk_grid_attach(GTK_GRID(general_grid), dialog->user_dict_label, 0, 5, 1,
+  gtk_grid_attach(GTK_GRID(general_grid), dialog->user_dict_label, 0, 6, 1,
                   1);
-  gtk_grid_attach(GTK_GRID(general_grid), dialog->user_dict_button, 1, 5, 1,
+  gtk_grid_attach(GTK_GRID(general_grid), dialog->user_dict_button, 1, 6, 1,
                   1);
 
   // ---- Card 2: Soft equivalence (per-pair recall toggles) --------------
@@ -559,6 +591,16 @@ void BuildDialog(Dialog* dialog) {
   gtk_combo_box_set_active(
       GTK_COMBO_BOX(dialog->language_combo),
       static_cast<gint>(dialog->settings.ui_language));
+  {
+    const auto& all = dialog->profiles.All();
+    gint selected = 0;
+    for (size_t i = 0; i < all.size(); ++i) {
+      if (all[i].id == dialog->settings.active_profile) {
+        selected = static_cast<gint>(i);
+      }
+    }
+    gtk_combo_box_set_active(GTK_COMBO_BOX(dialog->profile_combo), selected);
+  }
   const std::string font_spec =
       paiza::WideToUtf8(dialog->settings.candidate_font) + " 16";
   gtk_font_chooser_set_font(GTK_FONT_CHOOSER(dialog->font_button),
@@ -583,6 +625,8 @@ void BuildDialog(Dialog* dialog) {
                    G_CALLBACK(OnCloudToggled), dialog);
   g_signal_connect(dialog->language_combo, "changed",
                    G_CALLBACK(OnLanguageChanged), dialog);
+  g_signal_connect(dialog->profile_combo, "changed",
+                   G_CALLBACK(OnProfileChanged), dialog);
   g_signal_connect(dialog->font_button, "font-set", G_CALLBACK(OnFontSet),
                    dialog);
   g_signal_connect(dialog->edit_mapping_button, "clicked",

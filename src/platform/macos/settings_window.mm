@@ -18,6 +18,7 @@
 #include "common/string_utils.h"
 #include "core/font_stem_config.h"
 #include "core/key_mapping_store.h"
+#include "core/input_profile.h"
 #include "core/localization.h"
 #include "core/mapping_preview.h"
 #include "core/user_dictionary.h"
@@ -203,6 +204,10 @@ bool FontSupportsMongolian(NSString* family) {
   NSTextField* _languageLabel;
   NSPopUpButton* _languagePopup;
   NSTextField* _fontLabel;
+  NSTextField* _profileLabel;
+  NSPopUpButton* _profilePopup;
+  // Input profiles offered by the dropdown (docs/input-profiles.md).
+  paiza::InputProfileRegistry _profiles;
   NSPopUpButton* _fontPopup;
   NSTextField* _mappingSection;
   NSButton* _editMappingButton;
@@ -368,6 +373,19 @@ bool FontSupportsMongolian(NSString* family) {
   _fontPopup.target = self;
   _fontPopup.action = @selector(fontChanged:);
   [_background addSubview:_fontPopup];
+  row += kRowHeight + 6;
+
+  // Row: input profile (text encoding + candidate engine).
+  _profileLabel = [self addLabel:NSMakeRect(card1_x, row, 200, kRowHeight)
+                            size:14
+                            bold:NO
+                           color:[NSColor labelColor]];
+  _profilePopup = [[NSPopUpButton alloc]
+      initWithFrame:NSMakeRect(controls_right - 240, row + 1, 240, 26)
+          pullsDown:NO];
+  _profilePopup.target = self;
+  _profilePopup.action = @selector(profileChanged:);
+  [_background addSubview:_profilePopup];
   row += kRowHeight + 8;
 
   // Row: user dictionary import (label + button).
@@ -578,6 +596,7 @@ bool FontSupportsMongolian(NSString* family) {
   _cloudLabel.stringValue = Ns(s.cloud_candidates);
   _languageLabel.stringValue = Ns(s.language_label);
   _fontLabel.stringValue = Ns(s.candidate_font_label);
+  _profileLabel.stringValue = Ns(s.profile_label);
   _userDictLabel.stringValue = Ns(s.user_dict_label);
   _userDictButton.title = Ns(s.user_dict_import);
   _softEquivSection.stringValue = Ns(s.section_soft_equiv);
@@ -598,6 +617,7 @@ bool FontSupportsMongolian(NSString* family) {
                       static_cast<NSInteger>(_settings.ui_language)];
 
   [self rebuildFontPopup];
+  [self rebuildProfilePopup];
 
   // Localized hint with the real keymap.txt path substituted for "%ls"
   // (manual replace — locale-independent, unlike wide swprintf which can
@@ -744,6 +764,44 @@ bool FontSupportsMongolian(NSString* family) {
       paiza::UiLanguageFromValue(
           static_cast<uint32_t>(_languagePopup.indexOfSelectedItem));
   [self applyStrings];
+  [self refreshValues];
+}
+
+- (void)rebuildProfilePopup {
+  if (_profiles.empty()) {
+    // Profiles ship in the bundle's Resources; a missing directory falls
+    // back to the built-in Unicode profile.
+    NSString* dir = [[NSBundle mainBundle] resourcePath];
+    if (dir != nil) {
+      _profiles.LoadFromDirectory(paiza::Utf8ToWide(
+          [[dir stringByAppendingPathComponent:@"profiles"] UTF8String]));
+    }
+    _profiles.EnsureDefault();
+  }
+  [_profilePopup removeAllItems];
+  NSInteger selected = 0;
+  const auto& all = _profiles.All();
+  for (size_t i = 0; i < all.size(); ++i) {
+    NSString* title =
+        [NSString stringWithUTF8String:paiza::WideToUtf8(all[i].display_name)
+                                           .c_str()];
+    [_profilePopup addItemWithTitle:(title ?: @"")];
+    _profilePopup.lastItem.representedObject =
+        [NSString stringWithUTF8String:all[i].id.c_str()];
+    if (all[i].id == _settings.active_profile) {
+      selected = static_cast<NSInteger>(i);
+    }
+  }
+  if (_profilePopup.numberOfItems > 0) {
+    [_profilePopup selectItemAtIndex:selected];
+  }
+}
+
+- (void)profileChanged:(id)sender {
+  (void)sender;
+  NSString* identifier = _profilePopup.selectedItem.representedObject;
+  if (identifier.length == 0) return;
+  _settings.active_profile = [identifier UTF8String];
   [self refreshValues];
 }
 

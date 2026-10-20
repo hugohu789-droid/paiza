@@ -12,6 +12,7 @@
 #include <iterator>
 #include <memory>
 
+#include "common/string_utils.h"
 #include "core/mapping_preview.h"
 
 namespace paiza::service {
@@ -57,9 +58,10 @@ class FooterStrip : public ui::Widget {
 
 SettingsWindow::SettingsWindow(
     std::function<void(const Settings&)> on_changed,
-    UserDictionary* user_dictionary)
+    UserDictionary* user_dictionary, const InputProfileRegistry* profiles)
     : on_changed_(std::move(on_changed)),
-      user_dictionary_(user_dictionary) {}
+      user_dictionary_(user_dictionary),
+      profiles_(profiles) {}
 
 void SettingsWindow::ShowDialog() {
   settings_ = SettingsStore::Load();
@@ -259,6 +261,23 @@ void SettingsWindow::BuildWidgets() {
   font_button_ = AddWidget(std::move(font_button));
   row_y += kRowHeight + 8;
 
+  // Row: input profile (text encoding + candidate engine). The list comes
+  // from data/profiles next to the binaries; see docs/input-profiles.md.
+  auto profile_label = std::make_unique<ui::Label>();
+  profile_label->style().font_family = L"Segoe UI";
+  profile_label->style().font_size = 14.0f;
+  profile_label->style().color = kColorBody;
+  profile_label->style().center_vertical = true;
+  profile_label->set_bounds({card1_x, row_y, 200, kRowHeight});
+  profile_label_ = AddWidget(std::move(profile_label));
+
+  auto profile_button = std::make_unique<ui::Button>();
+  profile_button->style().font_family = L"Segoe UI";
+  profile_button->set_bounds({controls_right - 230, row_y, 230, kRowHeight});
+  profile_button->SetOnClick([this] { OpenProfilePicker(); });
+  profile_button_ = AddWidget(std::move(profile_button));
+  row_y += kRowHeight + 8;
+
   // Row: user dictionary import (spec §6). Entries may be single letters
   // or phrases; applied immediately, persisted asynchronously.
   auto user_dict_label = std::make_unique<ui::Label>();
@@ -411,6 +430,7 @@ void SettingsWindow::BuildWidgets() {
     SettingsStore::Save(settings_);
     if (on_changed_) on_changed_(settings_);
     if (font_popup_ != nullptr) font_popup_->Hide();
+    if (profile_popup_ != nullptr) profile_popup_->Hide();
     ::ShowWindow(hwnd(), SW_HIDE);
   });
   save_button_ = AddWidget(std::move(save));
@@ -419,6 +439,7 @@ void SettingsWindow::BuildWidgets() {
   close->style().font_family = L"Segoe UI";
   close->SetOnClick([this] {
     if (font_popup_ != nullptr) font_popup_->Hide();
+    if (profile_popup_ != nullptr) profile_popup_->Hide();
     ::ShowWindow(hwnd(), SW_HIDE);
   });
   close_button_ = AddWidget(std::move(close));
@@ -502,6 +523,7 @@ void SettingsWindow::ApplyStrings() {
   language_label_->SetText(strings.language_label);
   language_button_->SetCaption(strings.language_name);
   font_label_->SetText(strings.candidate_font_label);
+  profile_label_->SetText(strings.profile_label);
   user_dict_label_->SetText(strings.user_dict_label);
   import_button_->SetCaption(strings.user_dict_import);
   soft_equiv_section_label_->SetText(strings.section_soft_equiv);
@@ -527,6 +549,16 @@ void SettingsWindow::RefreshLabels() {
                                 ? strings.toggle_on
                                 : strings.toggle_off);
   font_button_->SetCaption(settings_.candidate_font + L"   ▾");
+  {
+    const InputProfile* active =
+        profiles_ != nullptr ? profiles_->Find(settings_.active_profile)
+                             : nullptr;
+    // An id with no profile file still shows something recognisable.
+    const std::wstring name =
+        active != nullptr ? active->display_name
+                          : Utf8ToWide(settings_.active_profile);
+    profile_button_->SetCaption(name + L"   ▾");
+  }
   vertical_preview_->style().font_family = settings_.candidate_font;
   equiv_ou_check_->SetChecked(settings_.equiv_ou);
   equiv_qv_check_->SetChecked(settings_.equiv_qv);
@@ -578,6 +610,46 @@ void SettingsWindow::OpenFontPicker() {
 
 void SettingsWindow::ApplyCandidateFont(const std::wstring& font) {
   settings_.candidate_font = font;
+  RefreshLabels();
+}
+
+void SettingsWindow::OpenProfilePicker() {
+  if (profile_popup_ != nullptr && profile_popup_->IsVisible()) {
+    profile_popup_->Hide();
+    return;
+  }
+  if (profiles_ == nullptr || profiles_->empty()) return;
+  if (profile_popup_ == nullptr) {
+    profile_popup_ = std::make_unique<ui::DropdownPopup>();
+    profile_popup_->SetOnSelect([this](size_t index) {
+      const auto& all = profiles_->All();
+      if (index < all.size()) ApplyProfile(all[index].id);
+    });
+  }
+
+  std::vector<ui::DropdownItem> items;
+  const auto& all = profiles_->All();
+  items.reserve(all.size());
+  size_t selected = 0;
+  for (size_t i = 0; i < all.size(); ++i) {
+    ui::DropdownItem item;
+    item.text = all[i].display_name;
+    if (all[i].id == settings_.active_profile) selected = i;
+    items.push_back(std::move(item));
+  }
+  profile_popup_->SetItems(std::move(items), selected);
+
+  POINT origin = {ToPhysical(profile_button_->bounds().x),
+                  ToPhysical(profile_button_->bounds().y)};
+  ::ClientToScreen(hwnd(), &origin);
+  const ui::Rect anchor = {origin.x, origin.y,
+                           ToPhysical(profile_button_->bounds().width),
+                           ToPhysical(profile_button_->bounds().height)};
+  profile_popup_->ShowBelow(hwnd(), anchor);
+}
+
+void SettingsWindow::ApplyProfile(const std::string& profile_id) {
+  settings_.active_profile = profile_id;
   RefreshLabels();
 }
 
@@ -669,6 +741,7 @@ bool SettingsWindow::OnMessage(UINT message, WPARAM wparam, LPARAM lparam,
   }
   if (message == WM_MOUSEWHEEL) {
     if (font_popup_ != nullptr) font_popup_->Hide();
+    if (profile_popup_ != nullptr) profile_popup_->Hide();
     const int delta = GET_WHEEL_DELTA_WPARAM(wparam);
     SetScrollOffset(scroll_offset_ - (delta / WHEEL_DELTA) * kWheelStep);
     *result = 0;
@@ -676,6 +749,7 @@ bool SettingsWindow::OnMessage(UINT message, WPARAM wparam, LPARAM lparam,
   }
   if (message == WM_VSCROLL) {
     if (font_popup_ != nullptr) font_popup_->Hide();
+    if (profile_popup_ != nullptr) profile_popup_->Hide();
     const int viewport = logical_client_size().height - kFooterHeight;
     int offset = scroll_offset_;
     switch (LOWORD(wparam)) {
@@ -713,20 +787,26 @@ bool SettingsWindow::OnMessage(UINT message, WPARAM wparam, LPARAM lparam,
     *result = 0;
     return true;
   }
-  if (message == WM_LBUTTONDOWN && font_popup_ != nullptr &&
-      font_popup_->IsVisible()) {
-    // Click anywhere else in the dialog closes the dropdown; a click on
-    // the font button itself is left to its toggle logic.
+  if (message == WM_LBUTTONDOWN) {
+    // Click anywhere else in the dialog closes an open dropdown; a click on
+    // the dropdown's own button is left to its toggle logic.
     const ui::Point p = {
         static_cast<int>(GET_X_LPARAM(lparam) / scale()),
         static_cast<int>(GET_Y_LPARAM(lparam) / scale())};
-    if (!font_button_->bounds().Contains(p)) font_popup_->Hide();
-    // Fall through to normal handling.
+    if (font_popup_ != nullptr && font_popup_->IsVisible() &&
+        !font_button_->bounds().Contains(p)) {
+      font_popup_->Hide();
+    }
+    if (profile_popup_ != nullptr && profile_popup_->IsVisible() &&
+        !profile_button_->bounds().Contains(p)) {
+      profile_popup_->Hide();
+    }
   }
   if (message == WM_CLOSE) {
     // Hide instead of destroy so the window can be reshown cheaply.
     ::KillTimer(hwnd(), kMappingRefreshTimerId);
     if (font_popup_ != nullptr) font_popup_->Hide();
+    if (profile_popup_ != nullptr) profile_popup_->Hide();
     ::ShowWindow(hwnd(), SW_HIDE);
     *result = 0;
     return true;
