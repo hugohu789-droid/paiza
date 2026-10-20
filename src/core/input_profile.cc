@@ -61,6 +61,26 @@ std::string InlineCompositionName(InlineComposition value) {
   return "full";
 }
 
+InputProfile BuiltInUnicodeProfile() {
+  InputProfile profile;
+  profile.id = kDefaultProfileId;
+  profile.display_name = L"Unicode (GB/T)";
+  profile.keymap = L"keymap.txt";
+  profile.lexicon = L"lexicon.bin";
+  profile.user_db = L"user.db";
+  profile.font = L"Noto Sans Mongolian";
+  profile.fixed_sequences = true;
+  profile.romanize_query = true;
+  profile.skeleton_input = true;
+  profile.vowel_keys = "aeioquvE";
+  profile.inline_default = InlineComposition::kFull;
+  return profile;
+}
+
+void InputProfileRegistry::EnsureDefault() {
+  if (profiles_.empty()) profiles_.push_back(BuiltInUnicodeProfile());
+}
+
 bool InputProfileRegistry::LoadFromString(const std::string& content) {
   InputProfile profile;
   std::istringstream stream(content);

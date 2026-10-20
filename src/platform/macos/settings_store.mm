@@ -23,6 +23,7 @@ NSString* const kKeyEquivQv = @"EquivQV";
 NSString* const kKeyEquivHg = @"EquivHG";
 NSString* const kKeyEquivTd = @"EquivTD";
 NSString* const kKeyEquivEw = @"EquivEW";
+NSString* const kKeyActiveProfile = @"ActiveProfile";
 
 // Reads a bool that defaults to true when the key was never written (an
 // absent NSUserDefaults key reads as NO, which would flip the default).
@@ -57,6 +58,8 @@ Settings SettingsStore::Load() {
   settings.equiv_hg = LoadBoolOrTrue(defaults, kKeyEquivHg);
   settings.equiv_td = LoadBoolOrTrue(defaults, kKeyEquivTd);
   settings.equiv_ew = LoadBoolOrTrue(defaults, kKeyEquivEw);
+  NSString* profile = [defaults stringForKey:kKeyActiveProfile];
+  if (profile.length > 0) settings.active_profile = [profile UTF8String];
   return settings;
 }
 
@@ -75,6 +78,10 @@ void SettingsStore::Save(const Settings& settings) {
   [defaults setBool:settings.equiv_hg forKey:kKeyEquivHg];
   [defaults setBool:settings.equiv_td forKey:kKeyEquivTd];
   [defaults setBool:settings.equiv_ew forKey:kKeyEquivEw];
+  [defaults setObject:[NSString stringWithUTF8String:
+                           settings.active_profile.c_str()]
+                           ?: @"unicode"
+               forKey:kKeyActiveProfile];
 }
 
 }  // namespace paiza::mac

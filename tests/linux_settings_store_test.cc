@@ -43,6 +43,8 @@ TEST_F(LinuxSettingsStoreTest, MissingFileYieldsDefaults) {
   EXPECT_TRUE(settings.equiv_hg);
   EXPECT_TRUE(settings.equiv_td);
   EXPECT_TRUE(settings.equiv_ew);
+  // Input profile defaults to the Unicode behaviour.
+  EXPECT_EQ(settings.active_profile, kDefaultProfileId);
   // ui_language follows the OS locale; it must be a supported value.
   EXPECT_LT(static_cast<uint32_t>(settings.ui_language), kUiLanguageCount);
 }
@@ -56,6 +58,7 @@ TEST_F(LinuxSettingsStoreTest, RoundTrip) {
   // Flip a couple of soft-equivalence pairs off; the rest stay on.
   settings.equiv_qv = false;
   settings.equiv_ew = false;
+  settings.active_profile = "zcode";
   ASSERT_TRUE(SettingsStore::SaveToFile(settings, path_));
 
   const Settings loaded = SettingsStore::LoadFromFile(path_);
@@ -68,6 +71,7 @@ TEST_F(LinuxSettingsStoreTest, RoundTrip) {
   EXPECT_TRUE(loaded.equiv_hg);
   EXPECT_TRUE(loaded.equiv_td);
   EXPECT_FALSE(loaded.equiv_ew);
+  EXPECT_EQ(loaded.active_profile, "zcode");
 }
 
 TEST_F(LinuxSettingsStoreTest, MalformedValuesFallBackAndClamp) {

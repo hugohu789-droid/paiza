@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <string>
 
+#include "core/input_profile.h"
 #include "core/localization.h"
 
 namespace paiza::linux_ime {
@@ -42,6 +43,11 @@ struct Settings {
   bool equiv_hg = true;  // U+182C / U+182D (velar qa / ga).
   bool equiv_td = true;  // U+1832 / U+1833 (ta / da).
   bool equiv_ew = true;  // U+1827 / U+1838 (ee / wa, same glyph).
+
+  // Active input profile id (data/profiles/<id>.txt). Selects the text
+  // encoding and its candidate engine; "unicode" is today's behaviour.
+  // See docs/input-profiles.md.
+  std::string active_profile = kDefaultProfileId;
 };
 
 // Full path of the settings file: <UserConfigDirectory>/settings.ini.

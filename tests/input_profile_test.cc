@@ -196,5 +196,43 @@ TEST(InputProfileTest, ShippedUnicodeProfileMatchesCurrentBehaviour) {
   EXPECT_EQ(profile->inline_default, InlineComposition::kFull);
 }
 
+// The built-in fallback stands in for a missing data/profiles directory, so
+// it must stay identical to the shipped file or the two would silently drift.
+TEST(InputProfileTest, BuiltInProfileMatchesShippedFile) {
+  const std::filesystem::path dir =
+      std::filesystem::path(PAIZA_SOURCE_DIR) / "data" / "profiles";
+  InputProfileRegistry registry;
+  ASSERT_EQ(registry.LoadFromDirectory(dir.wstring()), 1);
+  const InputProfile* shipped = registry.Find(kDefaultProfileId);
+  ASSERT_NE(shipped, nullptr);
+
+  const InputProfile built_in = BuiltInUnicodeProfile();
+  EXPECT_EQ(built_in.id, shipped->id);
+  EXPECT_EQ(built_in.display_name, shipped->display_name);
+  EXPECT_EQ(built_in.keymap, shipped->keymap);
+  EXPECT_EQ(built_in.lexicon, shipped->lexicon);
+  EXPECT_EQ(built_in.user_db, shipped->user_db);
+  EXPECT_EQ(built_in.font, shipped->font);
+  EXPECT_EQ(built_in.fixed_sequences, shipped->fixed_sequences);
+  EXPECT_EQ(built_in.romanize_query, shipped->romanize_query);
+  EXPECT_EQ(built_in.skeleton_input, shipped->skeleton_input);
+  EXPECT_EQ(built_in.vowel_keys, shipped->vowel_keys);
+  EXPECT_EQ(built_in.inline_default, shipped->inline_default);
+}
+
+TEST(InputProfileTest, EnsureDefaultSeedsOnlyWhenEmpty) {
+  InputProfileRegistry registry;
+  registry.EnsureDefault();
+  ASSERT_EQ(registry.size(), 1u);
+  EXPECT_NE(registry.Find(kDefaultProfileId), nullptr);
+
+  // Already populated: EnsureDefault must not add or replace anything.
+  InputProfileRegistry other;
+  ASSERT_TRUE(other.LoadFromString("id custom\n"));
+  other.EnsureDefault();
+  EXPECT_EQ(other.size(), 1u);
+  EXPECT_EQ(other.Find(kDefaultProfileId), nullptr);
+}
+
 }  // namespace
 }  // namespace paiza

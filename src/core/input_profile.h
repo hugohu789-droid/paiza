@@ -38,6 +38,10 @@ InlineComposition ParseInlineComposition(std::string_view text,
 // Inverse of ParseInlineComposition.
 std::string InlineCompositionName(InlineComposition value);
 
+// Profile id used when settings carry none. Also the id of the built-in
+// fallback below.
+inline constexpr char kDefaultProfileId[] = "unicode";
+
 struct InputProfile {
   // Stable key stored in settings and used by ProfileSwitch. Required.
   std::string id;
@@ -64,6 +68,12 @@ struct InputProfile {
   InlineComposition inline_default = InlineComposition::kFull;
 };
 
+// The built-in Unicode profile, identical to data/profiles/unicode.txt. Used
+// when the profiles directory is missing or unreadable so the engine still
+// runs with today's behaviour -- the same idea as KeyMapping::CreateDefault
+// standing in for a missing keymap.txt. A test pins the two to each other.
+InputProfile BuiltInUnicodeProfile();
+
 class InputProfileRegistry {
  public:
   InputProfileRegistry() = default;
@@ -80,6 +90,10 @@ class InputProfileRegistry {
 
   // Null when no profile carries that id.
   const InputProfile* Find(std::string_view id) const;
+
+  // Adds BuiltInUnicodeProfile() when the registry is empty, so callers always
+  // have something to activate. No-op otherwise.
+  void EnsureDefault();
 
   const std::vector<InputProfile>& All() const { return profiles_; }
   bool empty() const { return profiles_.empty(); }

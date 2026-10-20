@@ -225,6 +225,11 @@ if(WIN32)
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/data/fixed_sequences.txt
             $<TARGET_FILE_DIR:PaizaService>/fixed_sequences.txt
+    # Input profiles (docs/input-profiles.md). A missing directory is not
+    # fatal: the engine falls back to BuiltInUnicodeProfile().
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/data/profiles
+            $<TARGET_FILE_DIR:PaizaService>/profiles
   )
 endif()
 
@@ -373,6 +378,7 @@ if(UNIX AND NOT APPLE)
                   ${PAIZA_LEXICON_BIN}
                   ${PAIZA_LINUX}/resources/paiza-mn.png
             DESTINATION share/ibus-paiza)
+    install(DIRECTORY data/profiles DESTINATION share/ibus-paiza)
     # GNOME Shell extension: vertical Mongolian in the shell's IBus
     # candidate popup (the Wayland rendering path). <prefix>/share is on
     # XDG_DATA_DIRS, so the shell finds it after the next login; per-user

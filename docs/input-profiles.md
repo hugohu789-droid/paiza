@@ -283,11 +283,18 @@ Each additional engine multiplies, not adds:
 |---|---|---|
 | 1 | `InputProfile` + `InputProfileRegistry` + `data/profiles/unicode.txt`. Pure addition: one profile, nothing wired, zero behaviour change. | — |
 | 2 | `ProfileSwitch` + unit tests; the three `ApplySettings` collapse to one line. | 1 |
-| 3 | Settings-page profile dropdown built from the registry; `active_profile` stored on all three platforms. | 2 |
+| 3a | `active_profile` in all three settings stores, `data/profiles/` deployed and installed, and a built-in fallback profile so a missing directory is survivable. | 2 |
+| 3b | Construct a `ProfileSwitch` in each of the three front-ends and activate from settings (a behaviour-neutral refactor of the existing direct wiring). | 3a |
+| 3c | Settings-page profile dropdown built from the registry, on all three platforms. | 3b |
 | 4 | `inline_composition` setting (full / placeholder / hidden) on all three platforms. | — |
 | 5 | `UserDictionary::set_enabled` plus per-profile registration. | 2 |
 | 6 | Add `zcode.txt`, the ZCode keymap and font; verify switching **without code changes**. | 3, 5 |
 | 7 | Wire the ZCode engine in as a candidate source (separate process, IPC). | external port |
+
+Increment 3 is split because it is the first one with a behaviour change and it
+touches all three platforms: 3a is verifiable locally end to end, 3b is a
+refactor whose effect the existing suite already pins, and only 3c adds UI that
+cannot be compiled outside its own platform.
 
 Increments 1 to 5 do not depend on the external engine port and can land first.
 Every increment must keep the full test suite green and the three-platform CI
