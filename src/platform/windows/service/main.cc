@@ -24,6 +24,8 @@
 #include "ipc/ime_client.h"
 #include "ipc/named_pipe_server.h"
 #include "service/candidate_service.h"
+#include "core/input_profile.h"
+#include "core/profile_switch.h"
 #include "service/settings_store.h"
 #include "service/settings_window.h"
 #include "ui/candidate_window.h"
@@ -40,6 +42,11 @@ constexpr int kHotkeyId = 1;
 SettingsWindow* g_settings_window = nullptr;
 CloudCandidateSource* g_cloud_source = nullptr;
 StaticLexicon* g_static_lexicon = nullptr;
+// Input profiles (docs/input-profiles.md). The service process owns the
+// candidate sources, so this is where profile gating happens; the key policy
+// lives in the TSF module, so there is no InputSession to repoint here.
+InputProfileRegistry g_profiles;
+std::unique_ptr<ProfileSwitch> g_profile_switch;
 
 std::wstring ExecutableDirectory() {
   wchar_t path[MAX_PATH] = {};
@@ -50,6 +57,11 @@ std::wstring ExecutableDirectory() {
 }
 
 void ApplySettings(const Settings& settings) {
+  // Gate the candidate sources to the selected profile. An unknown id leaves
+  // the previous selection in place rather than half-switching.
+  if (g_profile_switch != nullptr) {
+    g_profile_switch->Activate(settings.active_profile);
+  }
   if (g_cloud_source != nullptr) {
     g_cloud_source->set_enabled(settings.cloud_source_enabled);
   }
@@ -170,6 +182,17 @@ int Run(bool show_settings_on_start) {
   g_cloud_source = cloud.get();
   engine->AddSource(std::move(cloud));
 
+  // Profiles ship next to the binaries; a missing directory falls back to the
+  // built-in Unicode profile so the service still runs.
+  g_profiles.LoadFromDirectory(ExecutableDirectory() + L"\\profiles");
+  g_profiles.EnsureDefault();
+  g_profile_switch =
+      std::make_unique<ProfileSwitch>(&g_profiles, /*session=*/nullptr);
+  ProfileBinding unicode_binding;
+  unicode_binding.user_dictionary = user_dictionary_ptr;
+  unicode_binding.static_lexicon = static_lexicon_ptr;
+  g_profile_switch->Bind(kDefaultProfileId, unicode_binding);
+
   ApplySettings(SettingsStore::Load());
 
   HWND message_window = CreateMessageWindow();
@@ -211,6 +234,7 @@ int Run(bool show_settings_on_start) {
   server.Stop();
   g_settings_window = nullptr;
   g_cloud_source = nullptr;
+  g_profile_switch.reset();
   return 0;
 }
 

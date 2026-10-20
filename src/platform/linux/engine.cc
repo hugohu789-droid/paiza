@@ -12,7 +12,9 @@
 #include "common/string_utils.h"
 #include "core/candidate_engine.h"
 #include "core/cloud_candidate_source.h"
+#include "core/input_profile.h"
 #include "core/input_session.h"
+#include "core/profile_switch.h"
 #include "core/key_mapping_store.h"
 #include "core/local_dictionary_source.h"
 #include "core/localization.h"
@@ -35,6 +37,34 @@ paiza::UserDictionary* g_user_dictionary = nullptr;
 // Static lexicon (compiled lexicon.bin, mmap): prefix + fault-tolerant
 // search + bigram context; ranked below the user overlay, above cloud.
 paiza::StaticLexicon* g_static_lexicon = nullptr;
+
+// Input profiles (docs/input-profiles.md). The switch is global because the
+// candidate sources are; each engine instance has its own session, so it is
+// wired through ApplyTo when the engine is initialised.
+paiza::InputProfileRegistry g_profiles;
+std::unique_ptr<paiza::ProfileSwitch> g_profile_switch;
+
+// Builds the profile switch once, binding the shared sources to the Unicode
+// profile. Safe to call repeatedly.
+paiza::ProfileSwitch* SharedProfileSwitch() {
+  if (g_profile_switch == nullptr) {
+    // Profiles are installed next to the other data; a missing directory
+    // falls back to the built-in Unicode profile.
+    g_profiles.LoadFromDirectory(
+        paiza::Utf8ToWide(std::string(PAIZA_DATA_DIR) + "/profiles"));
+    g_profiles.EnsureDefault();
+    g_profile_switch = std::make_unique<paiza::ProfileSwitch>(
+        &g_profiles, /*session=*/nullptr);
+    paiza::ProfileBinding unicode;
+    unicode.user_dictionary = g_user_dictionary;
+    unicode.static_lexicon = g_static_lexicon;
+    if (g_static_lexicon != nullptr) {
+      unicode.fixed_sequences = &g_static_lexicon->fixed_sequence_table();
+    }
+    g_profile_switch->Bind(paiza::kDefaultProfileId, unicode);
+  }
+  return g_profile_switch.get();
+}
 
 // Directory of the running executable (build-tree fallback lookups).
 std::string ExecutableDirectory() {
@@ -143,6 +173,9 @@ void ApplyCurrentSettings(PaizaEngine* engine) {
   const Settings& settings = engine->state->settings.Get();
   engine->state->session->set_page_size(settings.candidates_per_page);
   SharedEngine();
+  // Gate the candidate sources to the selected profile. An unknown id leaves
+  // the previous selection in place rather than half-switching.
+  SharedProfileSwitch()->Activate(settings.active_profile);
   if (g_cloud_source != nullptr) {
     g_cloud_source->set_enabled(settings.cloud_source_enabled);
   }
@@ -293,12 +326,9 @@ static void paiza_engine_init(PaizaEngine* engine) {
       SharedEngine(), SharedMappings());
   // Commits feed the dynamic user lexicon (frequency + coined words) and
   // set the static lexicon's bigram context for the next word.
-  engine->state->session->set_user_dictionary(g_user_dictionary);
-  engine->state->session->set_static_lexicon(g_static_lexicon);
-  if (g_static_lexicon != nullptr) {
-    engine->state->session->set_fixed_sequences(
-        &g_static_lexicon->fixed_sequence_table());
-  }
+  // The active profile decides which dictionary and lexicon this session
+  // records into, and whether the GB/T fixed sequences apply.
+  SharedProfileSwitch()->ApplyTo(*engine->state->session);
 
   IBusLookupTable* table = ibus_lookup_table_new(
       /*page_size=*/7, /*cursor_pos=*/0, /*cursor_visible=*/TRUE,

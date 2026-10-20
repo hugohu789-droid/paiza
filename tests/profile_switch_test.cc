@@ -201,5 +201,30 @@ TEST_F(ProfileSwitchTest, ActivateWithoutRegistryEntryIsRejected) {
   EXPECT_EQ(sw.active(), nullptr);
 }
 
+// Hosts that create sessions after activation (macOS makes one per input
+// client) wire them through ApplyTo rather than the constructor.
+TEST_F(ProfileSwitchTest, ApplyToWiresALateCreatedSession) {
+  ProfileSwitch sw(&registry_, nullptr);
+  BindBoth(sw);
+  ASSERT_TRUE(sw.Activate("uni"));
+
+  InputSession late(&engine_, &mappings_);
+  sw.ApplyTo(late);
+  EXPECT_EQ(PreeditOf(late, "abdvr"), kAbdvrWithMvs);
+
+  ASSERT_TRUE(sw.Activate("zc"));
+  InputSession later(&engine_, &mappings_);
+  sw.ApplyTo(later);
+  EXPECT_EQ(PreeditOf(later, "abdvr"), kAbdvrRaw);
+}
+
+TEST_F(ProfileSwitchTest, ApplyToBeforeActivateIsANoOp) {
+  ProfileSwitch sw(&registry_, nullptr);
+  BindBoth(sw);
+  InputSession session(&engine_, &mappings_);
+  sw.ApplyTo(session);  // Nothing activated yet: must not crash or wire.
+  EXPECT_EQ(PreeditOf(session, "abdvr"), kAbdvrRaw);
+}
+
 }  // namespace
 }  // namespace paiza

@@ -53,21 +53,24 @@ bool ProfileSwitch::Activate(std::string_view profile_id) {
   active_ = profile;
   active_id_ = profile->id;
 
-  if (session_ != nullptr) {
-    const ProfileBinding* binding = FindBinding(profile->id);
-    // The session holds non-owning pointers; all three must be repointed
-    // together or commits would be recorded into the previous profile's store.
-    session_->set_user_dictionary(
-        binding != nullptr ? binding->user_dictionary : nullptr);
-    session_->set_static_lexicon(
-        binding != nullptr ? binding->static_lexicon : nullptr);
-    // Null here is already how InputSession means "no MVS insertion", so a
-    // profile that disables the GB/T sequences needs no separate code path.
-    session_->set_fixed_sequences(
-        binding != nullptr && profile->fixed_sequences ? binding->fixed_sequences
-                                                       : nullptr);
-  }
+  if (session_ != nullptr) ApplyTo(*session_);
   return true;
+}
+
+void ProfileSwitch::ApplyTo(InputSession& session) const {
+  if (active_ == nullptr) return;
+  const ProfileBinding* binding = FindBinding(active_->id);
+  // The session holds non-owning pointers; all three must be repointed
+  // together or commits would be recorded into the previous profile's store.
+  session.set_user_dictionary(
+      binding != nullptr ? binding->user_dictionary : nullptr);
+  session.set_static_lexicon(
+      binding != nullptr ? binding->static_lexicon : nullptr);
+  // Null here is already how InputSession means "no MVS insertion", so a
+  // profile that disables the GB/T sequences needs no separate code path.
+  session.set_fixed_sequences(
+      binding != nullptr && active_->fixed_sequences ? binding->fixed_sequences
+                                                     : nullptr);
 }
 
 }  // namespace paiza

@@ -253,6 +253,7 @@ if(APPLE)
     ${PAIZA_MAC}/resources/MenuIcon.tiff
     ${PAIZA_MAC}/en.lproj/InfoPlist.strings
     ${PAIZA_MAC}/zh-Hans.lproj/InfoPlist.strings
+    data/profiles/unicode.txt
   )
   add_dependencies(PaizaIMK paiza_lexicon)
   set_target_properties(PaizaIMK PROPERTIES
@@ -268,6 +269,9 @@ if(APPLE)
   )
   set_source_files_properties(${PAIZA_LEXICON_BIN}
     PROPERTIES GENERATED TRUE MACOSX_PACKAGE_LOCATION Resources)
+  # Input profiles live in their own folder so the registry can scan it.
+  set_source_files_properties(data/profiles/unicode.txt
+    PROPERTIES MACOSX_PACKAGE_LOCATION Resources/profiles)
   set_source_files_properties(${PAIZA_MAC}/en.lproj/InfoPlist.strings
     PROPERTIES MACOSX_PACKAGE_LOCATION Resources/en.lproj)
   set_source_files_properties(${PAIZA_MAC}/zh-Hans.lproj/InfoPlist.strings

@@ -63,6 +63,12 @@ class ProfileSwitch {
   // never leave the engine in a half-switched state.
   bool Activate(std::string_view profile_id);
 
+  // Applies the active profile's bindings to `session`. Activate() already
+  // does this for the session given to the constructor; this is for hosts
+  // that create sessions later or create several (macOS makes one per input
+  // client). No-op before the first successful Activate.
+  void ApplyTo(InputSession& session) const;
+
   // The active profile, or null before a successful Activate.
   const InputProfile* active() const { return active_; }
   std::string_view active_id() const { return active_id_; }
