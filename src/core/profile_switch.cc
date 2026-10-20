@@ -57,6 +57,18 @@ bool ProfileSwitch::Activate(std::string_view profile_id) {
   return true;
 }
 
+UserDictionary* ProfileSwitch::active_user_dictionary() const {
+  if (active_ == nullptr) return nullptr;
+  const ProfileBinding* binding = FindBinding(active_->id);
+  return binding != nullptr ? binding->user_dictionary : nullptr;
+}
+
+StaticLexicon* ProfileSwitch::active_static_lexicon() const {
+  if (active_ == nullptr) return nullptr;
+  const ProfileBinding* binding = FindBinding(active_->id);
+  return binding != nullptr ? binding->static_lexicon : nullptr;
+}
+
 void ProfileSwitch::ApplyTo(InputSession& session) const {
   if (active_ == nullptr) return;
   const ProfileBinding* binding = FindBinding(active_->id);

@@ -57,11 +57,8 @@ class FooterStrip : public ui::Widget {
 }  // namespace
 
 SettingsWindow::SettingsWindow(
-    std::function<void(const Settings&)> on_changed,
-    UserDictionary* user_dictionary, const InputProfileRegistry* profiles)
-    : on_changed_(std::move(on_changed)),
-      user_dictionary_(user_dictionary),
-      profiles_(profiles) {}
+    std::function<void(const Settings&)> on_changed, ProfileSwitch* profiles)
+    : on_changed_(std::move(on_changed)), profiles_(profiles) {}
 
 void SettingsWindow::ShowDialog() {
   settings_ = SettingsStore::Load();
@@ -565,9 +562,11 @@ void SettingsWindow::RefreshLabels() {
                                 : strings.toggle_off);
   font_button_->SetCaption(settings_.candidate_font + L"   ▾");
   {
+    const InputProfileRegistry* registry =
+        profiles_ != nullptr ? profiles_->registry() : nullptr;
     const InputProfile* active =
-        profiles_ != nullptr ? profiles_->Find(settings_.active_profile)
-                             : nullptr;
+        registry != nullptr ? registry->Find(settings_.active_profile)
+                            : nullptr;
     // An id with no profile file still shows something recognisable.
     const std::wstring name =
         active != nullptr ? active->display_name
@@ -643,17 +642,22 @@ void SettingsWindow::OpenProfilePicker() {
     profile_popup_->Hide();
     return;
   }
-  if (profiles_ == nullptr || profiles_->empty()) return;
+  const InputProfileRegistry* registry =
+      profiles_ != nullptr ? profiles_->registry() : nullptr;
+  if (registry == nullptr || registry->empty()) return;
   if (profile_popup_ == nullptr) {
     profile_popup_ = std::make_unique<ui::DropdownPopup>();
     profile_popup_->SetOnSelect([this](size_t index) {
-      const auto& all = profiles_->All();
+      const InputProfileRegistry* reg =
+          profiles_ != nullptr ? profiles_->registry() : nullptr;
+      if (reg == nullptr) return;
+      const auto& all = reg->All();
       if (index < all.size()) ApplyProfile(all[index].id);
     });
   }
 
   std::vector<ui::DropdownItem> items;
-  const auto& all = profiles_->All();
+  const auto& all = registry->All();
   items.reserve(all.size());
   size_t selected = 0;
   for (size_t i = 0; i < all.size(); ++i) {
@@ -762,7 +766,11 @@ void SettingsWindow::OpenMappingFileForEditing() {
 }
 
 void SettingsWindow::ImportUserDictionary() {
-  if (user_dictionary_ == nullptr) return;
+  // Resolved now, not cached: an import must land in the profile that is
+  // active at this moment.
+  UserDictionary* user_dictionary =
+      profiles_ != nullptr ? profiles_->active_user_dictionary() : nullptr;
+  if (user_dictionary == nullptr) return;
   const UiStrings& strings = GetStrings(settings_.ui_language);
 
   wchar_t file[MAX_PATH] = L"";
@@ -775,7 +783,7 @@ void SettingsWindow::ImportUserDictionary() {
   dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
   if (!::GetOpenFileNameW(&dialog)) return;  // Cancelled.
 
-  const ImportResult result = user_dictionary_->ImportFromFile(file);
+  const ImportResult result = user_dictionary->ImportFromFile(file);
   if (!result.opened) {
     ::MessageBoxW(hwnd(), strings.user_dict_import_failed,
                   strings.user_dict_label, MB_OK | MB_ICONWARNING);

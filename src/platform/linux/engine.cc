@@ -33,7 +33,6 @@ using paiza::linux_ime::SettingsWatcher;
 paiza::CloudCandidateSource* g_cloud_source = nullptr;
 // Dynamic user lexicon (dual-track overlay, spec §3.2); persisted to
 // ~/.config/paiza-ime/user.db asynchronously.
-paiza::UserDictionary* g_user_dictionary = nullptr;
 // Static lexicon (compiled lexicon.bin, mmap): prefix + fault-tolerant
 // search + bigram context; ranked below the user overlay, above cloud.
 paiza::StaticLexicon* g_static_lexicon = nullptr;
@@ -43,25 +42,39 @@ paiza::StaticLexicon* g_static_lexicon = nullptr;
 // wired through ApplyTo when the engine is initialised.
 paiza::InputProfileRegistry g_profiles;
 std::unique_ptr<paiza::ProfileSwitch> g_profile_switch;
+// One user dictionary per profile, in registry order.
+std::vector<std::pair<std::string, paiza::UserDictionary*>>
+    g_profile_dictionaries;
+
+// Loads the installed profiles once; a missing directory falls back to the
+// built-in Unicode profile.
+void LoadProfiles() {
+  if (g_profiles.empty()) {
+    g_profiles.LoadFromDirectory(
+        paiza::Utf8ToWide(std::string(PAIZA_DATA_DIR) + "/profiles"));
+    g_profiles.EnsureDefault();
+  }
+}
 
 // Builds the profile switch once, binding the shared sources to the Unicode
 // profile. Safe to call repeatedly.
 paiza::ProfileSwitch* SharedProfileSwitch() {
   if (g_profile_switch == nullptr) {
-    // Profiles are installed next to the other data; a missing directory
-    // falls back to the built-in Unicode profile.
-    g_profiles.LoadFromDirectory(
-        paiza::Utf8ToWide(std::string(PAIZA_DATA_DIR) + "/profiles"));
-    g_profiles.EnsureDefault();
+    LoadProfiles();
     g_profile_switch = std::make_unique<paiza::ProfileSwitch>(
         &g_profiles, /*session=*/nullptr);
-    paiza::ProfileBinding unicode;
-    unicode.user_dictionary = g_user_dictionary;
-    unicode.static_lexicon = g_static_lexicon;
-    if (g_static_lexicon != nullptr) {
-      unicode.fixed_sequences = &g_static_lexicon->fixed_sequence_table();
+    for (const auto& [profile_id, dictionary] : g_profile_dictionaries) {
+      paiza::ProfileBinding binding;
+      binding.user_dictionary = dictionary;
+      // One compiled lexicon today; per-profile lexicons arrive with the
+      // second profile.
+      if (profile_id == paiza::kDefaultProfileId &&
+          g_static_lexicon != nullptr) {
+        binding.static_lexicon = g_static_lexicon;
+        binding.fixed_sequences = &g_static_lexicon->fixed_sequence_table();
+      }
+      g_profile_switch->Bind(profile_id, binding);
     }
-    g_profile_switch->Bind(paiza::kDefaultProfileId, unicode);
   }
   return g_profile_switch.get();
 }
@@ -82,11 +95,19 @@ std::string ExecutableDirectory() {
 paiza::CandidateEngine* SharedEngine() {
   static paiza::CandidateEngine* engine = [] {
     auto* built = new paiza::CandidateEngine();
-    auto user = std::make_unique<paiza::UserDictionary>(
-        (std::filesystem::path(paiza::UserConfigDirectory()) / L"user.db")
-            .wstring());
-    g_user_dictionary = user.get();
-    built->AddSource(std::move(user));
+    // One user lexicon per profile: entries learned under one text encoding
+    // are meaningless under another, and ProfileSwitch keeps all but the
+    // active one unavailable (docs/input-profiles.md).
+    LoadProfiles();
+    for (const paiza::InputProfile& profile : g_profiles.All()) {
+      const std::wstring file =
+          profile.user_db.empty() ? L"user.db" : profile.user_db;
+      auto user = std::make_unique<paiza::UserDictionary>(
+          (std::filesystem::path(paiza::UserConfigDirectory()) / file)
+              .wstring());
+      g_profile_dictionaries.emplace_back(profile.id, user.get());
+      built->AddSource(std::move(user));
+    }
     // Compiled static lexicon: installed location first, then build tree.
     auto lexicon = std::make_unique<paiza::StaticLexicon>();
     const std::string lexicon_installed =

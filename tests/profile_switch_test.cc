@@ -226,5 +226,33 @@ TEST_F(ProfileSwitchTest, ApplyToBeforeActivateIsANoOp) {
   EXPECT_EQ(PreeditOf(session, "abdvr"), kAbdvrRaw);
 }
 
+// Callers that outlive a profile change must resolve the active store
+// through the switch; a cached pointer would write into the wrong profile.
+TEST_F(ProfileSwitchTest, ActiveAccessorsFollowTheProfile) {
+  ProfileSwitch sw(&registry_, nullptr);
+  BindBoth(sw);
+  EXPECT_EQ(sw.active_user_dictionary(), nullptr);  // Before activation.
+
+  ASSERT_TRUE(sw.Activate("uni"));
+  EXPECT_EQ(sw.active_user_dictionary(), uni_dict_);
+
+  ASSERT_TRUE(sw.Activate("zc"));
+  EXPECT_EQ(sw.active_user_dictionary(), zc_dict_);
+}
+
+TEST_F(ProfileSwitchTest, ActiveAccessorsNullForUnboundProfile) {
+  registry_.LoadFromString("id third\n");
+  ProfileSwitch sw(&registry_, nullptr);
+  BindBoth(sw);
+  ASSERT_TRUE(sw.Activate("third"));
+  EXPECT_EQ(sw.active_user_dictionary(), nullptr);
+  EXPECT_EQ(sw.active_static_lexicon(), nullptr);
+}
+
+TEST_F(ProfileSwitchTest, RegistryAccessorReturnsTheRegistry) {
+  ProfileSwitch sw(&registry_, nullptr);
+  EXPECT_EQ(sw.registry(), &registry_);
+}
+
 }  // namespace
 }  // namespace paiza

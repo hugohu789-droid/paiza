@@ -343,8 +343,15 @@ void OnImportUserDict(GtkButton* button, gpointer data) {
   {
     // Own SQLite connection on the same db the engine reads (WAL allows
     // concurrent access); the destructor flushes synchronously.
+    // The import must land in the profile that is currently selected, not
+    // a hardcoded file (docs/input-profiles.md).
+    const paiza::InputProfile* profile =
+        dialog->profiles.Find(dialog->settings.active_profile);
+    const std::wstring file =
+        (profile != nullptr && !profile->user_db.empty()) ? profile->user_db
+                                                          : L"user.db";
     paiza::UserDictionary dictionary(
-        (std::filesystem::path(paiza::UserConfigDirectory()) / L"user.db")
+        (std::filesystem::path(paiza::UserConfigDirectory()) / file)
             .wstring());
     result = dictionary.ImportFromFile(paiza::Utf8ToWide(filename));
     dictionary.Flush();

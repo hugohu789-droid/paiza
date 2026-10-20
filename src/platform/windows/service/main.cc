@@ -153,12 +153,25 @@ int Run(bool show_settings_on_start) {
   // source type (AI, speech, handwriting) is one AddSource call here.
   auto engine = std::make_shared<CandidateEngine>();
 
-  // Dynamic user lexicon (dual-track overlay, spec §3.2): highest
-  // priority, persisted asynchronously to SQLite in the user profile.
-  auto user_dictionary = std::make_unique<UserDictionary>(
-      (std::filesystem::path(UserConfigDirectory()) / L"user.db").wstring());
-  UserDictionary* user_dictionary_ptr = user_dictionary.get();
-  engine->AddSource(std::move(user_dictionary));
+  // Input profiles decide which stores are live (docs/input-profiles.md).
+  // Load them before the sources so one user lexicon per profile can be
+  // created; a missing directory falls back to the built-in profile.
+  g_profiles.LoadFromDirectory(ExecutableDirectory() + L"\\profiles");
+  g_profiles.EnsureDefault();
+
+  // Dynamic user lexicon (dual-track overlay, spec §3.2): highest priority,
+  // persisted asynchronously to SQLite in the user profile. One per profile,
+  // because entries learned under one text encoding are meaningless under
+  // another; ProfileSwitch keeps all but the active one unavailable.
+  std::vector<std::pair<std::string, UserDictionary*>> user_dictionaries;
+  for (const InputProfile& profile : g_profiles.All()) {
+    const std::wstring file =
+        profile.user_db.empty() ? L"user.db" : profile.user_db;
+    auto dictionary = std::make_unique<UserDictionary>(
+        (std::filesystem::path(UserConfigDirectory()) / file).wstring());
+    user_dictionaries.emplace_back(profile.id, dictionary.get());
+    engine->AddSource(std::move(dictionary));
+  }
 
   // Compiled static lexicon (mmap): prefix + fault-tolerant search + bigram
   // context. Falls back silently to the plain-text dictionary if absent.
@@ -182,28 +195,29 @@ int Run(bool show_settings_on_start) {
   g_cloud_source = cloud.get();
   engine->AddSource(std::move(cloud));
 
-  // Profiles ship next to the binaries; a missing directory falls back to the
-  // built-in Unicode profile so the service still runs.
-  g_profiles.LoadFromDirectory(ExecutableDirectory() + L"\\profiles");
-  g_profiles.EnsureDefault();
   g_profile_switch =
       std::make_unique<ProfileSwitch>(&g_profiles, /*session=*/nullptr);
-  ProfileBinding unicode_binding;
-  unicode_binding.user_dictionary = user_dictionary_ptr;
-  unicode_binding.static_lexicon = static_lexicon_ptr;
-  g_profile_switch->Bind(kDefaultProfileId, unicode_binding);
+  for (const auto& [profile_id, dictionary] : user_dictionaries) {
+    ProfileBinding binding;
+    binding.user_dictionary = dictionary;
+    // One compiled lexicon today; per-profile lexicons arrive with the
+    // second profile.
+    if (profile_id == kDefaultProfileId) {
+      binding.static_lexicon = static_lexicon_ptr;
+    }
+    g_profile_switch->Bind(profile_id, binding);
+  }
 
   ApplySettings(SettingsStore::Load());
 
   HWND message_window = CreateMessageWindow();
   if (message_window == nullptr) return 1;
 
-  SettingsWindow settings_window(ApplySettings, user_dictionary_ptr,
-                                 &g_profiles);
+  SettingsWindow settings_window(ApplySettings, g_profile_switch.get());
   g_settings_window = &settings_window;
 
   // IPC callbacks arrive on worker threads; hop to the UI thread.
-  CandidateService service(engine, user_dictionary_ptr, static_lexicon_ptr,
+  CandidateService service(engine, g_profile_switch.get(),
                            [message_window] {
                              ::PostMessageW(message_window, kMsgShowSettings, 0,
                                             0);

@@ -13,6 +13,7 @@
 
 #include "core/candidate_engine.h"
 #include "core/static_lexicon.h"
+#include "core/profile_switch.h"
 #include "core/user_dictionary.h"
 #include "ipc/message.h"
 
@@ -22,13 +23,13 @@ class CandidateService {
  public:
   // `show_settings` is invoked (on an IPC worker thread!) when a client
   // asks for the settings dialog; the callee must marshal to its UI thread.
-  // `user_dictionary` (optional) receives kCommitCandidate notifications;
+  // `profiles` (optional) supplies the active user dictionary and static
+  // lexicon, which receive kCommitCandidate notifications;
   // it is thread-safe by contract and must outlive this service.
   // `static_lexicon` (optional) has its bigram context updated on commit so
   // the next query favours likely successors; thread-safe, must outlive us.
   CandidateService(std::shared_ptr<CandidateEngine> engine,
-                   UserDictionary* user_dictionary,
-                   StaticLexicon* static_lexicon,
+                   ProfileSwitch* profiles,
                    std::function<void()> show_settings);
 
   // NamedPipeServer handler entry point. Thread-safe.
@@ -36,8 +37,9 @@ class CandidateService {
 
  private:
   std::shared_ptr<CandidateEngine> engine_;
-  UserDictionary* user_dictionary_;
-  StaticLexicon* static_lexicon_;
+  // Resolved per notification: the active profile decides which user
+  // dictionary a commit is recorded into.
+  ProfileSwitch* profiles_;
   std::function<void()> show_settings_;
 };
 

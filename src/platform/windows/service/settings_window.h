@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "core/input_profile.h"
+#include "core/profile_switch.h"
 #include "core/key_mapping_store.h"
 #include "core/user_dictionary.h"
 #include "service/settings_store.h"
@@ -32,11 +33,12 @@ class SettingsWindow : public ui::Window {
   // `on_changed` fires after the user saves; the service re-applies the
   // settings to the engine. `user_dictionary` (may be null in previews)
   // receives TXT imports from the settings UI and must outlive the window.
-  // `profiles` is the registry the service already loaded, so the dropdown
-  // offers exactly what the engine can activate. Must outlive the window.
+  // `profiles` supplies both the list the dropdown offers and the active
+  // profile's user dictionary for imports, so the dialog never caches a
+  // dictionary that a profile change would invalidate. Must outlive the
+  // window.
   SettingsWindow(std::function<void(const Settings&)> on_changed,
-                 UserDictionary* user_dictionary,
-                 const InputProfileRegistry* profiles);
+                 ProfileSwitch* profiles);
 
   // Creates (if needed), reloads current settings and shows centred.
   void ShowDialog();
@@ -80,7 +82,6 @@ class SettingsWindow : public ui::Window {
 
   Settings settings_;
   std::function<void(const Settings&)> on_changed_;
-  UserDictionary* user_dictionary_;
   KeyMappingStore mapping_store_;
   uint64_t shown_mapping_revision_ = 0;
 
@@ -118,9 +119,8 @@ class SettingsWindow : public ui::Window {
   std::unique_ptr<ui::DropdownPopup> font_popup_;
   std::unique_ptr<ui::DropdownPopup> profile_popup_;
   std::unique_ptr<ui::DropdownPopup> inline_popup_;
-  // Input profiles offered by the dropdown (docs/input-profiles.md);
-  // owned by the service, not by this window.
-  const InputProfileRegistry* profiles_ = nullptr;
+  // Input profiles (docs/input-profiles.md); owned by the service.
+  ProfileSwitch* profiles_ = nullptr;
   std::vector<ui::FontFamilyInfo> font_families_;  // Lazy cache.
   ui::Label* mapping_title_label_ = nullptr;
   ui::Label* mapping_preview_label_ = nullptr;

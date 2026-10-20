@@ -73,6 +73,18 @@ class ProfileSwitch {
   const InputProfile* active() const { return active_; }
   std::string_view active_id() const { return active_id_; }
 
+  // The active profile's objects, or null when nothing is active or the
+  // active profile has no binding of that kind. Callers that outlive a
+  // profile change (the IPC service recording commits, the settings
+  // dialog importing) must resolve through these rather than caching a
+  // pointer, or they would write into the previous profile's store.
+  UserDictionary* active_user_dictionary() const;
+  StaticLexicon* active_static_lexicon() const;
+
+  // The registry this switch was built with, so a caller holding the switch
+  // can also list the profiles without being handed both.
+  const InputProfileRegistry* registry() const { return registry_; }
+
  private:
   const ProfileBinding* FindBinding(std::string_view profile_id) const;
 
