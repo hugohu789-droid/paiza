@@ -108,6 +108,7 @@ void UserDictionary::LoadFromDatabase() {
 }
 
 bool UserDictionary::IsAvailable() const {
+  if (!enabled_.load()) return false;
   std::lock_guard<std::mutex> lock(mutex_);
   return !entries_.empty();
 }

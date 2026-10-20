@@ -24,6 +24,7 @@
 #ifndef PAIZA_CORE_USER_DICTIONARY_H_
 #define PAIZA_CORE_USER_DICTIONARY_H_
 
+#include <atomic>
 #include <condition_variable>
 #include <cstdint>
 #include <map>
@@ -76,6 +77,13 @@ class UserDictionary : public CandidateSource {
   // Blocks until every pending change reached SQLite (tests; shutdown).
   void Flush();
 
+  // Profile gating: a disabled dictionary reports itself unavailable, so
+  // CandidateEngine skips it and another profile's entries can never reach
+  // the candidate list. Atomic because settings toggle it while the IPC
+  // workers query. See docs/input-profiles.md.
+  void set_enabled(bool enabled) { enabled_.store(enabled); }
+  bool enabled() const { return enabled_.load(); }
+
   size_t entry_count() const;
 
  private:
@@ -111,6 +119,7 @@ class UserDictionary : public CandidateSource {
   bool flush_requested_ = false;  // Skips the batching delay.
 
   std::thread writer_;
+  std::atomic<bool> enabled_{true};
 };
 
 }  // namespace paiza

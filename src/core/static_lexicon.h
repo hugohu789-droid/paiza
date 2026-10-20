@@ -48,9 +48,15 @@ class StaticLexicon : public CandidateSource {
   // CandidateSource:
   std::wstring name() const override { return L"lexicon"; }
   int priority() const override { return 100; }
-  bool IsAvailable() const override { return is_loaded(); }
+  bool IsAvailable() const override { return enabled_.load() && is_loaded(); }
   std::vector<Candidate> Query(const std::string& latin_input,
                                size_t max_results) override;
+
+  // Profile gating: a disabled lexicon reports itself unavailable, so another
+  // profile's entries can never reach the candidate list. Atomic because
+  // settings toggle it while the IPC workers query (docs/input-profiles.md).
+  void set_enabled(bool enabled) { enabled_.store(enabled); }
+  bool enabled() const { return enabled_.load(); }
 
   // Bigram context. Set the just-committed word so the next Query can reward
   // its likely successors; 0 clears the context. Atomic: on Windows the
@@ -144,6 +150,7 @@ class StaticLexicon : public CandidateSource {
   std::string fixed_sequences_;  // Raw GB/T rules blob (compose layer).
   FixedSequenceTable fixed_seq_table_;  // Parsed suffix forms.
   std::atomic<uint32_t> context_word_id_{0};
+  std::atomic<bool> enabled_{true};
 };
 
 }  // namespace paiza
