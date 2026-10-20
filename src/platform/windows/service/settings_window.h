@@ -72,6 +72,9 @@ class SettingsWindow : public ui::Window {
   void ApplyCandidateFont(const std::wstring& font);
   void OpenProfilePicker();
   void ApplyProfile(const std::string& profile_id);
+  void OpenInlinePicker();
+  // Hides every open dropdown; called wherever the dialog changes state.
+  void HideAllDropdowns();
   // File-picker -> UserDictionary::ImportFromFile -> result message box.
   void ImportUserDictionary();
 
@@ -101,6 +104,8 @@ class SettingsWindow : public ui::Window {
   ui::Button* font_button_ = nullptr;
   ui::Label* profile_label_ = nullptr;
   ui::Button* profile_button_ = nullptr;
+  ui::Label* inline_label_ = nullptr;
+  ui::Button* inline_button_ = nullptr;
   ui::Label* user_dict_label_ = nullptr;
   ui::Button* import_button_ = nullptr;
   ui::Label* soft_equiv_section_label_ = nullptr;
@@ -112,6 +117,7 @@ class SettingsWindow : public ui::Window {
   ui::Checkbox* equiv_ew_check_ = nullptr;
   std::unique_ptr<ui::DropdownPopup> font_popup_;
   std::unique_ptr<ui::DropdownPopup> profile_popup_;
+  std::unique_ptr<ui::DropdownPopup> inline_popup_;
   // Input profiles offered by the dropdown (docs/input-profiles.md);
   // owned by the service, not by this window.
   const InputProfileRegistry* profiles_ = nullptr;

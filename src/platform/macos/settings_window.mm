@@ -206,6 +206,8 @@ bool FontSupportsMongolian(NSString* family) {
   NSTextField* _fontLabel;
   NSTextField* _profileLabel;
   NSPopUpButton* _profilePopup;
+  NSTextField* _inlineLabel;
+  NSPopUpButton* _inlinePopup;
   // Input profiles offered by the dropdown (docs/input-profiles.md).
   paiza::InputProfileRegistry _profiles;
   NSPopUpButton* _fontPopup;
@@ -386,6 +388,19 @@ bool FontSupportsMongolian(NSString* family) {
   _profilePopup.target = self;
   _profilePopup.action = @selector(profileChanged:);
   [_background addSubview:_profilePopup];
+  row += kRowHeight + 6;
+
+  // Row: how much of the composition the host shows inline.
+  _inlineLabel = [self addLabel:NSMakeRect(card1_x, row, 200, kRowHeight)
+                           size:14
+                           bold:NO
+                          color:[NSColor labelColor]];
+  _inlinePopup = [[NSPopUpButton alloc]
+      initWithFrame:NSMakeRect(controls_right - 240, row + 1, 240, 26)
+          pullsDown:NO];
+  _inlinePopup.target = self;
+  _inlinePopup.action = @selector(inlineCompositionChanged:);
+  [_background addSubview:_inlinePopup];
   row += kRowHeight + 8;
 
   // Row: user dictionary import (label + button).
@@ -597,6 +612,15 @@ bool FontSupportsMongolian(NSString* family) {
   _languageLabel.stringValue = Ns(s.language_label);
   _fontLabel.stringValue = Ns(s.candidate_font_label);
   _profileLabel.stringValue = Ns(s.profile_label);
+  _inlineLabel.stringValue = Ns(s.inline_composition_label);
+  // Order matches the InlineComposition enum, so the index is the value.
+  [_inlinePopup removeAllItems];
+  for (const wchar_t* text : {s.inline_full, s.inline_placeholder,
+                              s.inline_hidden}) {
+    [_inlinePopup addItemWithTitle:Ns(text)];
+  }
+  [_inlinePopup selectItemAtIndex:
+                    static_cast<NSInteger>(_settings.inline_composition)];
   _userDictLabel.stringValue = Ns(s.user_dict_label);
   _userDictButton.title = Ns(s.user_dict_import);
   _softEquivSection.stringValue = Ns(s.section_soft_equiv);
@@ -795,6 +819,13 @@ bool FontSupportsMongolian(NSString* family) {
   if (_profilePopup.numberOfItems > 0) {
     [_profilePopup selectItemAtIndex:selected];
   }
+}
+
+- (void)inlineCompositionChanged:(id)sender {
+  (void)sender;
+  _settings.inline_composition = paiza::InlineCompositionFromValue(
+      static_cast<uint32_t>(_inlinePopup.indexOfSelectedItem));
+  [self refreshValues];
 }
 
 - (void)profileChanged:(id)sender {

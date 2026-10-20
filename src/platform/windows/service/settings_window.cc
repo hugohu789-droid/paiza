@@ -278,6 +278,22 @@ void SettingsWindow::BuildWidgets() {
   profile_button_ = AddWidget(std::move(profile_button));
   row_y += kRowHeight + 8;
 
+  // Row: how much of the composition the host shows inline.
+  auto inline_label = std::make_unique<ui::Label>();
+  inline_label->style().font_family = L"Segoe UI";
+  inline_label->style().font_size = 14.0f;
+  inline_label->style().color = kColorBody;
+  inline_label->style().center_vertical = true;
+  inline_label->set_bounds({card1_x, row_y, 200, kRowHeight});
+  inline_label_ = AddWidget(std::move(inline_label));
+
+  auto inline_button = std::make_unique<ui::Button>();
+  inline_button->style().font_family = L"Segoe UI";
+  inline_button->set_bounds({controls_right - 230, row_y, 230, kRowHeight});
+  inline_button->SetOnClick([this] { OpenInlinePicker(); });
+  inline_button_ = AddWidget(std::move(inline_button));
+  row_y += kRowHeight + 8;
+
   // Row: user dictionary import (spec §6). Entries may be single letters
   // or phrases; applied immediately, persisted asynchronously.
   auto user_dict_label = std::make_unique<ui::Label>();
@@ -429,8 +445,7 @@ void SettingsWindow::BuildWidgets() {
   save->SetOnClick([this] {
     SettingsStore::Save(settings_);
     if (on_changed_) on_changed_(settings_);
-    if (font_popup_ != nullptr) font_popup_->Hide();
-    if (profile_popup_ != nullptr) profile_popup_->Hide();
+    HideAllDropdowns();
     ::ShowWindow(hwnd(), SW_HIDE);
   });
   save_button_ = AddWidget(std::move(save));
@@ -438,8 +453,7 @@ void SettingsWindow::BuildWidgets() {
   auto close = std::make_unique<ui::Button>();
   close->style().font_family = L"Segoe UI";
   close->SetOnClick([this] {
-    if (font_popup_ != nullptr) font_popup_->Hide();
-    if (profile_popup_ != nullptr) profile_popup_->Hide();
+    HideAllDropdowns();
     ::ShowWindow(hwnd(), SW_HIDE);
   });
   close_button_ = AddWidget(std::move(close));
@@ -524,6 +538,7 @@ void SettingsWindow::ApplyStrings() {
   language_button_->SetCaption(strings.language_name);
   font_label_->SetText(strings.candidate_font_label);
   profile_label_->SetText(strings.profile_label);
+  inline_label_->SetText(strings.inline_composition_label);
   user_dict_label_->SetText(strings.user_dict_label);
   import_button_->SetCaption(strings.user_dict_import);
   soft_equiv_section_label_->SetText(strings.section_soft_equiv);
@@ -558,6 +573,16 @@ void SettingsWindow::RefreshLabels() {
         active != nullptr ? active->display_name
                           : Utf8ToWide(settings_.active_profile);
     profile_button_->SetCaption(name + L"   ▾");
+  }
+  {
+    const UiStrings& st = GetStrings(settings_.ui_language);
+    const wchar_t* caption = st.inline_full;
+    if (settings_.inline_composition == InlineComposition::kPlaceholder) {
+      caption = st.inline_placeholder;
+    } else if (settings_.inline_composition == InlineComposition::kHidden) {
+      caption = st.inline_hidden;
+    }
+    inline_button_->SetCaption(std::wstring(caption) + L"   ▾");
   }
   vertical_preview_->style().font_family = settings_.candidate_font;
   equiv_ou_check_->SetChecked(settings_.equiv_ou);
@@ -653,6 +678,46 @@ void SettingsWindow::ApplyProfile(const std::string& profile_id) {
   RefreshLabels();
 }
 
+void SettingsWindow::OpenInlinePicker() {
+  if (inline_popup_ != nullptr && inline_popup_->IsVisible()) {
+    inline_popup_->Hide();
+    return;
+  }
+  if (inline_popup_ == nullptr) {
+    inline_popup_ = std::make_unique<ui::DropdownPopup>();
+    inline_popup_->SetOnSelect([this](size_t index) {
+      settings_.inline_composition =
+          InlineCompositionFromValue(static_cast<uint32_t>(index));
+      RefreshLabels();
+    });
+  }
+  const UiStrings& st = GetStrings(settings_.ui_language);
+  // Order matches the InlineComposition enum, so the index is the value.
+  std::vector<ui::DropdownItem> items;
+  for (const wchar_t* text :
+       {st.inline_full, st.inline_placeholder, st.inline_hidden}) {
+    ui::DropdownItem item;
+    item.text = text;
+    items.push_back(std::move(item));
+  }
+  inline_popup_->SetItems(
+      std::move(items), static_cast<size_t>(settings_.inline_composition));
+
+  POINT origin = {ToPhysical(inline_button_->bounds().x),
+                  ToPhysical(inline_button_->bounds().y)};
+  ::ClientToScreen(hwnd(), &origin);
+  const ui::Rect anchor = {origin.x, origin.y,
+                           ToPhysical(inline_button_->bounds().width),
+                           ToPhysical(inline_button_->bounds().height)};
+  inline_popup_->ShowBelow(hwnd(), anchor);
+}
+
+void SettingsWindow::HideAllDropdowns() {
+  if (font_popup_ != nullptr) font_popup_->Hide();
+  if (profile_popup_ != nullptr) profile_popup_->Hide();
+  if (inline_popup_ != nullptr) inline_popup_->Hide();
+}
+
 void SettingsWindow::RefreshMappingPreview() {
   const KeyMapping& mapping = mapping_store_.Get();
   if (mapping_store_.revision() != shown_mapping_revision_) {
@@ -740,16 +805,14 @@ bool SettingsWindow::OnMessage(UINT message, WPARAM wparam, LPARAM lparam,
     return true;
   }
   if (message == WM_MOUSEWHEEL) {
-    if (font_popup_ != nullptr) font_popup_->Hide();
-    if (profile_popup_ != nullptr) profile_popup_->Hide();
+    HideAllDropdowns();
     const int delta = GET_WHEEL_DELTA_WPARAM(wparam);
     SetScrollOffset(scroll_offset_ - (delta / WHEEL_DELTA) * kWheelStep);
     *result = 0;
     return true;
   }
   if (message == WM_VSCROLL) {
-    if (font_popup_ != nullptr) font_popup_->Hide();
-    if (profile_popup_ != nullptr) profile_popup_->Hide();
+    HideAllDropdowns();
     const int viewport = logical_client_size().height - kFooterHeight;
     int offset = scroll_offset_;
     switch (LOWORD(wparam)) {
@@ -801,12 +864,15 @@ bool SettingsWindow::OnMessage(UINT message, WPARAM wparam, LPARAM lparam,
         !profile_button_->bounds().Contains(p)) {
       profile_popup_->Hide();
     }
+    if (inline_popup_ != nullptr && inline_popup_->IsVisible() &&
+        !inline_button_->bounds().Contains(p)) {
+      inline_popup_->Hide();
+    }
   }
   if (message == WM_CLOSE) {
     // Hide instead of destroy so the window can be reshown cheaply.
     ::KillTimer(hwnd(), kMappingRefreshTimerId);
-    if (font_popup_ != nullptr) font_popup_->Hide();
-    if (profile_popup_ != nullptr) profile_popup_->Hide();
+    HideAllDropdowns();
     ::ShowWindow(hwnd(), SW_HIDE);
     *result = 0;
     return true;

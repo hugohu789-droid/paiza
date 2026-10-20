@@ -58,6 +58,8 @@ struct Dialog {
   GtkWidget* font_button = nullptr;
   GtkWidget* profile_label = nullptr;
   GtkWidget* profile_combo = nullptr;
+  GtkWidget* inline_label = nullptr;
+  GtkWidget* inline_combo = nullptr;
   // Input profiles offered by the dropdown (docs/input-profiles.md).
   paiza::InputProfileRegistry profiles;
   GtkWidget* user_dict_label = nullptr;
@@ -201,6 +203,18 @@ void ApplyStrings(Dialog* dialog) {
                      Utf8(s.candidate_font_label).c_str());
   gtk_label_set_text(GTK_LABEL(dialog->profile_label),
                      Utf8(s.profile_label).c_str());
+  gtk_label_set_text(GTK_LABEL(dialog->inline_label),
+                     Utf8(s.inline_composition_label).c_str());
+  // Order matches the InlineComposition enum, so the index is the value.
+  gtk_combo_box_text_remove_all(GTK_COMBO_BOX_TEXT(dialog->inline_combo));
+  for (const wchar_t* text : {s.inline_full, s.inline_placeholder,
+                              s.inline_hidden}) {
+    gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(dialog->inline_combo),
+                                   Utf8(text).c_str());
+  }
+  gtk_combo_box_set_active(
+      GTK_COMBO_BOX(dialog->inline_combo),
+      static_cast<gint>(dialog->settings.inline_composition));
   gtk_label_set_text(GTK_LABEL(dialog->user_dict_label),
                      Utf8(s.user_dict_label).c_str());
   gtk_button_set_label(GTK_BUTTON(dialog->user_dict_button),
@@ -248,6 +262,15 @@ void OnLanguageChanged(GtkComboBox* combo, gpointer data) {
   dialog->settings.ui_language = paiza::UiLanguageFromValue(
       static_cast<uint32_t>(gtk_combo_box_get_active(combo)));
   ApplyStrings(dialog);
+}
+
+void OnInlineCompositionChanged(GtkComboBox* combo, gpointer data) {
+  Dialog* dialog = static_cast<Dialog*>(data);
+  const gint index = gtk_combo_box_get_active(combo);
+  if (index >= 0) {
+    dialog->settings.inline_composition =
+        paiza::InlineCompositionFromValue(static_cast<uint32_t>(index));
+  }
 }
 
 void OnProfileChanged(GtkComboBox* combo, gpointer data) {
@@ -491,12 +514,17 @@ void BuildDialog(Dialog* dialog) {
   gtk_grid_attach(GTK_GRID(general_grid), dialog->profile_label, 0, 5, 1, 1);
   gtk_grid_attach(GTK_GRID(general_grid), dialog->profile_combo, 1, 5, 1, 1);
 
+  dialog->inline_label = MakeLeftLabel();
+  dialog->inline_combo = gtk_combo_box_text_new();
+  gtk_grid_attach(GTK_GRID(general_grid), dialog->inline_label, 0, 6, 1, 1);
+  gtk_grid_attach(GTK_GRID(general_grid), dialog->inline_combo, 1, 6, 1, 1);
+
   dialog->user_dict_label = MakeLeftLabel();
   dialog->user_dict_button = gtk_button_new_with_label("");
   gtk_widget_set_halign(dialog->user_dict_button, GTK_ALIGN_END);
-  gtk_grid_attach(GTK_GRID(general_grid), dialog->user_dict_label, 0, 6, 1,
+  gtk_grid_attach(GTK_GRID(general_grid), dialog->user_dict_label, 0, 7, 1,
                   1);
-  gtk_grid_attach(GTK_GRID(general_grid), dialog->user_dict_button, 1, 6, 1,
+  gtk_grid_attach(GTK_GRID(general_grid), dialog->user_dict_button, 1, 7, 1,
                   1);
 
   // ---- Card 2: Soft equivalence (per-pair recall toggles) --------------
@@ -627,6 +655,8 @@ void BuildDialog(Dialog* dialog) {
                    G_CALLBACK(OnLanguageChanged), dialog);
   g_signal_connect(dialog->profile_combo, "changed",
                    G_CALLBACK(OnProfileChanged), dialog);
+  g_signal_connect(dialog->inline_combo, "changed",
+                   G_CALLBACK(OnInlineCompositionChanged), dialog);
   g_signal_connect(dialog->font_button, "font-set", G_CALLBACK(OnFontSet),
                    dialog);
   g_signal_connect(dialog->edit_mapping_button, "clicked",
