@@ -4,6 +4,7 @@
 #include "core/input_profile.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -130,6 +131,36 @@ bool InputProfileRegistry::LoadFromString(const std::string& content) {
       profile.skeleton_input = ParseBool(value, profile.skeleton_input);
     } else if (key == "vowel_keys") {
       profile.vowel_keys = value;
+    } else if (key == "engine") {
+      profile.engine = Utf8ToWide(value);
+    } else if (key == "engine_args") {
+      profile.engine_args = Utf8ToWide(value);
+    } else if (key == "engine_protocol") {
+      profile.engine_protocol = value;
+    } else if (key == "engine_transport") {
+      profile.engine_transport = value;
+    } else if (key == "engine_priority") {
+      profile.engine_priority = std::atoi(value.c_str());
+    } else if (key == "engine_codepoints") {
+      // "LOW-HIGH" in hex. A malformed range leaves the profile without one
+      // rather than with a wrong one, so validation stays off instead of
+      // silently rejecting every candidate.
+      const size_t dash = value.find('-');
+      if (dash != std::string::npos && dash > 0 && dash + 1 < value.size()) {
+        char* low_end = nullptr;
+        char* high_end = nullptr;
+        const std::string low_text = value.substr(0, dash);
+        const std::string high_text = value.substr(dash + 1);
+        const unsigned long low = std::strtoul(low_text.c_str(), &low_end, 16);
+        const unsigned long high =
+            std::strtoul(high_text.c_str(), &high_end, 16);
+        if (low_end != nullptr && *low_end == 0 && high_end != nullptr &&
+            *high_end == 0 && low <= high) {
+          profile.engine_codepoints_set = true;
+          profile.engine_codepoint_low = static_cast<char32_t>(low);
+          profile.engine_codepoint_high = static_cast<char32_t>(high);
+        }
+      }
     } else if (key == "inline_default") {
       profile.inline_default =
           ParseInlineComposition(value, profile.inline_default);

@@ -242,5 +242,65 @@ TEST(InputProfileTest, EnsureDefaultSeedsOnlyWhenEmpty) {
   EXPECT_EQ(other.Find(kDefaultProfileId), nullptr);
 }
 
+// An engine is declared by data, so a conforming engine can be added without
+// touching the host (docs/engine-contract.md).
+TEST(InputProfileTest, ParsesEngineDeclaration) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString(
+      "id eng\n"
+      "engine zcode_stdio\n"
+      "engine_args --quiet --fast\n"
+      "engine_protocol paiza-engine\n"
+      "engine_transport stdio\n"
+      "engine_priority 90\n"
+      "engine_codepoints 1865-18AA\n"));
+
+  const InputProfile* p = registry.Find("eng");
+  ASSERT_NE(p, nullptr);
+  EXPECT_TRUE(p->has_engine());
+  EXPECT_EQ(p->engine, L"zcode_stdio");
+  EXPECT_EQ(p->engine_args, L"--quiet --fast");
+  EXPECT_EQ(p->engine_protocol, "paiza-engine");
+  EXPECT_EQ(p->engine_transport, "stdio");
+  EXPECT_EQ(p->engine_priority, 90);
+  EXPECT_TRUE(p->engine_codepoints_set);
+  EXPECT_EQ(p->engine_codepoint_low, 0x1865u);
+  EXPECT_EQ(p->engine_codepoint_high, 0x18AAu);
+}
+
+// Every shipped profile so far has no engine; that must stay the default.
+TEST(InputProfileTest, ProfileWithoutEngineDeclaresNone) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString("id plain\n"));
+  const InputProfile* p = registry.Find("plain");
+  ASSERT_NE(p, nullptr);
+  EXPECT_FALSE(p->has_engine());
+  EXPECT_TRUE(p->engine_protocol.empty());
+  EXPECT_FALSE(p->engine_codepoints_set);
+  EXPECT_EQ(p->engine_priority, 0);
+}
+
+// A malformed range must leave validation off rather than on and wrong, which
+// would reject every candidate the engine produced.
+TEST(InputProfileTest, MalformedCodepointRangeLeavesValidationOff) {
+  for (const char* value : {"nonsense", "1865", "18AA-1865", "-18AA",
+                            "1865-", "XYZ-18AA", "1865-ZZZ"}) {
+    InputProfileRegistry registry;
+    ASSERT_TRUE(registry.LoadFromString(std::string("id r\nengine_codepoints ") +
+                                        value + "\n"))
+        << value;
+    EXPECT_FALSE(registry.Find("r")->engine_codepoints_set) << value;
+  }
+}
+
+TEST(InputProfileTest, SingleCodepointRangeIsAccepted) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(
+      registry.LoadFromString("id one\nengine_codepoints 1865-1865\n"));
+  const InputProfile* p = registry.Find("one");
+  EXPECT_TRUE(p->engine_codepoints_set);
+  EXPECT_EQ(p->engine_codepoint_low, p->engine_codepoint_high);
+}
+
 }  // namespace
 }  // namespace paiza

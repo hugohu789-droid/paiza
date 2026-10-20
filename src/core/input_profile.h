@@ -70,6 +70,31 @@ struct InputProfile {
   std::string vowel_keys;
 
   InlineComposition inline_default = InlineComposition::kFull;
+
+  // External candidate engine (docs/engine-contract.md). Empty `engine` means
+  // the profile uses only the built-in sources, which is how every profile
+  // shipped so far behaves.
+  //
+  // `engine` is an executable *name*, never a path: the host resolves it
+  // inside the install directory only, because a profile file that could name
+  // an arbitrary path would be arbitrary code execution.
+  std::wstring engine;
+  std::wstring engine_args;
+  // The name HELLO must report. A mismatch disables the profile rather than
+  // letting a wrong binary answer queries.
+  std::string engine_protocol;
+  // "stdio" or "pipe"; empty means the platform default.
+  std::string engine_transport;
+  // Where the engine sits among candidate sources; 0 means the host default.
+  int engine_priority = 0;
+  // Optional inclusive code-point range a candidate must stay within.
+  // engine_codepoints_set is false when the profile did not declare one.
+  bool engine_codepoints_set = false;
+  char32_t engine_codepoint_low = 0;
+  char32_t engine_codepoint_high = 0;
+
+  // True when this profile drives an external engine.
+  bool has_engine() const { return !engine.empty(); }
 };
 
 // The built-in Unicode profile, identical to data/profiles/unicode.txt. Used

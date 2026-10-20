@@ -67,7 +67,7 @@ Adding a fourth engine should be *adding a data file*, not editing core code.
 
 | Aspect | Unicode | ZCode |
 |---|---|---|
-| key mapping file | `keymap.txt` (→ U+1820..) | n/a — see §2.4 |
+| key mapping file | `keymap.txt` (→ U+1820..) | n/a — see §2.5 |
 | candidate-window font | Noto Sans Mongolian | the shape-code font |
 | compiled lexicon | `lexicon.bin` | `lexicon-zcode.bin` |
 | user dictionary | `user.db` | `user-zcode.db` |
@@ -112,7 +112,32 @@ ecosystem, not an oversight. It is the reason the ZCode profile defaults to
 `inline_default hidden` (§5): the host application's font will render the
 composition as the wrong letters rather than as nothing.
 
-### 2.3 File format
+### 2.3 Declaring an external engine
+
+A profile may name an external candidate engine. The engine runs in its own
+process and speaks a documented line protocol, so **any** conforming engine can
+be added as a data change; nothing about the host is specific to one engine.
+The contract is [engine-contract.md](engine-contract.md).
+
+```
+engine             zcode_stdio      # executable, resolved in the install dir
+engine_args        --quiet          # optional
+engine_protocol    paiza-engine     # what HELLO must report
+engine_transport   stdio            # optional: stdio | pipe
+engine_priority    90               # optional
+engine_codepoints  1865-18AA        # optional: reject candidates outside
+```
+
+A profile with no `engine` uses only the built-in sources, which is how every
+profile shipped so far behaves.
+
+The protocol *version* is deliberately not a profile field: the host knows
+which versions it implements, so the profile only declares which protocol the
+engine must speak. Timeouts and size caps are host constants for the same
+reason a profile cannot raise them — a profile that could would reintroduce
+the UI hang the timeout exists to prevent.
+
+### 2.4 File format
 
 Same conventions as the other data files: one `key value` pair per line, `#`
 starts a comment, blank lines ignored.
@@ -136,7 +161,7 @@ inline_default   full
 # data/profiles/zcode.txt  (added in a later increment)
 id               zcode
 display_name     ZCode (shape codes)
-# No keymap: the engine decomposes the Latin input itself (§2.4).
+# No keymap: the engine decomposes the Latin input itself (§2.5).
 font             <shape-code font family>
 lexicon          lexicon-zcode.bin
 user_db          user-zcode.db
@@ -146,7 +171,7 @@ skeleton_input   no
 inline_default   hidden
 ```
 
-### 2.4 A key mapping cannot model ZCode
+### 2.5 A key mapping cannot model ZCode
 
 `KeyMapping` maps a key to a **fixed** code point sequence. That is enough for
 Unicode Mongolian, where a letter has one code point and the shaping engine in
@@ -164,7 +189,7 @@ the keys typed so far). That is wiring work in the candidate-source increment,
 not a data file, which is why adding the ZCode profile is **not** purely
 additive the way adding a second Unicode-style profile would be.
 
-### 2.5 Core types
+### 2.6 Core types
 
 ```cpp
 struct InputProfile {
@@ -333,7 +358,7 @@ Each additional engine multiplies, not adds:
 | 3c | Settings-page profile dropdown built from the registry, on all three platforms. | 3b |
 | 4 | `inline_composition` setting (full / placeholder / hidden) on all three platforms. | — |
 | 5 | `UserDictionary::set_enabled` plus per-profile registration. | 2 |
-| 6 | Wire the ZCode engine in as a candidate source, running as a separate process over IPC, and source the preedit from it (§2.4). | external port |
+| 6 | Wire the ZCode engine in as a candidate source, running as a separate process over IPC, and source the preedit from it (§2.5). | external port |
 | 7 | Add `data/profiles/zcode.txt` and the form-code font setting; verify switching end to end. | 3, 5, 6 |
 
 Increment 3 is split because it is the first one with a behaviour change and it
@@ -343,7 +368,7 @@ cannot be compiled outside its own platform.
 
 Increments 6 and 7 were swapped once the port landed: adding the profile data
 file cannot come first, because a ZCode profile has no keymap and its preedit
-must come from the engine (§2.4). The engine has to be wired in before the
+must come from the engine (§2.5). The engine has to be wired in before the
 profile is worth selecting.
 
 The ZCode engine is `GPL-2.0-or-later`, so it runs as a **separate process**
