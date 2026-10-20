@@ -74,6 +74,7 @@ add_library(paiza_core STATIC
   src/core/dawg.cc
   src/core/engine_c_api.cc
   src/core/equivalence_table.cc
+  src/core/external_engine_source.cc
   src/core/fixed_sequences.cc
   src/core/input_profile.cc
   src/core/input_session.cc
@@ -442,6 +443,7 @@ if(PAIZA_BUILD_TESTS)
     tests/dawg_test.cc
     tests/engine_c_api_test.cc
     tests/equivalence_table_test.cc
+    tests/external_engine_source_test.cc
     tests/fixed_sequences_test.cc
     tests/input_profile_test.cc
     tests/input_session_test.cc
