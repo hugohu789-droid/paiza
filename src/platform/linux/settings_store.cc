@@ -24,6 +24,7 @@ constexpr char kKeyEquivHg[] = "equiv_hg";
 constexpr char kKeyEquivTd[] = "equiv_td";
 constexpr char kKeyEquivEw[] = "equiv_ew";
 constexpr char kKeyActiveProfile[] = "active_profile";
+constexpr char kKeyInlineComposition[] = "inline_composition";
 
 constexpr std::chrono::milliseconds kCheckInterval{500};
 
@@ -88,6 +89,9 @@ Settings SettingsStore::LoadFromFile(const std::wstring& path) {
       settings.equiv_ew = ParseBool(value);
     } else if (key == kKeyActiveProfile) {
       if (!value.empty()) settings.active_profile = value;
+    } else if (key == kKeyInlineComposition) {
+      settings.inline_composition =
+          paiza::ParseInlineComposition(value, settings.inline_composition);
     }
   }
   return settings;
@@ -121,7 +125,8 @@ bool SettingsStore::SaveToFile(const Settings& settings,
        << kKeyEquivHg << "=" << (settings.equiv_hg ? 1 : 0) << "\n"
        << kKeyEquivTd << "=" << (settings.equiv_td ? 1 : 0) << "\n"
        << kKeyEquivEw << "=" << (settings.equiv_ew ? 1 : 0) << "\n"
-       << kKeyActiveProfile << "=" << settings.active_profile << "\n";
+       << kKeyActiveProfile << "=" << settings.active_profile << "\n"
+       << kKeyInlineComposition << "=" << paiza::InlineCompositionName(settings.inline_composition) << "\n";
   return file.good();
 }
 

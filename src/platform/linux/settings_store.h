@@ -48,6 +48,11 @@ struct Settings {
   // encoding and its candidate engine; "unicode" is today's behaviour.
   // See docs/input-profiles.md.
   std::string active_profile = kDefaultProfileId;
+
+  // How much of the composition the host application shows inline. A
+  // private-use profile is usually unreadable in the host's font, so it can
+  // be hidden; see docs/input-profiles.md.
+  InlineComposition inline_composition = InlineComposition::kFull;
 };
 
 // Full path of the settings file: <UserConfigDirectory>/settings.ini.

@@ -23,6 +23,7 @@ constexpr wchar_t kValueEquivHg[] = L"EquivHG";
 constexpr wchar_t kValueEquivTd[] = L"EquivTD";
 constexpr wchar_t kValueEquivEw[] = L"EquivEW";
 constexpr wchar_t kValueActiveProfile[] = L"ActiveProfile";
+constexpr wchar_t kValueInlineComposition[] = L"InlineComposition";
 
 uint32_t ReadDword(HKEY key, const wchar_t* name, uint32_t fallback) {
   DWORD value = 0;
@@ -88,6 +89,9 @@ Settings SettingsStore::Load() {
     settings.equiv_ew = ReadDword(key, kValueEquivEw, 1) != 0;
     settings.active_profile = WideToUtf8(ReadString(
         key, kValueActiveProfile, Utf8ToWide(settings.active_profile)));
+    settings.inline_composition = InlineCompositionFromValue(ReadDword(
+        key, kValueInlineComposition,
+        static_cast<uint32_t>(settings.inline_composition)));
     ::RegCloseKey(key);
   }
   settings.candidates_per_page =
@@ -112,6 +116,8 @@ void SettingsStore::Save(const Settings& settings) {
     WriteDword(key, kValueEquivTd, settings.equiv_td ? 1 : 0);
     WriteDword(key, kValueEquivEw, settings.equiv_ew ? 1 : 0);
     WriteString(key, kValueActiveProfile, Utf8ToWide(settings.active_profile));
+    WriteDword(key, kValueInlineComposition,
+               static_cast<uint32_t>(settings.inline_composition));
     ::RegCloseKey(key);
   }
 }

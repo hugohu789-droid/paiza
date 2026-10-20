@@ -61,6 +61,17 @@ std::string InlineCompositionName(InlineComposition value) {
   return "full";
 }
 
+InlineComposition InlineCompositionFromValue(uint32_t value) {
+  switch (value) {
+    case 1:
+      return InlineComposition::kPlaceholder;
+    case 2:
+      return InlineComposition::kHidden;
+    default:
+      return InlineComposition::kFull;
+  }
+}
+
 InputProfile BuiltInUnicodeProfile() {
   InputProfile profile;
   profile.id = kDefaultProfileId;

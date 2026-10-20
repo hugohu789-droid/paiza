@@ -28,6 +28,7 @@ TEST_F(SettingsStoreTest, RoundTripsAllFields) {
   settings.ui_language = UiLanguage::kCyrillic;
   settings.candidate_font = L"Mongolian Tumen Pua";
   settings.active_profile = "zcode";
+  settings.inline_composition = InlineComposition::kPlaceholder;
   SettingsStore::Save(settings);
 
   const Settings loaded = SettingsStore::Load();
@@ -36,6 +37,8 @@ TEST_F(SettingsStoreTest, RoundTripsAllFields) {
   EXPECT_EQ(loaded.ui_language, UiLanguage::kCyrillic);
   EXPECT_EQ(loaded.candidate_font, L"Mongolian Tumen Pua");
   EXPECT_EQ(loaded.active_profile, "zcode");
+  EXPECT_EQ(loaded.inline_composition,
+            InlineComposition::kPlaceholder);
 }
 
 TEST_F(SettingsStoreTest, DefaultFontIsNotoSansMongolian) {

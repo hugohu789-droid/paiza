@@ -160,6 +160,14 @@ TEST(InputProfileTest, MissingDirectoryIsHarmless) {
   EXPECT_TRUE(registry.empty());
 }
 
+TEST(InputProfileTest, InlineCompositionNumericRoundTrips) {
+  EXPECT_EQ(InlineCompositionFromValue(0), InlineComposition::kFull);
+  EXPECT_EQ(InlineCompositionFromValue(1), InlineComposition::kPlaceholder);
+  EXPECT_EQ(InlineCompositionFromValue(2), InlineComposition::kHidden);
+  // Out of range must not silently change behaviour.
+  EXPECT_EQ(InlineCompositionFromValue(99), InlineComposition::kFull);
+}
+
 TEST(InputProfileTest, InlineCompositionRoundTrips) {
   for (InlineComposition value :
        {InlineComposition::kFull, InlineComposition::kPlaceholder,

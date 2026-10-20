@@ -275,7 +275,21 @@ PaizaSettingsWindowController* SharedSettingsWindow() {
 - (void)syncStateWithClient:(id)sender {
   [self applyCurrentSettings];
   if (_session->composing()) {
-    NSString* preedit = WideToNSString(_session->preedit());
+    // How much goes inline is a setting: the host renders it in its own
+    // font, which a private-use profile's glyphs are not in. A placeholder
+    // keeps the marked range non-empty so the caret rect stays measurable.
+    std::wstring inlineText = _session->preedit();
+    switch (CurrentSettings().inline_composition) {
+      case paiza::InlineComposition::kHidden:
+        inlineText.clear();
+        break;
+      case paiza::InlineComposition::kPlaceholder:
+        inlineText = L" ";
+        break;
+      case paiza::InlineComposition::kFull:
+        break;
+    }
+    NSString* preedit = WideToNSString(inlineText);
     NSDictionary* attributes = @{
       NSUnderlineStyleAttributeName : @(NSUnderlineStyleSingle),
     };

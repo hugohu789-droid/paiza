@@ -17,6 +17,7 @@
 #ifndef PAIZA_CORE_INPUT_PROFILE_H_
 #define PAIZA_CORE_INPUT_PROFILE_H_
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -37,6 +38,9 @@ InlineComposition ParseInlineComposition(std::string_view text,
                                          InlineComposition fallback);
 // Inverse of ParseInlineComposition.
 std::string InlineCompositionName(InlineComposition value);
+// Numeric round-trip for settings stores that keep an integer (Windows
+// registry DWORD, NSUserDefaults). Out-of-range values yield kFull.
+InlineComposition InlineCompositionFromValue(uint32_t value);
 
 // Profile id used when settings carry none. Also the id of the built-in
 // fallback below.

@@ -111,6 +111,9 @@ class TextService final : public ITfTextInputProcessorEx,
   // Converts the Latin buffer with the current (hot-reloadable, user
   // editable) key mapping.
   std::wstring ConvertBuffer();
+  // ConvertBuffer(), reduced to what the host should show inline per the
+  // InlineComposition setting (docs/input-profiles.md).
+  std::wstring InlineCompositionText();
 
   // State -------------------------------------------------------------------
   LONG ref_count_ = 1;

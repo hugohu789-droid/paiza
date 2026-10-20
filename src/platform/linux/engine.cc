@@ -242,7 +242,21 @@ void SyncState(PaizaEngine* engine) {
   paiza::linux_ime::CandidateWindow* window = CustomWindow(engine);
 
   if (session->composing()) {
-    const std::string preedit = paiza::WideToUtf8(session->preedit());
+    // How much goes inline is a setting (docs/input-profiles.md): the client
+    // renders it in its own font. A placeholder keeps the preedit non-empty
+    // so cursor-following clients still have something to anchor to.
+    std::wstring inline_text = session->preedit();
+    switch (engine->state->settings.Get().inline_composition) {
+      case paiza::InlineComposition::kHidden:
+        inline_text.clear();
+        break;
+      case paiza::InlineComposition::kPlaceholder:
+        inline_text = L" ";
+        break;
+      case paiza::InlineComposition::kFull:
+        break;
+    }
+    const std::string preedit = paiza::WideToUtf8(inline_text);
     const glong length = g_utf8_strlen(preedit.c_str(), -1);
     IBusText* text = ibus_text_new_from_string(preedit.c_str());
     ibus_text_append_attribute(text, IBUS_ATTR_TYPE_UNDERLINE,

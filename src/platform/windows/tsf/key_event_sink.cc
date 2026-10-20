@@ -137,7 +137,7 @@ HRESULT TextService::HandleKeyDown(ITfContext* context, WPARAM wparam,
     latin_buffer_.push_back(composable);
     // The composition always shows the mapped conversion; the dictionary
     // candidates go to the popup (spec item 3).
-    UpdateComposition(ConvertBuffer());
+    UpdateComposition(InlineCompositionText());
     RefreshCandidates();
     return S_OK;
   }
@@ -183,7 +183,7 @@ HRESULT TextService::HandleKeyDown(ITfContext* context, WPARAM wparam,
         if (latin_buffer_.empty()) {
           CancelComposition();
         } else {
-          UpdateComposition(ConvertBuffer());
+          UpdateComposition(InlineCompositionText());
           RefreshCandidates();
         }
       }

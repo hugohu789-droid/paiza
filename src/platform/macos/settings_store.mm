@@ -24,6 +24,7 @@ NSString* const kKeyEquivHg = @"EquivHG";
 NSString* const kKeyEquivTd = @"EquivTD";
 NSString* const kKeyEquivEw = @"EquivEW";
 NSString* const kKeyActiveProfile = @"ActiveProfile";
+NSString* const kKeyInlineComposition = @"InlineComposition";
 
 // Reads a bool that defaults to true when the key was never written (an
 // absent NSUserDefaults key reads as NO, which would flip the default).
@@ -60,6 +61,11 @@ Settings SettingsStore::Load() {
   settings.equiv_ew = LoadBoolOrTrue(defaults, kKeyEquivEw);
   NSString* profile = [defaults stringForKey:kKeyActiveProfile];
   if (profile.length > 0) settings.active_profile = [profile UTF8String];
+  NSNumber* inlineMode = [defaults objectForKey:kKeyInlineComposition];
+  if (inlineMode != nil) {
+    settings.inline_composition = paiza::InlineCompositionFromValue(
+        static_cast<uint32_t>(inlineMode.intValue));
+  }
   return settings;
 }
 
@@ -82,6 +88,8 @@ void SettingsStore::Save(const Settings& settings) {
                            settings.active_profile.c_str()]
                            ?: @"unicode"
                forKey:kKeyActiveProfile];
+  [defaults setInteger:static_cast<NSInteger>(settings.inline_composition)
+                forKey:kKeyInlineComposition];
 }
 
 }  // namespace paiza::mac
