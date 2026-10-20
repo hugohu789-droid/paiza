@@ -73,6 +73,7 @@ add_library(paiza_core STATIC
   src/core/cloud_candidate_source.cc
   src/core/dawg.cc
   src/core/engine_c_api.cc
+  src/core/engine_path.cc
   src/core/equivalence_table.cc
   src/core/external_engine_source.cc
   src/core/fixed_sequences.cc
@@ -442,6 +443,7 @@ if(PAIZA_BUILD_TESTS)
     tests/candidate_engine_test.cc
     tests/dawg_test.cc
     tests/engine_c_api_test.cc
+    tests/engine_path_test.cc
     tests/equivalence_table_test.cc
     tests/external_engine_source_test.cc
     tests/fixed_sequences_test.cc

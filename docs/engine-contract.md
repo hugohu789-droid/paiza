@@ -95,7 +95,7 @@ engine_codepoints  1865-18AA        # optional: reject candidates outside this
 
 | Field | Required | Meaning |
 |---|---|---|
-| `engine` | for an engine profile | Executable name. **Resolved inside the install directory only.** |
+| `engine` | for an engine profile | Executable name, with no path of its own. **Resolved inside the install directory only** (§4). |
 | `engine_args` | no | Arguments, space-separated. |
 | `engine_protocol` | yes, with `engine` | The name `HELLO` must report. A mismatch disables the profile. |
 | `engine_transport` | no | `stdio` or `pipe`; defaults per platform. |
@@ -120,7 +120,7 @@ a misbehaving engine degrades instead of damaging the IME.
 | **Hard timeout per exchange** | An engine that does not answer in time is dropped for the rest of the session: `IsAvailable()` turns false and candidates come from the other sources. The IME never waits on it. |
 | **Maximum response length** | A response longer than the cap is treated as a protocol error. Without this a single huge line is a memory denial of service. |
 | **Maximum candidates per response** | Surplus candidates are discarded even if the engine ignores `max`. |
-| **Executable resolution** | `engine` is resolved **only** inside the install directory. A value containing a path separator or `..` is rejected, and `PATH` is never searched. Otherwise a writable profile file would be arbitrary code execution. |
+| **Executable resolution** | `engine` is a bare name, resolved **only** inside the install directory; `PATH` is never searched. Rejected: path separators, `.` and `..`, a colon (a drive letter, or an NTFS alternate data stream), a leading `-`, control characters, quotes and wildcards, a trailing dot or space (Windows strips them, so the name checked would not be the file opened), and the reserved device names. Enforced in `core/engine_path.h` and applied when the *profile is read*, so an unacceptable name leaves the profile with no engine at all rather than one the launcher could be handed. Otherwise a writable profile file would be arbitrary code execution. |
 | **Outbound validation** | A request field containing a control character is never sent. |
 | **Inbound validation** | A candidate is rejected if it is invalid UTF-8, contains a control character or a bidirectional override, exceeds a length cap, or falls outside `engine_codepoints` when that is set. Candidates are committed into the user's document, so they are treated as untrusted input. |
 | **Crash or EOF** | Treated as unavailability, not an error loop. The host does not restart the engine in a tight loop. |

@@ -302,5 +302,26 @@ TEST(InputProfileTest, SingleCodepointRangeIsAccepted) {
   EXPECT_EQ(p->engine_codepoint_low, p->engine_codepoint_high);
 }
 
+// A profile is a writable text file, so a hostile engine name must not even
+// reach the code that launches one. It is dropped at load time, leaving the
+// profile with no engine rather than a dangerous one.
+TEST(InputProfileTest, UnacceptableEngineNameLeavesNoEngine) {
+  for (const char* value : {"/bin/sh", "../../bin/sh", "C:cmd.exe", "-c",
+                            "NUL", "bin/engine", "engine.exe:payload"}) {
+    InputProfileRegistry registry;
+    ASSERT_TRUE(registry.LoadFromString(std::string("id r\nengine ") + value +
+                                        "\n"))
+        << value;
+    EXPECT_FALSE(registry.Find("r")->has_engine()) << value;
+  }
+}
+
+TEST(InputProfileTest, AcceptableEngineNameIsKept) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString("id r\nengine zcode-stdio\n"));
+  EXPECT_TRUE(registry.Find("r")->has_engine());
+  EXPECT_EQ(registry.Find("r")->engine, L"zcode-stdio");
+}
+
 }  // namespace
 }  // namespace paiza

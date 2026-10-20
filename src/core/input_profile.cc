@@ -10,6 +10,7 @@
 #include <sstream>
 
 #include "common/string_utils.h"
+#include "core/engine_path.h"
 
 namespace paiza {
 namespace {
@@ -132,7 +133,11 @@ bool InputProfileRegistry::LoadFromString(const std::string& content) {
     } else if (key == "vowel_keys") {
       profile.vowel_keys = value;
     } else if (key == "engine") {
-      profile.engine = Utf8ToWide(value);
+      // Checked here, not at launch: an unacceptable name leaves the profile
+      // with no engine at all, so no later call site can be handed one. The
+      // rule itself is in core/engine_path.h.
+      const std::wstring name = Utf8ToWide(value);
+      if (IsAcceptableEngineName(name, nullptr)) profile.engine = name;
     } else if (key == "engine_args") {
       profile.engine_args = Utf8ToWide(value);
     } else if (key == "engine_protocol") {
