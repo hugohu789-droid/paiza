@@ -12,6 +12,7 @@
 #include "common/string_utils.h"
 #include "core/candidate_engine.h"
 #include "core/cloud_candidate_source.h"
+#include "core/external_engine_source.h"
 #include "core/input_profile.h"
 #include "core/input_session.h"
 #include "core/profile_switch.h"
@@ -45,6 +46,10 @@ std::unique_ptr<paiza::ProfileSwitch> g_profile_switch;
 // One user dictionary per profile, in registry order.
 std::vector<std::pair<std::string, paiza::UserDictionary*>>
     g_profile_dictionaries;
+// External engine processes, for the profiles that declare one. Only those
+// profiles appear here, so this is usually empty.
+std::vector<std::pair<std::string, paiza::ExternalEngineSource*>>
+    g_profile_engines;
 
 // Loads the installed profiles once; a missing directory falls back to the
 // built-in Unicode profile.
@@ -72,6 +77,9 @@ paiza::ProfileSwitch* SharedProfileSwitch() {
           g_static_lexicon != nullptr) {
         binding.static_lexicon = g_static_lexicon;
         binding.fixed_sequences = &g_static_lexicon->fixed_sequence_table();
+      }
+      for (const auto& [engine_profile_id, source] : g_profile_engines) {
+        if (engine_profile_id == profile_id) binding.engine_source = source;
       }
       g_profile_switch->Bind(profile_id, binding);
     }
@@ -108,6 +116,36 @@ paiza::CandidateEngine* SharedEngine() {
       g_profile_dictionaries.emplace_back(profile.id, user.get());
       built->AddSource(std::move(user));
     }
+    // External engine processes, for the profiles that declare one
+    // (docs/engine-contract.md). Started here rather than on first use so a
+    // missing or mismatched engine is reported now instead of silently
+    // producing no candidates on a keystroke. Installed location first, then
+    // the build tree, as for the lexicon and the dictionary.
+    for (const paiza::InputProfile& profile : g_profiles.All()) {
+      if (!profile.has_engine()) continue;
+      std::string reason;
+      auto source = paiza::MakeEngineSource(
+          profile, paiza::Utf8ToWide(PAIZA_DATA_DIR), &reason);
+      if (source == nullptr) {
+        // Keep the installed location's reason: it is the one a user wants to
+        // read, and the build-tree attempt would otherwise overwrite it with
+        // something about a directory that only exists for developers.
+        std::string ignored;
+        source = paiza::MakeEngineSource(
+            profile, paiza::Utf8ToWide(ExecutableDirectory()), &ignored);
+      }
+      if (source == nullptr) {
+        PAIZA_LOG_ERROR(L"profile '" + paiza::Utf8ToWide(profile.id) +
+                        L"': engine unavailable: " +
+                        paiza::Utf8ToWide(reason));
+        continue;
+      }
+      PAIZA_LOG_INFO(L"profile '" + paiza::Utf8ToWide(profile.id) +
+                     L"': engine started");
+      g_profile_engines.emplace_back(profile.id, source.get());
+      built->AddSource(std::move(source));
+    }
+
     // Compiled static lexicon: installed location first, then build tree.
     auto lexicon = std::make_unique<paiza::StaticLexicon>();
     const std::string lexicon_installed =

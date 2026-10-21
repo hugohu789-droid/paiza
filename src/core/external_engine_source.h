@@ -45,6 +45,26 @@ inline constexpr size_t kEngineMaxCandidateChars = 128;
 // Exposed for testing; ExternalEngineSource applies it to every candidate.
 bool IsAcceptableCandidate(const std::wstring& text, const InputProfile& profile);
 
+class ExternalEngineSource;
+
+// Builds the engine source a profile declares: resolves the executable inside
+// `install_dir` (core/engine_path.h), spawns it, and performs the handshake.
+//
+// Returns nullptr in two different situations, which the caller tells apart by
+// whether *reason is empty:
+//
+//   empty reason   the profile declares no engine. Not an error; it is how
+//                  every profile shipped so far behaves.
+//   with a reason  it declares one that could not be used -- the name was
+//                  rejected, the file is not installed, or the handshake
+//                  failed. Worth logging and showing in the settings page.
+//
+// Nothing half-working is ever returned, so a caller that gets a source has
+// one that answered HELLO correctly.
+std::unique_ptr<ExternalEngineSource> MakeEngineSource(
+    const InputProfile& profile, const std::wstring& install_dir,
+    std::string* reason);
+
 class ExternalEngineSource : public CandidateSource {
  public:
   // Performs the HELLO handshake. A transport that fails, an unexpected

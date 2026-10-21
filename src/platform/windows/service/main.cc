@@ -16,8 +16,10 @@
 
 #include "common/logging.h"
 #include "common/paths.h"
+#include "common/string_utils.h"
 #include "core/candidate_engine.h"
 #include "core/cloud_candidate_source.h"
+#include "core/external_engine_source.h"
 #include "core/local_dictionary_source.h"
 #include "core/static_lexicon.h"
 #include "core/user_dictionary.h"
@@ -173,6 +175,26 @@ int Run(bool show_settings_on_start) {
     engine->AddSource(std::move(dictionary));
   }
 
+  // External engine processes, for the profiles that declare one
+  // (docs/engine-contract.md). Started here rather than on first use so that a
+  // missing or mismatched engine is reported now, in the log and the settings
+  // page, instead of silently producing no candidates on a keystroke.
+  std::vector<std::pair<std::string, ExternalEngineSource*>> engine_sources;
+  for (const InputProfile& profile : g_profiles.All()) {
+    if (!profile.has_engine()) continue;
+    std::string reason;
+    auto source = MakeEngineSource(profile, ExecutableDirectory(), &reason);
+    if (source == nullptr) {
+      PAIZA_LOG_ERROR(L"profile '" + Utf8ToWide(profile.id) +
+                      L"': engine unavailable: " + Utf8ToWide(reason));
+      continue;
+    }
+    PAIZA_LOG_INFO(L"profile '" + Utf8ToWide(profile.id) +
+                   L"': engine started");
+    engine_sources.emplace_back(profile.id, source.get());
+    engine->AddSource(std::move(source));
+  }
+
   // Compiled static lexicon (mmap): prefix + fault-tolerant search + bigram
   // context. Falls back silently to the plain-text dictionary if absent.
   auto static_lexicon = std::make_unique<StaticLexicon>();
@@ -204,6 +226,9 @@ int Run(bool show_settings_on_start) {
     // second profile.
     if (profile_id == kDefaultProfileId) {
       binding.static_lexicon = static_lexicon_ptr;
+    }
+    for (const auto& [engine_profile_id, source] : engine_sources) {
+      if (engine_profile_id == profile_id) binding.engine_source = source;
     }
     g_profile_switch->Bind(profile_id, binding);
   }

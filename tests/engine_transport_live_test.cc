@@ -23,6 +23,7 @@
 #include "core/engine_transport.h"
 #include "core/external_engine_source.h"
 #include "core/input_profile.h"
+#include "core/profile_switch.h"
 
 namespace paiza {
 namespace {
@@ -46,6 +47,28 @@ InputProfile StubProfile() {
   profile.id = "stub";
   profile.engine = L"paiza_test_engine";
   profile.engine_protocol = "paiza-engine";
+  return profile;
+}
+
+// The install directory and bare name of the stub, split out of the full path
+// the build gave us, so MakeEngineSource can be driven exactly as a platform
+// front-end drives it.
+std::wstring EngineInstallDir() {
+  const std::wstring path = EnginePath();
+  const size_t slash = path.find_last_of(L"/\\");
+  return slash == std::wstring::npos ? std::wstring() : path.substr(0, slash);
+}
+
+std::wstring EngineName() {
+  const std::wstring path = EnginePath();
+  const size_t slash = path.find_last_of(L"/\\");
+  return slash == std::wstring::npos ? path : path.substr(slash + 1);
+}
+
+// A profile declaring the stub, as a profile file would.
+InputProfile StubEngineProfile() {
+  InputProfile profile = StubProfile();
+  profile.engine = EngineName();
   return profile;
 }
 
@@ -204,6 +227,124 @@ TEST(EngineTransportLive, SourceStopsContributingWhenTheEngineWedges) {
   for (int i = 0; i < 20; ++i) EXPECT_TRUE(source.Query("abc", 8).empty());
   EXPECT_LT(ElapsedMs(started), kEngineTimeoutMs)
       << "kept talking to a dead engine";
+}
+
+// ------------------------------------------------------- MakeEngineSource ---
+
+// The chain a platform front-end runs at startup: resolve, spawn, handshake.
+TEST(MakeEngineSource, BuildsAWorkingSourceFromAProfile) {
+  std::string reason;
+  auto source = MakeEngineSource(StubEngineProfile(), EngineInstallDir(),
+                                 &reason);
+  ASSERT_NE(source, nullptr) << reason;
+  EXPECT_TRUE(reason.empty()) << reason;
+  EXPECT_TRUE(source->IsAvailable());
+  EXPECT_EQ(source->name(), L"engine:stub");
+
+  const std::vector<Candidate> candidates = source->Query("ab", 8);
+  ASSERT_EQ(candidates.size(), 2u);
+  EXPECT_EQ(candidates[0].text, L"ab");
+}
+
+// A profile with no engine is the normal case, and must not look like a
+// failure: nullptr, but no reason to report.
+TEST(MakeEngineSource, AProfileWithoutAnEngineIsNotAFailure) {
+  std::string reason = "untouched";
+  InputProfile profile;
+  profile.id = "plain";
+  EXPECT_EQ(MakeEngineSource(profile, EngineInstallDir(), &reason), nullptr);
+  EXPECT_TRUE(reason.empty()) << reason;
+}
+
+TEST(MakeEngineSource, ReportsAnEngineThatIsNotInstalled) {
+  InputProfile profile = StubEngineProfile();
+  profile.engine = L"paiza-no-such-engine";
+  std::string reason;
+  EXPECT_EQ(MakeEngineSource(profile, EngineInstallDir(), &reason), nullptr);
+  EXPECT_FALSE(reason.empty());
+}
+
+// The resolver's rule must hold through the factory too: this is the path a
+// writable profile file would actually take.
+TEST(MakeEngineSource, RefusesAnEngineOutsideTheInstallDirectory) {
+  InputProfile profile = StubEngineProfile();
+  profile.engine = L".." + std::wstring(1, L'/') + EngineName();
+  std::string reason;
+  EXPECT_EQ(MakeEngineSource(profile, EngineInstallDir(), &reason), nullptr);
+  EXPECT_NE(reason.find("separator"), std::string::npos) << reason;
+}
+
+TEST(MakeEngineSource, RefusesAProfileWithNoProtocolDeclared) {
+  InputProfile profile = StubEngineProfile();
+  profile.engine_protocol.clear();
+  std::string reason;
+  EXPECT_EQ(MakeEngineSource(profile, EngineInstallDir(), &reason), nullptr);
+  EXPECT_NE(reason.find("engine_protocol"), std::string::npos) << reason;
+}
+
+// A profile that names the right executable but the wrong protocol must be
+// rejected at startup, not left to fail on a keystroke.
+TEST(MakeEngineSource, RefusesAnEngineSpeakingAnotherProtocol) {
+  InputProfile profile = StubEngineProfile();
+  profile.engine_protocol = "some-other-protocol";
+  std::string reason;
+  EXPECT_EQ(MakeEngineSource(profile, EngineInstallDir(), &reason), nullptr);
+  EXPECT_FALSE(reason.empty());
+  EXPECT_NE(reason.find("some-other-protocol"), std::string::npos) << reason;
+}
+
+// Candidates outside the profile's declared range are dropped even though the
+// engine is otherwise healthy -- the gate is the profile's, not the engine's.
+TEST(MakeEngineSource, HonoursTheProfilesCodepointRange) {
+  InputProfile profile = StubEngineProfile();
+  profile.engine_codepoints_set = true;
+  profile.engine_codepoint_low = 0x1865;
+  profile.engine_codepoint_high = 0x18AA;
+  std::string reason;
+  auto source = MakeEngineSource(profile, EngineInstallDir(), &reason);
+  ASSERT_NE(source, nullptr) << reason;
+  // The stub answers in ASCII, which is outside the range.
+  EXPECT_TRUE(source->Query("ab", 8).empty());
+  // Still healthy: rejecting a candidate is not an engine fault.
+  EXPECT_TRUE(source->IsAvailable());
+}
+
+// ----------------------------------------------------- profile switching ---
+
+// The gating contract: only the active profile's engine answers. This is what
+// keeps one profile's engine out of another profile's candidate list.
+TEST(MakeEngineSource, ProfileSwitchGatesTheEngine) {
+  InputProfileRegistry registry;
+  // One profile per call, as one file holds one profile.
+  ASSERT_TRUE(registry.LoadFromString("id stub\n"));
+  ASSERT_TRUE(registry.LoadFromString("id other\n"));
+  ASSERT_NE(registry.Find("stub"), nullptr);
+  ASSERT_NE(registry.Find("other"), nullptr);
+
+  std::string reason;
+  auto source = MakeEngineSource(StubEngineProfile(), EngineInstallDir(),
+                                 &reason);
+  ASSERT_NE(source, nullptr) << reason;
+
+  ProfileSwitch sw(&registry, /*session=*/nullptr);
+  ProfileBinding binding;
+  binding.engine_source = source.get();
+  sw.Bind("stub", binding);
+  sw.Bind("other", ProfileBinding());
+
+  ASSERT_TRUE(sw.Activate("stub"));
+  EXPECT_TRUE(source->IsAvailable());
+  EXPECT_FALSE(source->Query("ab", 8).empty());
+
+  ASSERT_TRUE(sw.Activate("other"));
+  EXPECT_FALSE(source->IsAvailable());
+  EXPECT_TRUE(source->Query("ab", 8).empty());
+  // Disabled, not broken: nothing failed, so switching back must work.
+  EXPECT_TRUE(source->failure().empty());
+
+  ASSERT_TRUE(sw.Activate("stub"));
+  EXPECT_TRUE(source->IsAvailable());
+  EXPECT_FALSE(source->Query("ab", 8).empty());
 }
 
 }  // namespace

@@ -46,9 +46,11 @@ bool CreatePipePair(const wchar_t* role, DWORD host_access, HANDLE* host,
   // that had pre-created a pipe of this name would receive the handshake
   // instead of our child. With it, creation fails and we refuse to start.
   *host = CreateNamedPipeW(
-      name.c_str(), host_access | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE,
-      PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
-      1, kPipeBufferBytes, kPipeBufferBytes, 0, nullptr);
+      name.c_str(),
+      host_access | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE,
+      PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT |
+          PIPE_REJECT_REMOTE_CLIENTS,
+      /*nMaxInstances=*/1, kPipeBufferBytes, kPipeBufferBytes, 0, nullptr);
   if (*host == INVALID_HANDLE_VALUE) return false;
 
   SECURITY_ATTRIBUTES sa = {};

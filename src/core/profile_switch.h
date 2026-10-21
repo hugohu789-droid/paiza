@@ -26,6 +26,7 @@
 
 namespace paiza {
 
+class ExternalEngineSource;
 class FixedSequenceTable;
 class InputSession;
 class StaticLexicon;
@@ -41,6 +42,12 @@ struct ProfileBinding {
   // `fixed_sequences` flag is set, so a non-Unicode profile gets no MVS
   // insertion even if a table is bound.
   const FixedSequenceTable* fixed_sequences = nullptr;
+  // An external engine process, when the profile declares one. Gated like the
+  // others: the process stays alive while another profile is active, but is
+  // never queried. Keeping it alive rather than respawning it is deliberate --
+  // a handshake on every profile switch would make switching slow, and there
+  // is at most one engine profile in practice.
+  ExternalEngineSource* engine_source = nullptr;
 };
 
 class ProfileSwitch {

@@ -3,7 +3,7 @@
 Design record for making Paiza support more than one Mongolian text encoding and
 more than one candidate engine inside a **single codebase**, selected at runtime.
 
-Status: design agreed; increment 1 implemented (see "Rollout" at the end).
+Status: design agreed; increments 1 to 5 and 6a-6b implemented (see "Rollout" at the end).
 
 ---
 
@@ -358,8 +358,10 @@ Each additional engine multiplies, not adds:
 | 3c | Settings-page profile dropdown built from the registry, on all three platforms. | 3b |
 | 4 | `inline_composition` setting (full / placeholder / hidden) on all three platforms. | — |
 | 5 | `UserDictionary::set_enabled` plus per-profile registration. | 2 |
-| 6 | Wire the ZCode engine in as a candidate source, running as a separate process over IPC, and source the preedit from it (§2.5). | external port |
-| 7 | Add `data/profiles/zcode.txt` and the form-code font setting; verify switching end to end. | 3, 5, 6 |
+| 6a | The engine contract's host side: executable resolution, the two transports, `ExternalEngineSource`. | external port |
+| 6b | Construct the engine source per profile in all three front-ends and gate it through `ProfileSwitch`. | 6a |
+| 6c | Source the preedit from the engine rather than a key mapping (§2.5). Touches `InputSession`, so it is split out. | 6b |
+| 7 | Add `data/profiles/zcode.txt` and the form-code font setting; verify switching end to end. | 3, 5, 6c |
 
 Increment 3 is split because it is the first one with a behaviour change and it
 touches all three platforms: 3a is verifiable locally end to end, 3b is a
@@ -370,6 +372,21 @@ Increments 6 and 7 were swapped once the port landed: adding the profile data
 file cannot come first, because a ZCode profile has no keymap and its preedit
 must come from the engine (§2.5). The engine has to be wired in before the
 profile is worth selecting.
+
+Increment 6 is split for the same reason increment 3 was: 6a is platform
+neutral and verifiable locally, 6b is wiring whose shape the existing suite
+already pins, and 6c is the only part that touches `InputSession` -- the
+cross-platform key-policy contract -- so it is kept on its own, where a
+regression in it cannot be confused with a wiring mistake.
+
+An engine source is built at **startup** for every profile that declares one,
+not on first use, and then gated like the other sources. Two reasons: a
+missing or mismatched engine is reported in the log and the settings page at
+startup instead of silently producing no candidates on a keystroke, and
+`CandidateEngine::AddSource` is startup-only in any case (§ "Sources cannot be
+added after startup", `profile_switch.h`). The cost is that an inactive
+profile's engine process stays alive while idle; with at most one engine
+profile in practice that is cheaper than a handshake on every profile switch.
 
 The ZCode engine is `GPL-2.0-or-later`, so it runs as a **separate process**
 and is never linked into this AGPL-3.0 codebase, keeping the core

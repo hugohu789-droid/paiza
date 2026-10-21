@@ -6,6 +6,7 @@
 #include <algorithm>
 
 #include "common/string_utils.h"
+#include "core/engine_path.h"
 
 namespace paiza {
 namespace {
@@ -65,6 +66,40 @@ bool IsAcceptableCandidate(const std::wstring& text,
     }
   }
   return true;
+}
+
+std::unique_ptr<ExternalEngineSource> MakeEngineSource(
+    const InputProfile& profile, const std::wstring& install_dir,
+    std::string* reason) {
+  const auto fail = [reason](const std::string& text) {
+    if (reason != nullptr) *reason = text;
+    return std::unique_ptr<ExternalEngineSource>();
+  };
+  if (reason != nullptr) reason->clear();
+  if (!profile.has_engine()) return nullptr;  // nothing declared; not an error
+
+  // Without this the handshake would compare the engine's reported name
+  // against an empty string and fail with a confusing message.
+  if (profile.engine_protocol.empty()) {
+    return fail("profile '" + profile.id +
+                "' declares an engine but no engine_protocol");
+  }
+
+  std::string why;
+  const std::wstring path =
+      ResolveEnginePath(install_dir, profile.engine, &why);
+  if (path.empty()) return fail(why);
+
+  auto transport = SpawnEngineTransport(path, profile.engine_args, &why);
+  if (transport == nullptr) return fail(why);
+
+  // The handshake happens in the constructor, so this is where a wrong binary
+  // or an unsupported protocol version is caught -- at startup, where it can
+  // be reported, rather than on the user's first keystroke.
+  auto source =
+      std::make_unique<ExternalEngineSource>(profile, std::move(transport));
+  if (!source->IsAvailable()) return fail(source->failure());
+  return source;
 }
 
 ExternalEngineSource::ExternalEngineSource(

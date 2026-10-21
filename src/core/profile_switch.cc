@@ -5,6 +5,7 @@
 
 #include <algorithm>
 
+#include "core/external_engine_source.h"
 #include "core/input_session.h"
 #include "core/static_lexicon.h"
 #include "core/user_dictionary.h"
@@ -47,6 +48,9 @@ bool ProfileSwitch::Activate(std::string_view profile_id) {
     }
     if (binding.static_lexicon != nullptr) {
       binding.static_lexicon->set_enabled(active);
+    }
+    if (binding.engine_source != nullptr) {
+      binding.engine_source->set_enabled(active);
     }
   }
 
