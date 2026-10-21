@@ -74,6 +74,7 @@ add_library(paiza_core STATIC
   src/core/dawg.cc
   src/core/engine_c_api.cc
   src/core/engine_path.cc
+  src/core/engine_transport.cc
   src/core/equivalence_table.cc
   src/core/external_engine_source.cc
   src/core/fixed_sequences.cc
@@ -95,6 +96,13 @@ add_library(paiza_core STATIC
   src/core/transliterator.cc
   src/core/user_dictionary.cc
 )
+# SpawnEngineTransport has one implementation per platform, chosen here rather
+# than with an #ifdef, so each file is platform-pure and no call site branches.
+if(WIN32)
+  target_sources(paiza_core PRIVATE src/core/engine_transport_win.cc)
+else()
+  target_sources(paiza_core PRIVATE src/core/engine_transport_posix.cc)
+endif()
 target_link_libraries(paiza_core PUBLIC paiza_common)
 target_link_libraries(paiza_core PRIVATE paiza_sqlite)
 
@@ -444,6 +452,8 @@ if(PAIZA_BUILD_TESTS)
     tests/dawg_test.cc
     tests/engine_c_api_test.cc
     tests/engine_path_test.cc
+    tests/engine_transport_test.cc
+    tests/engine_transport_live_test.cc
     tests/equivalence_table_test.cc
     tests/external_engine_source_test.cc
     tests/fixed_sequences_test.cc
@@ -472,11 +482,20 @@ if(PAIZA_BUILD_TESTS)
     )
   endif()
 
+  # A stub engine for the transport tests to spawn. The interesting half of a
+  # transport is what it does when the engine misbehaves, which takes a real
+  # process on the other end. Freestanding on purpose: no Paiza headers, so it
+  # doubles as the smallest worked example of a conforming engine.
+  add_executable(paiza_test_engine tools/test_engine/main.cc)
+
   add_executable(paiza_tests ${PAIZA_TEST_SOURCES})
+  add_dependencies(paiza_tests paiza_test_engine)
   target_include_directories(paiza_tests PRIVATE src/platform/linux)
-  # Lets a test read the repository's shipped data files (data/profiles/).
+  # Lets a test read the repository's shipped data files (data/profiles/), and
+  # find the stub engine without guessing at the build layout.
   target_compile_definitions(paiza_tests PRIVATE
-    PAIZA_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+    PAIZA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    PAIZA_TEST_ENGINE=L"$<TARGET_FILE:paiza_test_engine>")
   target_link_libraries(paiza_tests PRIVATE paiza_core gtest gtest_main)
   if(WIN32)
     target_include_directories(paiza_tests PRIVATE src/platform/windows)

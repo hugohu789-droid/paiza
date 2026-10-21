@@ -7,8 +7,9 @@ to any one engine. The first implementation is a Mongolian form-code shaper,
 but a conforming engine could produce anything: another script, a prediction
 model, a handwriting recogniser.
 
-Status: contract defined; the host side is being implemented (see
-[input-profiles.md](input-profiles.md), increment 6).
+Status: contract defined. The host side is implemented and tested against a
+real engine process on all three platforms; what remains is wiring it into the
+three platform frontends (see [input-profiles.md](input-profiles.md)).
 
 ---
 
@@ -34,6 +35,29 @@ Named **`paiza-engine`**, currently version **1**.
 
 One request per line, one response per line, UTF-8, LF-terminated. A trailing
 CR is tolerated. Fields are TAB-separated.
+
+### 2.1 An engine only ever reads stdin and writes stdout
+
+On **every** platform. The engine needs no socket, no pipe name, no handle
+inheritance and no platform `#ifdef`; it is a filter, and `printf ... | engine`
+is a faithful test of it.
+
+What differs between platforms is only what the host puts behind those two
+handles, and that is the host's business:
+
+| Host | Behind the engine's stdio | Why |
+|---|---|---|
+| macOS, Linux | anonymous pipes, `poll()` for the deadline | The obvious thing, and it works. |
+| Windows | the client ends of two **overlapped named pipes** | An *anonymous* pipe on Windows cannot be read with a timeout: `ReadFile` blocks until data arrives or the writer closes, with no way to abandon the wait. Overlapped I/O is what makes the hard timeout in §4 enforceable, and on Windows that matters most, because the text service is loaded into arbitrary host applications, including sandboxed browser renderers. |
+
+Two consequences worth stating, because both are easy to get wrong:
+
+* **Flush every response.** stdout to a pipe is block-buffered by default, so
+  an unflushed reply is, to the host, no reply at all -- and will be timed out.
+* **Keep diagnostics off stdout.** They would be parsed as protocol and
+  corrupt the framing. On Windows the host is a windowed process with no
+  console, so the engine's stderr is discarded; report problems with `ERR`,
+  which is what it is for.
 
 ### Requests
 
@@ -98,7 +122,7 @@ engine_codepoints  1865-18AA        # optional: reject candidates outside this
 | `engine` | for an engine profile | Executable name, with no path of its own. **Resolved inside the install directory only** (§4). |
 | `engine_args` | no | Arguments, space-separated. |
 | `engine_protocol` | yes, with `engine` | The name `HELLO` must report. A mismatch disables the profile. |
-| `engine_transport` | no | `stdio` or `pipe`; defaults per platform. |
+| `engine_transport` | no | `stdio` or `pipe`. A hint about how the *host* backs the engine's standard handles; the engine is unaffected either way (§2.1). Defaults per platform. |
 | `engine_priority` | no | Where the engine sits among candidate sources. Default is below the compiled lexicon. |
 | `engine_codepoints` | no | Hex range `LOW-HIGH`. Candidates containing anything outside it are rejected. |
 
@@ -153,4 +177,11 @@ printf 'HELLO\nTYPE 0 s fuzzy 3\nTYPE 0 a fuzzy 3\nUNTYPE 0 fuzzy 3\nQUIT\n' | y
 ```
 
 An engine that answers this correctly, one line per request, is most of the way
-to conforming.
+to conforming. That this works at all is the point of §2.1: the host drives an
+engine exactly as a shell pipeline does.
+
+`tools/test_engine/` in this repository is the smallest conforming engine --
+about 150 lines, no Paiza headers -- written so the transport tests have a
+real process to talk to. Its `--hang`, `--flood`, `--die` and `--garbage`
+flags make it misbehave on command, which is also a convenient way to check
+that a *host* integration handles a bad engine.

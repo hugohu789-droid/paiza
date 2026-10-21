@@ -179,7 +179,7 @@ TEST(EnginePath, ResolveNeedsAnInstallDirectory) {
 }
 
 TEST(EnginePath, ResolveReturnsNothingForARejectedName) {
-  for (const std::wstring name :
+  for (const std::wstring& name :
        {std::wstring(L""), std::wstring(L".."), std::wstring(L"/bin/sh"),
         std::wstring(L"C:\\Windows\\cmd.exe"), std::wstring(L"-c"),
         std::wstring(L"NUL"), std::wstring(L"a:b")}) {
@@ -193,7 +193,7 @@ TEST(EnginePath, ResolveReturnsNothingForARejectedName) {
 // The property the whole file exists to establish: whatever comes back, if
 // anything, is a direct child of the install directory.
 TEST(EnginePath, ResolveAlwaysStaysInsideTheInstallDirectory) {
-  for (const std::wstring name :
+  for (const std::wstring& name :
        {std::wstring(L"zcode-stdio"), std::wstring(L"zcode-stdio.exe"),
         std::wstring(L"CONSOLE"), std::wstring(L"engine.1.2"),
         std::wstring(L"/bin/sh"), std::wstring(L"../../bin/sh"),

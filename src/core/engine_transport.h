@@ -13,6 +13,7 @@
 #ifndef PAIZA_CORE_ENGINE_TRANSPORT_H_
 #define PAIZA_CORE_ENGINE_TRANSPORT_H_
 
+#include <memory>
 #include <string>
 #include <string_view>
 
@@ -41,6 +42,30 @@ class EngineTransport {
   // False once the transport has failed. Never returns true again.
   virtual bool alive() const = 0;
 };
+
+// Framing, shared by the real transports. Exposed so it can be tested on
+// every platform rather than only where its transport compiles.
+enum class LineStatus {
+  kComplete,    // a line was moved out of the buffer
+  kIncomplete,  // no terminator yet; read more
+  kOverflow,    // longer than kEngineMaxResponseBytes: a protocol error
+};
+
+// Moves the first LF-terminated line out of `buffer` into `line`, dropping the
+// terminator and a CR before it. `buffer` keeps whatever followed.
+LineStatus TakeLine(std::string* buffer, std::string* line);
+
+// Spawns `path` (already resolved; see core/engine_path.h) and returns a
+// transport speaking to its stdin and stdout. Returns nullptr with *reason set
+// when the process could not be started.
+//
+// There is one of these per platform -- anonymous pipes and poll() on
+// macOS and Linux, overlapped named pipes on Windows -- chosen by the build
+// rather than by an #ifdef at the call site. The engine sees plain stdio
+// either way, so a conforming engine needs no platform-specific code.
+std::unique_ptr<EngineTransport> SpawnEngineTransport(const std::wstring& path,
+                                                      const std::wstring& args,
+                                                      std::string* reason);
 
 }  // namespace paiza
 
