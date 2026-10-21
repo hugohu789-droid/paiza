@@ -50,6 +50,10 @@ std::vector<std::pair<std::string, paiza::UserDictionary*>>
 // profiles appear here, so this is usually empty.
 std::vector<std::pair<std::string, paiza::ExternalEngineSource*>>
     g_profile_engines;
+// Why a declared engine could not be built, kept so the settings dialog can
+// say so rather than leaving the user with a profile that quietly has no
+// candidates.
+std::vector<std::pair<std::string, std::string>> g_profile_engine_errors;
 
 // Loads the installed profiles once; a missing directory falls back to the
 // built-in Unicode profile.
@@ -80,6 +84,9 @@ paiza::ProfileSwitch* SharedProfileSwitch() {
       }
       for (const auto& [engine_profile_id, source] : g_profile_engines) {
         if (engine_profile_id == profile_id) binding.engine_source = source;
+      }
+      for (const auto& [engine_profile_id, error] : g_profile_engine_errors) {
+        if (engine_profile_id == profile_id) binding.engine_error = error;
       }
       g_profile_switch->Bind(profile_id, binding);
     }
@@ -138,6 +145,7 @@ paiza::CandidateEngine* SharedEngine() {
         PAIZA_LOG_ERROR(L"profile '" + paiza::Utf8ToWide(profile.id) +
                         L"': engine unavailable: " +
                         paiza::Utf8ToWide(reason));
+        g_profile_engine_errors.emplace_back(profile.id, reason);
         continue;
       }
       PAIZA_LOG_INFO(L"profile '" + paiza::Utf8ToWide(profile.id) +

@@ -48,6 +48,10 @@ struct ProfileBinding {
   // a handshake on every profile switch would make switching slow, and there
   // is at most one engine profile in practice.
   ExternalEngineSource* engine_source = nullptr;
+  // Why this profile has no engine source, when it declares one and building
+  // it failed. Kept because the reason is produced once at startup and would
+  // otherwise be lost: a source that never started cannot be asked why.
+  std::string engine_error;
 };
 
 class ProfileSwitch {
@@ -87,6 +91,15 @@ class ProfileSwitch {
   // pointer, or they would write into the previous profile's store.
   UserDictionary* active_user_dictionary() const;
   StaticLexicon* active_static_lexicon() const;
+
+  // Why the active profile's engine is not working, for the settings page to
+  // show. Empty when the profile declares no engine, or when its engine is
+  // running normally -- so a non-empty result is always worth displaying.
+  //
+  // Answers for both ways an engine can be missing: it failed to start (the
+  // reason was recorded at startup) or it started and then died (the reason
+  // comes from the source itself). The caller does not need to know which.
+  std::string active_engine_error() const;
 
   // The registry this switch was built with, so a caller holding the switch
   // can also list the profiles without being handed both.

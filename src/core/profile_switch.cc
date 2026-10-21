@@ -73,6 +73,20 @@ StaticLexicon* ProfileSwitch::active_static_lexicon() const {
   return binding != nullptr ? binding->static_lexicon : nullptr;
 }
 
+std::string ProfileSwitch::active_engine_error() const {
+  if (active_ == nullptr) return std::string();
+  // A profile that declares no engine has nothing to report, however the
+  // binding looks.
+  if (!active_->has_engine()) return std::string();
+  const ProfileBinding* binding = FindBinding(active_->id);
+  if (binding == nullptr) return std::string();
+  // Never started: the reason was kept when the source could not be built.
+  if (binding->engine_source == nullptr) return binding->engine_error;
+  // Started, then failed. Being disabled is not a failure -- that is just
+  // another profile being active -- so it is not reported.
+  return binding->engine_source->failure();
+}
+
 void ProfileSwitch::ApplyTo(InputSession& session) const {
   if (active_ == nullptr) return;
   const ProfileBinding* binding = FindBinding(active_->id);

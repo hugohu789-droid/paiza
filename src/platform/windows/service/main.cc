@@ -180,6 +180,9 @@ int Run(bool show_settings_on_start) {
   // missing or mismatched engine is reported now, in the log and the settings
   // page, instead of silently producing no candidates on a keystroke.
   std::vector<std::pair<std::string, ExternalEngineSource*>> engine_sources;
+  // Kept so the settings page can say why, not just the log: on Windows the
+  // log goes to the debugger, which a user never sees.
+  std::vector<std::pair<std::string, std::string>> engine_errors;
   for (const InputProfile& profile : g_profiles.All()) {
     if (!profile.has_engine()) continue;
     std::string reason;
@@ -187,6 +190,7 @@ int Run(bool show_settings_on_start) {
     if (source == nullptr) {
       PAIZA_LOG_ERROR(L"profile '" + Utf8ToWide(profile.id) +
                       L"': engine unavailable: " + Utf8ToWide(reason));
+      engine_errors.emplace_back(profile.id, reason);
       continue;
     }
     PAIZA_LOG_INFO(L"profile '" + Utf8ToWide(profile.id) +
@@ -229,6 +233,9 @@ int Run(bool show_settings_on_start) {
     }
     for (const auto& [engine_profile_id, source] : engine_sources) {
       if (engine_profile_id == profile_id) binding.engine_source = source;
+    }
+    for (const auto& [engine_profile_id, error] : engine_errors) {
+      if (engine_profile_id == profile_id) binding.engine_error = error;
     }
     g_profile_switch->Bind(profile_id, binding);
   }

@@ -23,6 +23,7 @@
 #include "core/engine_transport.h"
 #include "core/external_engine_source.h"
 #include "core/input_profile.h"
+#include "common/string_utils.h"
 #include "core/profile_switch.h"
 
 namespace paiza {
@@ -345,6 +346,107 @@ TEST(MakeEngineSource, ProfileSwitchGatesTheEngine) {
   ASSERT_TRUE(sw.Activate("stub"));
   EXPECT_TRUE(source->IsAvailable());
   EXPECT_FALSE(source->Query("ab", 8).empty());
+}
+
+// A profile whose engine never started must still be able to say why, long
+// after the startup code that tried has returned.
+TEST(MakeEngineSource, ProfileSwitchReportsAnEngineThatNeverStarted) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString(
+      "id broken\nengine paiza-no-such-engine\n"
+      "engine_protocol paiza-engine\n"));
+  ASSERT_NE(registry.Find("broken"), nullptr);
+  ASSERT_TRUE(registry.Find("broken")->has_engine());
+
+  std::string reason;
+  ASSERT_EQ(MakeEngineSource(*registry.Find("broken"), EngineInstallDir(),
+                             &reason),
+            nullptr);
+  ASSERT_FALSE(reason.empty());
+
+  ProfileSwitch sw(&registry, /*session=*/nullptr);
+  ProfileBinding binding;
+  binding.engine_error = reason;  // what a front-end records at startup
+  sw.Bind("broken", binding);
+  ASSERT_TRUE(sw.Activate("broken"));
+  EXPECT_EQ(sw.active_engine_error(), reason);
+}
+
+// A working engine has nothing to report, and neither does a profile that
+// declares none -- so a non-empty result is always worth showing.
+TEST(MakeEngineSource, ProfileSwitchReportsNothingWhenThereIsNoProblem) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString("id stub\nengine_protocol paiza-engine\n"));
+  ASSERT_TRUE(registry.LoadFromString("id plain\n"));
+
+  std::string reason;
+  auto source =
+      MakeEngineSource(StubEngineProfile(), EngineInstallDir(), &reason);
+  ASSERT_NE(source, nullptr) << reason;
+
+  ProfileSwitch sw(&registry, /*session=*/nullptr);
+  ProfileBinding binding;
+  binding.engine_source = source.get();
+  sw.Bind("stub", binding);
+  sw.Bind("plain", ProfileBinding());
+
+  // The registry entry has no `engine` line, so nothing is reported even
+  // though a source is bound; the profile is what decides.
+  ASSERT_TRUE(sw.Activate("stub"));
+  EXPECT_TRUE(sw.active_engine_error().empty());
+
+  ASSERT_TRUE(sw.Activate("plain"));
+  EXPECT_TRUE(sw.active_engine_error().empty());
+}
+
+// Gating is not a failure: a profile switch must not make the settings page
+// claim the engine is broken.
+TEST(MakeEngineSource, BeingGatedIsNotReportedAsAFailure) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString(
+      "id stub\nengine " + WideToUtf8(EngineName()) +
+      "\nengine_protocol paiza-engine\n"));
+  ASSERT_TRUE(registry.LoadFromString("id other\n"));
+
+  std::string reason;
+  auto source =
+      MakeEngineSource(StubEngineProfile(), EngineInstallDir(), &reason);
+  ASSERT_NE(source, nullptr) << reason;
+
+  ProfileSwitch sw(&registry, /*session=*/nullptr);
+  ProfileBinding binding;
+  binding.engine_source = source.get();
+  sw.Bind("stub", binding);
+  sw.Bind("other", ProfileBinding());
+
+  ASSERT_TRUE(sw.Activate("other"));
+  ASSERT_FALSE(source->IsAvailable());  // gated off
+  ASSERT_TRUE(sw.Activate("stub"));
+  EXPECT_TRUE(sw.active_engine_error().empty());
+}
+
+// An engine that dies mid-session must be reported too, through the same
+// accessor: the caller should not have to know which kind of failure it was.
+TEST(MakeEngineSource, ProfileSwitchReportsAnEngineThatDies) {
+  InputProfile profile = StubEngineProfile();
+  profile.engine_args = L"--die";
+  std::string reason;
+  auto source = MakeEngineSource(profile, EngineInstallDir(), &reason);
+  ASSERT_NE(source, nullptr) << reason;
+
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString(
+      "id stub\nengine " + WideToUtf8(EngineName()) +
+      "\nengine_protocol paiza-engine\n"));
+  ProfileSwitch sw(&registry, /*session=*/nullptr);
+  ProfileBinding binding;
+  binding.engine_source = source.get();
+  sw.Bind("stub", binding);
+  ASSERT_TRUE(sw.Activate("stub"));
+  EXPECT_TRUE(sw.active_engine_error().empty()) << "healthy at first";
+
+  EXPECT_TRUE(source->Query("a", 8).empty());  // the engine exits here
+  EXPECT_FALSE(sw.active_engine_error().empty());
 }
 
 }  // namespace

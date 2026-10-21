@@ -86,8 +86,10 @@ class ExternalEngineSource : public CandidateSource {
   void set_enabled(bool enabled) { enabled_.store(enabled); }
   bool enabled() const { return enabled_.load(); }
 
-  // Why the engine is unavailable, for logs and the settings page. Empty
-  // while it is working.
+  // Why the engine stopped working. Empty while it is working, and empty when
+  // it is merely disabled because another profile is active -- being gated is
+  // not a failure. Reached through ProfileSwitch::active_engine_error(), which
+  // also covers an engine that never started.
   const std::string& failure() const { return failure_; }
 
  private:

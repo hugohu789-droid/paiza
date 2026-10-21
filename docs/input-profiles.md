@@ -381,12 +381,25 @@ regression in it cannot be confused with a wiring mistake.
 
 An engine source is built at **startup** for every profile that declares one,
 not on first use, and then gated like the other sources. Two reasons: a
-missing or mismatched engine is reported in the log and the settings page at
-startup instead of silently producing no candidates on a keystroke, and
+missing or mismatched engine is found at startup, where the reason can be
+reported, instead of silently producing no candidates on a keystroke; and
 `CandidateEngine::AddSource` is startup-only in any case (§ "Sources cannot be
 added after startup", `profile_switch.h`). The cost is that an inactive
 profile's engine process stays alive while idle; with at most one engine
 profile in practice that is cheaper than a handshake on every profile switch.
+
+Because that reason is produced once at startup, it is **kept** rather than
+logged and dropped: a source that never started cannot be asked why, and on
+Windows the log goes to the debugger, which a user never sees. Each front-end
+records it in the profile's binding, and
+`ProfileSwitch::active_engine_error()` answers the settings page's question --
+"why is this profile's engine not working" -- for both ways it can fail, one
+that never started and one that died while running. Being gated off because
+another profile is active is **not** a failure and is never reported, so a
+non-empty result is always worth showing.
+
+Showing it in the three settings dialogs is still to do; the value is
+available and tested, but no dialog reads it yet.
 
 The ZCode engine is `GPL-2.0-or-later`, so it runs as a **separate process**
 and is never linked into this AGPL-3.0 codebase, keeping the core
