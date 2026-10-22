@@ -10,6 +10,8 @@
 
 #include <windows.h>
 
+#include <shellapi.h>  // CommandLineToArgvW
+
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -31,6 +33,7 @@
 #include "service/settings_store.h"
 #include "service/settings_window.h"
 #include "ui/candidate_window.h"
+#include "ui/render_context.h"
 #include "ui/font_stem_config.h"
 
 namespace paiza::service {
@@ -110,13 +113,77 @@ HWND CreateMessageWindow() {
                            HWND_MESSAGE, nullptr, wc.hInstance, nullptr);
 }
 
-// Developer aid ("--preview-candidates"): shows the candidate window with
-// sample data (including long words) so its layout can be checked without
-// registering the TSF DLL and typing in a host application.
-int RunCandidatePreview() {
+// Reads "--flag value" out of a raw command line. Returns an empty string
+// when the flag is absent or has no value.
+std::wstring FlagValue(const std::wstring& command_line, const wchar_t* flag) {
+  int count = 0;
+  wchar_t** argv = ::CommandLineToArgvW(command_line.c_str(), &count);
+  if (argv == nullptr) return std::wstring();
+  std::wstring value;
+  for (int i = 0; i + 1 < count; ++i) {
+    if (std::wstring(argv[i]) == flag) {
+      value = argv[i + 1];
+      break;
+    }
+  }
+  ::LocalFree(argv);
+  return value;
+}
+
+// Developer aid ("--preview-candidates"): shows the candidate window so its
+// layout can be checked without registering the TSF DLL and typing in a host
+// application. By default it shows hardcoded Unicode samples.
+//
+// Given "--profiles DIR --profile ID --query LATIN" it instead shows what
+// that profile's external engine answers, in the font the profile names, so a
+// non-Unicode profile can actually be looked at. "--font-file PATH" loads a
+// font into this process alone, because a ZCode profile's candidates are only
+// legible in a Z52 font and installing one machine-wide just to check a
+// screenshot would be a change to the developer's system.
+//
+// The engine is queried directly rather than through InputSession, so the
+// list is the engine's own ranking: see docs/input-profiles.md on the second,
+// Unicode-derived query InputSession currently also makes (increment 7b).
+int RunCandidatePreview(const std::wstring& command_line) {
+  const std::wstring font_file = FlagValue(command_line, L"--font-file");
+  if (!font_file.empty() && !ui::RenderContext::SetPrivateFontFile(font_file)) {
+    PAIZA_LOG_ERROR(L"could not load font file: " + font_file);
+    return 1;
+  }
+
   ui::CandidateWindow window;
   if (!window.EnsureCreated()) return 1;
   window.SetFontFamily(SettingsStore::Load().candidate_font);
+
+  const std::wstring profiles_dir = FlagValue(command_line, L"--profiles");
+  const std::wstring profile_id = FlagValue(command_line, L"--profile");
+  const std::wstring query = FlagValue(command_line, L"--query");
+  if (!profiles_dir.empty() && !profile_id.empty()) {
+    InputProfileRegistry profiles;
+    profiles.LoadFromDirectory(profiles_dir);
+    const InputProfile* profile = profiles.Find(WideToUtf8(profile_id));
+    if (profile == nullptr) {
+      PAIZA_LOG_ERROR(L"no such profile: " + profile_id);
+      return 1;
+    }
+    if (!profile->font.empty()) window.SetFontFamily(profile->font);
+    std::string reason;
+    auto source = MakeEngineSource(*profile, profiles_dir, &reason);
+    if (source == nullptr) {
+      PAIZA_LOG_ERROR(L"engine unavailable: " + Utf8ToWide(reason));
+      return 1;
+    }
+    window.SetPreedit(query);  // the Latin keys as typed
+    window.SetCandidates(source->Query(WideToUtf8(query), 9));
+    const RECT caret = {320, 240, 324, 264};
+    window.MoveNearCaret(caret);
+    MSG msg = {};
+    while (::GetMessageW(&msg, nullptr, 0, 0) > 0) {
+      ::TranslateMessage(&msg);
+      ::DispatchMessageW(&msg);
+    }
+    return 0;
+  }
 
   std::vector<Candidate> samples;
   const wchar_t* words[] = {
@@ -215,6 +282,7 @@ int Run(bool show_settings_on_start) {
 
   auto dictionary = std::make_unique<LocalDictionarySource>();
   dictionary->LoadFromFile(ExecutableDirectory() + L"\\dictionary.txt");
+  LocalDictionarySource* dictionary_ptr = dictionary.get();
   engine->AddSource(std::move(dictionary));
 
   auto cloud = std::make_unique<CloudCandidateSource>(L"");
@@ -230,6 +298,9 @@ int Run(bool show_settings_on_start) {
     // second profile.
     if (profile_id == kDefaultProfileId) {
       binding.static_lexicon = static_lexicon_ptr;
+      // The plain-text dictionary holds Unicode Mongolian words, so it
+      // belongs to the Unicode profile only.
+      binding.local_dictionary = dictionary_ptr;
     }
     for (const auto& [engine_profile_id, source] : engine_sources) {
       if (engine_profile_id == profile_id) binding.engine_source = source;
@@ -300,7 +371,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR command_line, int) {
   const std::wstring args =
       command_line != nullptr ? std::wstring(command_line) : std::wstring();
   if (args.find(L"--preview-candidates") != std::wstring::npos) {
-    return paiza::service::RunCandidatePreview();
+    return paiza::service::RunCandidatePreview(args);
   }
   const bool wants_settings =
       args.find(L"--settings") != std::wstring::npos;

@@ -9,6 +9,7 @@
 #ifndef PAIZA_CORE_LOCAL_DICTIONARY_SOURCE_H_
 #define PAIZA_CORE_LOCAL_DICTIONARY_SOURCE_H_
 
+#include <atomic>
 #include <string>
 #include <vector>
 
@@ -30,13 +31,27 @@ class LocalDictionarySource : public CandidateSource {
   // CandidateSource:
   std::wstring name() const override { return L"local"; }
   int priority() const override { return 100; }
-  bool IsAvailable() const override { return !entries_.empty(); }
+  // Gated by the active profile, like the other sources: these entries are
+  // Unicode Mongolian words, and a profile using another text encoding must
+  // not be offered them. Without this they leak into every profile, and in a
+  // form-code profile they are not merely wrong but unreadable -- the
+  // profile's font has no glyphs for Unicode Mongolian code points, so the
+  // host falls back per character and part of the list renders in a
+  // different font.
+  bool IsAvailable() const override {
+    return enabled_.load() && !entries_.empty();
+  }
   std::vector<Candidate> Query(const std::string& latin_input,
                                size_t max_results) override;
+
+  void set_enabled(bool enabled) { enabled_.store(enabled); }
+  bool enabled() const { return enabled_.load(); }
 
   size_t entry_count() const { return entries_.size(); }
 
  private:
+  std::atomic<bool> enabled_{true};
+
   struct Entry {
     std::string latin_key;
     std::wstring mongolian;

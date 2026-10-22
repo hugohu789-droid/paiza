@@ -19,6 +19,7 @@
 #include "core/fixed_sequences.h"
 #include "core/input_session.h"
 #include "core/key_mapping_store.h"
+#include "core/local_dictionary_source.h"
 #include "core/user_dictionary.h"
 
 namespace paiza {
@@ -247,6 +248,51 @@ TEST_F(ProfileSwitchTest, ActiveAccessorsNullForUnboundProfile) {
   ASSERT_TRUE(sw.Activate("third"));
   EXPECT_EQ(sw.active_user_dictionary(), nullptr);
   EXPECT_EQ(sw.active_static_lexicon(), nullptr);
+}
+
+// The plain-text dictionary holds Unicode Mongolian words. Before it was
+// gated it answered for every profile, so a form-code profile's candidate
+// list was a mixture -- and because a form-code font has no glyphs for
+// Unicode Mongolian, the host fell back per character and part of the list
+// rendered in a different font, which looks like the font being ignored
+// rather than like the wrong source answering.
+TEST_F(ProfileSwitchTest, LocalDictionaryAnswersOnlyForItsOwnProfile) {
+  LocalDictionarySource dictionary;
+  dictionary.AddEntry("shared", L"\x1830\x1820\x1828", 100);
+  ASSERT_TRUE(dictionary.IsAvailable());
+
+  ProfileSwitch sw(&registry_, nullptr);
+  ProfileBinding uni;
+  uni.local_dictionary = &dictionary;
+  sw.Bind("uni", uni);
+  sw.Bind("zc", ProfileBinding());
+
+  ASSERT_TRUE(sw.Activate("uni"));
+  EXPECT_TRUE(dictionary.enabled());
+  EXPECT_TRUE(dictionary.IsAvailable());
+
+  ASSERT_TRUE(sw.Activate("zc"));
+  EXPECT_FALSE(dictionary.enabled());
+  EXPECT_FALSE(dictionary.IsAvailable());
+  EXPECT_TRUE(dictionary.Query("shared", 9).empty() ||
+              !dictionary.IsAvailable());
+
+  // Gated off, not broken: switching back restores it.
+  ASSERT_TRUE(sw.Activate("uni"));
+  EXPECT_TRUE(dictionary.IsAvailable());
+}
+
+// An empty dictionary is unavailable whether or not it is enabled, so the
+// gate must not make a loaded-but-inactive one look loaded.
+TEST_F(ProfileSwitchTest, LocalDictionaryStaysUnavailableWhenEmpty) {
+  LocalDictionarySource empty;
+  ProfileSwitch sw(&registry_, nullptr);
+  ProfileBinding uni;
+  uni.local_dictionary = &empty;
+  sw.Bind("uni", uni);
+  ASSERT_TRUE(sw.Activate("uni"));
+  EXPECT_TRUE(empty.enabled());
+  EXPECT_FALSE(empty.IsAvailable());
 }
 
 TEST_F(ProfileSwitchTest, RegistryAccessorReturnsTheRegistry) {

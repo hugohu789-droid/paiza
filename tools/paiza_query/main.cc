@@ -118,7 +118,11 @@ int main(int argc, char** argv) {
   }
 
   auto dict = std::make_unique<paiza::LocalDictionarySource>();
-  if (dict->LoadFromFile(dict_path) > 0) engine.AddSource(std::move(dict));
+  paiza::LocalDictionarySource* dict_ptr = nullptr;
+  if (dict->LoadFromFile(dict_path) > 0) {
+    dict_ptr = dict.get();
+    engine.AddSource(std::move(dict));
+  }
 
   // Input profiles, and the external engine a profile may declare. Built
   // before the session so the session can be repointed by ProfileSwitch, in
@@ -164,6 +168,7 @@ int main(int argc, char** argv) {
       binding.user_dictionary = user_ptr;
       if (profile.id == paiza::kDefaultProfileId) {
         binding.static_lexicon = lexicon_ptr;
+        binding.local_dictionary = dict_ptr;
         if (lexicon_ptr != nullptr) {
           binding.fixed_sequences = &lexicon_ptr->fixed_sequence_table();
         }

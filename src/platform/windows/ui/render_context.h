@@ -9,6 +9,7 @@
 #define PAIZA_UI_RENDER_CONTEXT_H_
 
 #include <d2d1.h>
+#include <dwrite_3.h>  // IDWriteFactory3, for process-private fonts.
 #include <dwrite.h>
 #include <wincodec.h>
 #include <windows.h>
@@ -82,6 +83,18 @@ class RenderContext {
   // Lists installed font families, Mongolian-capable ones first (each
   // group sorted by name). Used by the settings font picker.
   static std::vector<FontFamilyInfo> EnumerateFontFamilies();
+
+  // Loads a font file into this process only, so text can be rendered in a
+  // font that is not installed on the machine. Nothing is written to disk or
+  // to the registry and no other process is affected.
+  //
+  // This exists for verification: a ZCode profile's candidates are only
+  // legible in a Z52 form-code font, and requiring a machine-wide install
+  // before the candidate window can be looked at would make checking it a
+  // system change. Returns false if the file cannot be used as a font.
+  //
+  // Call before any text is drawn. Passing an empty path clears it.
+  static bool SetPrivateFontFile(const std::wstring& path);
 
   static IDWriteFactory* dwrite_factory();
   static ID2D1Factory* d2d_factory();

@@ -28,6 +28,7 @@ namespace paiza {
 
 class ExternalEngineSource;
 class FixedSequenceTable;
+class LocalDictionarySource;
 class InputSession;
 class StaticLexicon;
 class UserDictionary;
@@ -48,6 +49,9 @@ struct ProfileBinding {
   // a handshake on every profile switch would make switching slow, and there
   // is at most one engine profile in practice.
   ExternalEngineSource* engine_source = nullptr;
+  // Plain-text dictionary fallback. Its entries are in one text encoding, so
+  // it belongs to one profile like everything else here.
+  LocalDictionarySource* local_dictionary = nullptr;
   // Why this profile has no engine source, when it declares one and building
   // it failed. Kept because the reason is produced once at startup and would
   // otherwise be lost: a source that never started cannot be asked why.

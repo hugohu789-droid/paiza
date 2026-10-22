@@ -421,7 +421,18 @@ engine layer:
    `romanize_query no` exists to switch the second query off, and nothing
    reads it.
 
-2. **Four profile fields are parsed and never consumed**:
+2. **The plain-text dictionary was not gated by profile at all.**
+   `UserDictionary`, `StaticLexicon` and the engine source each had
+   `set_enabled`; `LocalDictionarySource` did not, and no front-end bound it,
+   so `dictionary.txt` answered for every profile. A form-code profile's
+   candidate list was therefore a mixture of ZCode and Unicode Mongolian --
+   and since a form-code font has no glyphs for Unicode Mongolian code
+   points, the host fell back per character, so part of the list rendered in
+   a different font. That reads as "the font was not applied" rather than as
+   "the wrong source answered", which is what made it hard to place. Fixed:
+   it is gated like the other three and bound to the Unicode profile.
+
+3. **Four profile fields are parsed and never consumed**:
    `romanize_query`, `skeleton_input`, `vowel_keys` and `inline_default`. A
    profile can therefore declare them correctly, as `zcode.txt` does, with no
    effect. Each is read by `InputSession`'s logic rather than by the engine

@@ -7,6 +7,7 @@
 
 #include "core/external_engine_source.h"
 #include "core/input_session.h"
+#include "core/local_dictionary_source.h"
 #include "core/static_lexicon.h"
 #include "core/user_dictionary.h"
 
@@ -51,6 +52,9 @@ bool ProfileSwitch::Activate(std::string_view profile_id) {
     }
     if (binding.engine_source != nullptr) {
       binding.engine_source->set_enabled(active);
+    }
+    if (binding.local_dictionary != nullptr) {
+      binding.local_dictionary->set_enabled(active);
     }
   }
 

@@ -55,6 +55,9 @@ paiza::CloudCandidateSource* g_cloud_source = nullptr;
 // Static lexicon (compiled lexicon.bin, mmap): prefix + fault-tolerant
 // search, bigram context. Ranked below the user overlay, above cloud.
 paiza::StaticLexicon* g_static_lexicon = nullptr;
+// Plain-text dictionary fallback. Gated per profile like the others:
+// its entries are Unicode Mongolian words.
+paiza::LocalDictionarySource* g_local_dictionary = nullptr;
 
 // Input profiles (docs/input-profiles.md). The switch is global because the
 // candidate sources are; sessions are per input client, so each one is wired
@@ -101,6 +104,8 @@ paiza::ProfileSwitch* SharedProfileSwitch() {
           g_static_lexicon != nullptr) {
         binding.static_lexicon = g_static_lexicon;
         binding.fixed_sequences = &g_static_lexicon->fixed_sequence_table();
+        // Unicode Mongolian words, so the Unicode profile only.
+        binding.local_dictionary = g_local_dictionary;
       }
       for (const auto& [engine_profile_id, source] : g_profile_engines) {
         if (engine_profile_id == profile_id) binding.engine_source = source;
@@ -179,6 +184,7 @@ paiza::CandidateEngine* SharedEngine() {
     if (path != nil) {
       dictionary->LoadFromFile(paiza::Utf8ToWide([path UTF8String]));
     }
+    g_local_dictionary = dictionary.get();
     built->AddSource(std::move(dictionary));
     // Cloud stub, disabled until enabled in settings (same as Windows).
     auto cloud = std::make_unique<paiza::CloudCandidateSource>(L"");
