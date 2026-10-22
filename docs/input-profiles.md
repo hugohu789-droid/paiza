@@ -421,6 +421,14 @@ engine layer:
    `romanize_query no` exists to switch the second query off, and nothing
    reads it.
 
+   Measured against the Java original (`zcode-cpp/tools/golden_lookup.py`),
+   for `mongol`: the engine alone answers 16 distinct candidates, which is
+   exactly the Java list. Through `InputSession` the list is 18 -- the same
+   16 plus **two extra ranked 2nd and 4th**, pushing real candidates down.
+   Nothing is lost, so this is purely added noise, and it only appears when
+   the two query keys differ: `bagsi` matches the Java list exactly, 32 for
+   32, because there the raw keys and the romanization coincide.
+
 2. **The plain-text dictionary was not gated by profile at all.**
    `UserDictionary`, `StaticLexicon` and the engine source each had
    `set_enabled`; `LocalDictionarySource` did not, and no front-end bound it,

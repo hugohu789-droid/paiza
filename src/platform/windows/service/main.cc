@@ -141,9 +141,12 @@ std::wstring FlagValue(const std::wstring& command_line, const wchar_t* flag) {
 // legible in a Z52 font and installing one machine-wide just to check a
 // screenshot would be a change to the developer's system.
 //
-// The engine is queried directly rather than through InputSession, so the
-// list is the engine's own ranking: see docs/input-profiles.md on the second,
-// Unicode-derived query InputSession currently also makes (increment 7b).
+// The candidate list is assembled the way the running service assembles it:
+// every source added to one CandidateEngine and gated by ProfileSwitch. That
+// matters, because a source that is not gated shows up here exactly as it
+// would for a user -- which is how the ungated plain-text dictionary was
+// found. InputSession is not involved, so the second, Unicode-derived query
+// it currently also makes is not reflected (docs/input-profiles.md, 7b).
 int RunCandidatePreview(const std::wstring& command_line) {
   const std::wstring font_file = FlagValue(command_line, L"--font-file");
   if (!font_file.empty() && !ui::RenderContext::SetPrivateFontFile(font_file)) {
@@ -167,14 +170,49 @@ int RunCandidatePreview(const std::wstring& command_line) {
       return 1;
     }
     if (!profile->font.empty()) window.SetFontFamily(profile->font);
+
+    CandidateEngine preview_engine;
+    // The same sources the service registers, in the same order, so that a
+    // source answering when it should not is visible here too.
+    auto dictionary = std::make_unique<LocalDictionarySource>();
+    dictionary->LoadFromFile(ExecutableDirectory() + L"\\dictionary.txt");
+    LocalDictionarySource* dictionary_ptr = dictionary.get();
+    preview_engine.AddSource(std::move(dictionary));
+
+    auto lexicon = std::make_unique<StaticLexicon>();
+    StaticLexicon* lexicon_ptr =
+        lexicon->Load(ExecutableDirectory() + L"\\lexicon.bin")
+            ? lexicon.get()
+            : nullptr;
+    if (lexicon_ptr != nullptr) preview_engine.AddSource(std::move(lexicon));
+
+    // A null source with no reason just means this profile declares no
+    // engine, which is the normal case and must still preview.
     std::string reason;
     auto source = MakeEngineSource(*profile, profiles_dir, &reason);
-    if (source == nullptr) {
+    if (source == nullptr && !reason.empty()) {
       PAIZA_LOG_ERROR(L"engine unavailable: " + Utf8ToWide(reason));
       return 1;
     }
+    ExternalEngineSource* source_ptr = source.get();
+    if (source != nullptr) preview_engine.AddSource(std::move(source));
+
+    ProfileSwitch preview_switch(&profiles, /*session=*/nullptr);
+    for (const InputProfile& candidate_profile : profiles.All()) {
+      ProfileBinding binding;
+      if (candidate_profile.id == kDefaultProfileId) {
+        binding.static_lexicon = lexicon_ptr;
+        binding.local_dictionary = dictionary_ptr;
+      }
+      if (candidate_profile.id == profile->id) {
+        binding.engine_source = source_ptr;
+      }
+      preview_switch.Bind(candidate_profile.id, binding);
+    }
+    preview_switch.Activate(profile->id);
+
     window.SetPreedit(query);  // the Latin keys as typed
-    window.SetCandidates(source->Query(WideToUtf8(query), 9));
+    window.SetCandidates(preview_engine.Query(WideToUtf8(query), 9));
     const RECT caret = {320, 240, 324, 264};
     window.MoveNearCaret(caret);
     MSG msg = {};

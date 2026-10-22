@@ -10,7 +10,11 @@
 // Usage:
 //   paiza_query [--lexicon lexicon.bin] [--dict dictionary.txt]
 //               [--keymap keymap.txt] [--user user.db]
-//               [--profiles DIR] [--profile ID] [seq ...]
+//               [--profiles DIR] [--profile ID] [--max N] [seq ...]
+//
+// --max raises the per-keystroke candidate limit (default 27, the same
+// number the IME asks for). An external engine is capped separately at
+// kEngineMaxCandidates, so that is the real ceiling for an engine profile.
 //
 // With --profiles and --profile it loads an input profile and, when that
 // profile declares an external engine, starts it and gates the sources
@@ -28,6 +32,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -80,6 +85,7 @@ int main(int argc, char** argv) {
   std::wstring user_path;     // Empty => in-memory user dictionary.
   std::wstring profiles_dir;  // Empty => no profile; today's behaviour.
   std::string profile_id;
+  size_t max_candidates = 0;  // 0 => the session default.
   std::vector<std::string> sequences;
 
   for (int i = 1; i < argc; ++i) {
@@ -90,6 +96,8 @@ int main(int argc, char** argv) {
     else if (arg == "--user" && i + 1 < argc) user_path = Widen(argv[++i]);
     else if (arg == "--profiles" && i + 1 < argc) profiles_dir = Widen(argv[++i]);
     else if (arg == "--profile" && i + 1 < argc) profile_id = argv[++i];
+    else if (arg == "--max" && i + 1 < argc)
+      max_candidates = static_cast<size_t>(std::atoi(argv[++i]));
     else if (arg.rfind("--", 0) == 0) {
       std::fprintf(stderr, "Unknown flag: %s\n", arg.c_str());
       return 2;
@@ -154,7 +162,9 @@ int main(int argc, char** argv) {
   }
 
   paiza::KeyMappingStore mappings(keymap_path);
-  paiza::InputSession session(&engine, &mappings);
+  paiza::InputSession::Config config;
+  if (max_candidates > 0) config.max_candidates = max_candidates;
+  paiza::InputSession session(&engine, &mappings, config);
   session.set_user_dictionary(user_ptr);
   session.set_static_lexicon(lexicon_ptr);
   if (lexicon_ptr != nullptr) {
