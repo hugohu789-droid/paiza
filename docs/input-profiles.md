@@ -361,7 +361,9 @@ Each additional engine multiplies, not adds:
 | 6a | The engine contract's host side: executable resolution, the two transports, `ExternalEngineSource`. | external port |
 | 6b | Construct the engine source per profile in all three front-ends and gate it through `ProfileSwitch`. | 6a |
 | 6c | Source the preedit from the engine rather than a key mapping (§2.5). Touches `InputSession`, so it is split out. | 6b |
-| 7 | Add `data/profiles/zcode.txt` and the form-code font setting; verify switching end to end. | 3, 5, 6c |
+| 7a | Add `data/profiles/zcode.txt`; make `paiza_query` drive a profile and its engine, and verify end to end against the real engine. | 6b |
+| 7b | Honour the fields a non-Unicode profile needs: `romanize_query`, `skeleton_input`, `vowel_keys`, `inline_default`. All four are parsed and none is consumed. Touches `InputSession`, so it belongs with 6c. | 6c |
+| 7c | Per-profile candidate font in the three settings stores, and show `active_engine_error()` in the three dialogs. | 7a |
 
 Increment 3 is split because it is the first one with a behaviour change and it
 touches all three platforms: 3a is verifiable locally end to end, 3b is a
@@ -398,8 +400,35 @@ that never started and one that died while running. Being gated off because
 another profile is active is **not** a failure and is never reported, so a
 non-empty result is always worth showing.
 
-Showing it in the three settings dialogs is still to do; the value is
+Showing it in the three settings dialogs is still to do (7c); the value is
 available and tested, but no dialog reads it yet.
+
+### What end-to-end verification found
+
+Driving the real engine through `paiza_query --profiles DIR --profile zcode`
+produced correct ZCode candidates, every one inside the declared range. It
+also exposed two things no unit test could, because both live above the
+engine layer:
+
+1. **`InputSession` queries twice per keystroke** -- once on the raw Latin
+   keys and once on `Romanize(preedit_)` -- and merges. For a profile with an
+   external engine that is two round trips instead of one, and the second
+   query sends a string derived from the *Unicode* key mapping, which has no
+   meaning in ZCode. Its results are then merged into the candidate list.
+   The effect is visible in the output: a word where the two keys coincide
+   (`san`) comes back with consecutive scores, while one where they differ
+   (`bagsi`, `mongol`) comes back with ties and gaps from the merge.
+   `romanize_query no` exists to switch the second query off, and nothing
+   reads it.
+
+2. **Four profile fields are parsed and never consumed**:
+   `romanize_query`, `skeleton_input`, `vowel_keys` and `inline_default`. A
+   profile can therefore declare them correctly, as `zcode.txt` does, with no
+   effect. Each is read by `InputSession`'s logic rather than by the engine
+   layer, which is why they were not noticed earlier.
+
+Both are 7b, kept with 6c because they are changes to the cross-platform
+key-policy contract rather than to the engine wiring.
 
 The ZCode engine is `GPL-2.0-or-later`, so it runs as a **separate process**
 and is never linked into this AGPL-3.0 codebase, keeping the core

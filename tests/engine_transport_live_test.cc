@@ -449,5 +449,23 @@ TEST(MakeEngineSource, ProfileSwitchReportsAnEngineThatDies) {
   EXPECT_FALSE(sw.active_engine_error().empty());
 }
 
+// A profile file is shared by all three platforms, but an executable name is
+// not: the same engine is `zcode_stdio` on macOS and Linux and
+// `zcode_stdio.exe` on Windows. So a profile names it without an extension
+// and the host adds the platform's -- this is the test that the host does.
+TEST(MakeEngineSource, AProfileNeedNotNameAPlatformExtension) {
+  InputProfile profile = StubEngineProfile();
+  // Strip any extension the build gave the stub, leaving the portable name.
+  const size_t dot = profile.engine.rfind(L'.');
+  if (dot != std::wstring::npos) profile.engine = profile.engine.substr(0, dot);
+  ASSERT_EQ(profile.engine.find(L'.'), std::wstring::npos);
+
+  std::string reason;
+  auto source = MakeEngineSource(profile, EngineInstallDir(), &reason);
+  ASSERT_NE(source, nullptr) << reason;
+  EXPECT_TRUE(source->IsAvailable());
+  EXPECT_FALSE(source->Query("ab", 8).empty());
+}
+
 }  // namespace
 }  // namespace paiza

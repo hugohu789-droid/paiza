@@ -35,6 +35,21 @@ bool IsReservedDeviceName(const std::wstring& name) {
   return false;
 }
 
+// Case-insensitive, because a profile written by hand may say ".EXE" and
+// resolving that to "foo.EXE.exe" would be a confusing way to fail.
+bool AlreadyHasSuffix(const std::wstring& name) {
+  const std::wstring suffix = kEngineExecutableSuffix;
+  if (suffix.empty() || name.size() < suffix.size()) return false;
+  for (size_t i = 0; i < suffix.size(); ++i) {
+    wchar_t a = name[name.size() - suffix.size() + i];
+    wchar_t b = suffix[i];
+    if (a >= L'A' && a <= L'Z') a = static_cast<wchar_t>(a - L'A' + L'a');
+    if (b >= L'A' && b <= L'Z') b = static_cast<wchar_t>(b - L'A' + L'a');
+    if (a != b) return false;
+  }
+  return true;
+}
+
 }  // namespace
 
 bool IsAcceptableEngineName(const std::wstring& name, std::string* reason) {
@@ -109,6 +124,10 @@ std::wstring ResolveEnginePath(const std::wstring& install_dir,
 #endif
   }
   path += name;
+  // A profile names the engine portably; the platform's suffix is the host's
+  // business. Skipped when the name already carries it, so a profile that
+  // does spell it out is tolerated rather than turned into "foo.exe.exe".
+  if (!AlreadyHasSuffix(name)) path += kEngineExecutableSuffix;
   return path;
 }
 

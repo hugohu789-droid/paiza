@@ -32,8 +32,23 @@ namespace paiza {
 // NUL, COM1 and friends), which open a device rather than a file.
 bool IsAcceptableEngineName(const std::wstring& name, std::string* reason);
 
-// Joins an accepted name onto `install_dir`. Returns an empty string when the
-// name is rejected or the directory is empty, with *reason set.
+// The platform's executable suffix. A profile file is shared by all three
+// platforms while an executable name is not -- the same engine is
+// `zcode_stdio` on macOS and Linux and `zcode_stdio.exe` on Windows -- so a
+// profile names it without an extension and the host appends this.
+//
+// It has to be the host that does it: CreateProcessW's lpApplicationName
+// assumes no default extension, so a bare name simply fails to start there.
+#ifdef _WIN32
+inline constexpr const wchar_t* kEngineExecutableSuffix = L".exe";
+#else
+inline constexpr const wchar_t* kEngineExecutableSuffix = L"";
+#endif
+
+// Joins an accepted name onto `install_dir`, appending
+// kEngineExecutableSuffix unless the name already ends with it. Returns an
+// empty string when the name is rejected or the directory is empty, with
+// *reason set.
 //
 // Existence is not checked here: whether the file is there is a question for
 // the moment of launching, and keeping this function free of the filesystem

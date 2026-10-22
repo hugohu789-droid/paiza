@@ -162,14 +162,46 @@ TEST(EnginePath, ResolveJoinsOntoTheInstallDirectory) {
   std::string reason;
   const std::wstring path =
       ResolveEnginePath(InstallDir(), L"zcode-stdio", &reason);
-  EXPECT_EQ(path, InstallDir() + kSep + L"zcode-stdio");
+  EXPECT_EQ(path,
+            InstallDir() + kSep + L"zcode-stdio" + kEngineExecutableSuffix);
   EXPECT_TRUE(reason.empty()) << reason;
 }
 
 TEST(EnginePath, ResolveDoesNotDoubleASeparator) {
   const std::wstring dir = InstallDir() + kSep;
   const std::wstring path = ResolveEnginePath(dir, L"zcode-stdio", nullptr);
-  EXPECT_EQ(path, dir + L"zcode-stdio");
+  EXPECT_EQ(path, dir + L"zcode-stdio" + kEngineExecutableSuffix);
+}
+
+// A profile is shared by all three platforms while an executable name is not,
+// so the profile names the engine without an extension and the host supplies
+// the platform's. Without this, CreateProcessW simply fails to start a bare
+// name: lpApplicationName assumes no default extension.
+TEST(EnginePath, ResolveAppendsThePlatformExecutableSuffix) {
+  const std::wstring path =
+      ResolveEnginePath(InstallDir(), L"zcode-stdio", nullptr);
+#ifdef _WIN32
+  EXPECT_EQ(path, InstallDir() + kSep + L"zcode-stdio.exe");
+#else
+  EXPECT_EQ(path, InstallDir() + kSep + L"zcode-stdio");
+#endif
+}
+
+// A profile that does spell the suffix out is tolerated, in either case,
+// rather than resolved to "zcode-stdio.exe.exe".
+TEST(EnginePath, ResolveDoesNotDoubleTheSuffix) {
+  for (const std::wstring& name : {std::wstring(L"zcode-stdio.exe"),
+                                   std::wstring(L"zcode-stdio.EXE")}) {
+    EXPECT_EQ(ResolveEnginePath(InstallDir(), name, nullptr),
+              InstallDir() + kSep + name);
+  }
+}
+
+// Dots that are not an extension must not confuse the check: only a trailing
+// ".exe" counts as the suffix already being there.
+TEST(EnginePath, ResolveTreatsOnlyATrailingSuffixAsOne) {
+  EXPECT_EQ(ResolveEnginePath(InstallDir(), L"engine.1.2", nullptr),
+            InstallDir() + kSep + L"engine.1.2" + kEngineExecutableSuffix);
 }
 
 TEST(EnginePath, ResolveNeedsAnInstallDirectory) {
@@ -205,7 +237,11 @@ TEST(EnginePath, ResolveAlwaysStaysInsideTheInstallDirectory) {
     const std::wstring tail = path.substr(prefix.size());
     EXPECT_EQ(tail.find(L'/'), std::wstring::npos);
     EXPECT_EQ(tail.find(L'\\'), std::wstring::npos);
-    EXPECT_EQ(tail, name);
+    // The name as written, plus at most the platform's executable suffix --
+    // and nothing is appended when the name already carries it.
+    const std::wstring suffix = kEngineExecutableSuffix;
+    EXPECT_TRUE(tail == name || tail == name + suffix)
+        << "unexpected tail for this name";
   }
 }
 

@@ -6,6 +6,8 @@
 
 #include "core/input_profile.h"
 
+#include "core/engine_path.h"
+
 #include <gtest/gtest.h>
 
 #include <filesystem>
@@ -189,7 +191,8 @@ TEST(InputProfileTest, ShippedUnicodeProfileMatchesCurrentBehaviour) {
   ASSERT_TRUE(std::filesystem::exists(path)) << path.string();
 
   InputProfileRegistry registry;
-  ASSERT_EQ(registry.LoadFromDirectory(path.parent_path().wstring()), 1);
+  // Every shipped profile loads; this test is about the Unicode one.
+  ASSERT_GE(registry.LoadFromDirectory(path.parent_path().wstring()), 1);
 
   const InputProfile* profile = registry.Find("unicode");
   ASSERT_NE(profile, nullptr);
@@ -210,7 +213,7 @@ TEST(InputProfileTest, BuiltInProfileMatchesShippedFile) {
   const std::filesystem::path dir =
       std::filesystem::path(PAIZA_SOURCE_DIR) / "data" / "profiles";
   InputProfileRegistry registry;
-  ASSERT_EQ(registry.LoadFromDirectory(dir.wstring()), 1);
+  ASSERT_GE(registry.LoadFromDirectory(dir.wstring()), 1);
   const InputProfile* shipped = registry.Find(kDefaultProfileId);
   ASSERT_NE(shipped, nullptr);
 
@@ -226,6 +229,60 @@ TEST(InputProfileTest, BuiltInProfileMatchesShippedFile) {
   EXPECT_EQ(built_in.skeleton_input, shipped->skeleton_input);
   EXPECT_EQ(built_in.vowel_keys, shipped->vowel_keys);
   EXPECT_EQ(built_in.inline_default, shipped->inline_default);
+}
+
+// The ZCode profile is the first shipped profile that is not Unicode, so it
+// is also the first exercise of every field that exists to describe "not
+// Unicode". Each assertion below is a property the profile must have for the
+// engine to be driven correctly, not a transcription of the file.
+TEST(InputProfileTest, ShippedZCodeProfileDescribesAnExternalEngine) {
+  const std::filesystem::path dir =
+      std::filesystem::path(PAIZA_SOURCE_DIR) / "data" / "profiles";
+  InputProfileRegistry registry;
+  ASSERT_GE(registry.LoadFromDirectory(dir.wstring()), 2);
+
+  const InputProfile* profile = registry.Find("zcode");
+  ASSERT_NE(profile, nullptr);
+
+  // The engine is declared, and named portably: no extension, because the
+  // host appends the platform's, and no path, because the name is resolved
+  // inside the install directory.
+  ASSERT_TRUE(profile->has_engine());
+  EXPECT_EQ(profile->engine, L"zcode_stdio");
+  EXPECT_EQ(profile->engine.find(L'.'), std::wstring::npos);
+  std::string why;
+  EXPECT_TRUE(IsAcceptableEngineName(profile->engine, &why)) << why;
+  EXPECT_EQ(profile->engine_protocol, "paiza-engine");
+
+  // The borrowed range. Getting this wrong would either reject every real
+  // candidate or accept arbitrary text from the engine.
+  EXPECT_TRUE(profile->engine_codepoints_set);
+  EXPECT_EQ(profile->engine_codepoint_low, 0x1865u);
+  EXPECT_EQ(profile->engine_codepoint_high, 0x18AAu);
+
+  // A separate user dictionary: a run of glyph components learned here would
+  // be meaningless as Unicode Mongolian.
+  EXPECT_FALSE(profile->user_db.empty());
+  EXPECT_NE(profile->user_db, registry.Find("unicode")->user_db);
+
+  // Its own font, because these code points are Sibe/Manchu letters in a
+  // Unicode Mongolian font -- wrong text, not a different look.
+  EXPECT_FALSE(profile->font.empty());
+  EXPECT_NE(profile->font, registry.Find("unicode")->font);
+
+  // No keymap and no lexicon: ZCode cannot be modelled as key -> code points
+  // (a component's identity depends on position and neighbours), and the
+  // compiled lexicon holds Unicode words.
+  EXPECT_TRUE(profile->keymap.empty());
+  EXPECT_TRUE(profile->lexicon.empty());
+
+  // Unicode-only behaviours are off.
+  EXPECT_FALSE(profile->fixed_sequences);
+  EXPECT_FALSE(profile->romanize_query);
+  EXPECT_FALSE(profile->skeleton_input);
+
+  // Nothing inline until the preedit is sourced from the engine.
+  EXPECT_EQ(profile->inline_default, InlineComposition::kHidden);
 }
 
 TEST(InputProfileTest, EnsureDefaultSeedsOnlyWhenEmpty) {

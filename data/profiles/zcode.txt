@@ -1,0 +1,68 @@
+# Paiza Mongolian IME — input profile: ZCode form code (形码).
+#
+# ZCode is not Unicode Mongolian. It is a form-code encoding in which each
+# code point is one glyph component (tooth, belly, tail, …) and a written
+# letter is a run of one to three of them. It borrows the 52 assigned code
+# points U+1865..U+18AA of the Unicode Mongolian block, which belong to
+# Sibe, Manchu and Ali Gali letters — so this text is only legible in a
+# ZCode ("Z52") form-code font. See docs/input-profiles.md and
+# docs/engine-contract.md.
+#
+# Selecting this profile needs two things installed that this file cannot
+# provide: the engine executable (below) and a Z52 font.
+
+id               zcode
+display_name     ZCode (form code)
+
+# Candidate-window font family, not a file: the user installs the font and
+# this names it. A Unicode Mongolian font would render these code points as
+# Sibe/Manchu letters, which is wrong text rather than a different look.
+font             Z52 Hara Tig
+
+# Per profile, and not optional: an entry learned as a run of glyph
+# components is meaningless as Unicode Mongolian, and the other way round.
+user_db          user-zcode.db
+
+# --- the external engine (docs/engine-contract.md) -------------------------
+
+# Executable name only, resolved inside the install directory — never a path,
+# and PATH is never searched. Named *without* an extension: the host appends
+# the platform's, so this one line serves all three platforms.
+engine           zcode_stdio
+
+# What the engine's HELLO must report. A mismatch disables this profile
+# rather than letting a wrong binary produce text.
+engine_protocol  paiza-engine
+
+# Below the compiled lexicon by default; stated here because this profile has
+# no lexicon of its own, so the engine is the only real source.
+engine_priority  90
+
+# Candidates outside this range are rejected. ZCode uses exactly these 52
+# code points, so anything else means the engine is not what it claims.
+engine_codepoints 1865-18AA
+
+# `engine_transport` is deliberately omitted: it defaults per platform, and
+# the engine sees plain stdin/stdout either way.
+
+# --- what this profile deliberately does not have -------------------------
+
+# No `keymap`: a key mapping turns one key into fixed code points, and ZCode
+# cannot be modelled that way — a component's identity depends on its
+# position and its neighbours, which is what the engine computes.
+#
+# No `lexicon`: the compiled lexicon holds Unicode Mongolian words.
+
+# GB/T appendix D.2 MVS insertion is a Unicode rule; it has no meaning here.
+fixed_sequences  no
+
+# The engine takes the raw Latin keys; there is no preedit to romanize.
+romanize_query   no
+
+# Consonant-skeleton input relies on the Unicode lexicon's vowels.
+skeleton_input   no
+
+# Nothing inline for now: with no keymap there is no preedit to show until the
+# host sources it from the engine's best candidate (docs/input-profiles.md,
+# increment 6c). Showing a stale or empty composition would be worse.
+inline_default   hidden
