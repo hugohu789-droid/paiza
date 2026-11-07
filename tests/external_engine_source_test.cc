@@ -460,5 +460,116 @@ TEST(ExternalEngineSourceTest, ScoredTextIsWhatTheCodePointRangeSees) {
   EXPECT_EQ(candidates[0].text, L"ᡳᡪ");
 }
 
+// ---- the user's own words ----------------------------------------------
+
+InputProfile UserWordProfile() {
+  InputProfile profile = EngineProfile();
+  profile.engine_mode = "full";
+  profile.engine_scored = true;
+  profile.engine_user_words = true;
+  return profile;
+}
+
+std::vector<UserWordUse> OneUse(const std::wstring& word, uint32_t count,
+                                int64_t when) {
+  UserWordUse use;
+  use.word = word;
+  use.count = count;
+  use.last_used = when;
+  return {use};
+}
+
+TEST(ExternalEngineSourceTest, UserWordsAreNotSentUnlessTheProfileAsks) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSource(&t, EngineProfile());  // engine_user_words false
+  source->ReplayUserWords(OneUse(L"abc", 3, 1'000'000));
+  source->LearnCommitted(L"abc", 1'000'000);
+  ASSERT_EQ(t->sent.size(), 1u);
+  EXPECT_EQ(t->sent[0], "HELLO") << "nothing beyond the handshake";
+  EXPECT_FALSE(source->user_words_enabled());
+}
+
+// Unix seconds in, whole days out: the engine's habit half-life is in
+// ticks, and a day is the unit that makes "used a month ago" mean that.
+TEST(ExternalEngineSourceTest, TimesGoOutAsDays) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSource(&t, UserWordProfile());
+  source->ReplayUserWords(OneUse(L"abc", 4, 86400 * 730 + 500));
+  ASSERT_EQ(t->sent.size(), 3u);
+  EXPECT_EQ(t->sent[1], "USER clear");
+  EXPECT_EQ(t->sent[2], "USER restore 4 730 abc");
+
+  t->sent.clear();
+  source->LearnCommitted(L"abc", 86400 * 931 + 1);
+  ASSERT_EQ(t->sent.size(), 1u);
+  EXPECT_EQ(t->sent[0], "USER learn 931 abc");
+}
+
+TEST(ExternalEngineSourceTest, ATimeBeforeTheEpochIsClampedNotWrapped) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSource(&t, UserWordProfile());
+  source->LearnCommitted(L"abc", -5);
+  ASSERT_EQ(t->sent.size(), 2u);
+  EXPECT_EQ(t->sent[1], "USER learn 0 abc");
+}
+
+TEST(ExternalEngineSourceTest, ReplayClearsFirstSoARestartIsNotMoreUse) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSource(&t, UserWordProfile());
+  std::vector<UserWordUse> words = OneUse(L"abc", 2, 86400);
+  UserWordUse second;
+  second.word = L"def";
+  second.count = 1;
+  second.last_used = 86400 * 3;
+  words.push_back(second);
+  source->ReplayUserWords(words);
+  ASSERT_EQ(t->sent.size(), 4u);
+  EXPECT_EQ(t->sent[1], "USER clear");
+  EXPECT_EQ(t->sent[2], "USER restore 2 1 abc");
+  EXPECT_EQ(t->sent[3], "USER restore 1 3 def");
+}
+
+// An engine is only obliged to implement four requests. One that refuses
+// these must keep working for everything else.
+TEST(ExternalEngineSourceTest, AnEngineThatRefusesUserWordsIsNotBroken) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSourceWith(&t, {"ERR\tunknown command"}, UserWordProfile());
+  source->ReplayUserWords(OneUse(L"abc", 3, 86400));
+  EXPECT_TRUE(source->IsAvailable()) << "a refusal is an answer, not a fault";
+  EXPECT_TRUE(source->failure().empty());
+  EXPECT_FALSE(source->user_words_enabled());
+
+  // And nothing further is sent.
+  t->sent.clear();
+  source->LearnCommitted(L"abc", 86400);
+  EXPECT_TRUE(t->sent.empty());
+
+  // The engine still answers ordinary queries.
+  t->default_reply = "OK\tabc";
+  EXPECT_FALSE(source->Query("s", 9).empty());
+}
+
+TEST(ExternalEngineSourceTest, AnEngineThatStopsAnsweringIsStillAFailure) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSource(&t, UserWordProfile());
+  t->DieAfter(1);  // HELLO goes through, the next request does not
+  source->ReplayUserWords(OneUse(L"abc", 3, 86400));
+  EXPECT_FALSE(source->IsAvailable());
+  EXPECT_FALSE(source->failure().empty());
+}
+
+TEST(ExternalEngineSourceTest, EmptyAndZeroCountEntriesAreSkipped) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSource(&t, UserWordProfile());
+  std::vector<UserWordUse> words = OneUse(L"", 3, 86400);
+  UserWordUse never_used;
+  never_used.word = L"def";
+  never_used.count = 0;
+  words.push_back(never_used);
+  source->ReplayUserWords(words);
+  ASSERT_EQ(t->sent.size(), 2u);
+  EXPECT_EQ(t->sent[1], "USER clear");
+}
+
 }  // namespace
 }  // namespace paiza

@@ -162,6 +162,7 @@ engine_priority    90               # optional: CandidateSource priority
 engine_codepoints  1865-18AA        # optional: reject candidates outside this
 engine_mode        full             # optional: the <mode> to ask for
 engine_scored      yes              # optional: that mode's items carry metrics
+engine_user_words  yes              # optional: hand it the user's own words
 ```
 
 | Field | Required | Meaning |
@@ -174,6 +175,7 @@ engine_scored      yes              # optional: that mode's items carry metrics
 | `engine_codepoints` | no | Hex range `LOW-HIGH`. Candidates containing anything outside it are rejected. |
 | `engine_mode` | no | The `<mode>` to ask for, passed through uninterpreted. One short token, no space. Default `fuzzy`. |
 | `engine_scored` | no | `yes` when that mode's items carry metrics after the text. Default `no`. |
+| `engine_user_words` | no | `yes` to hand this engine the user's own words. Default `no`. |
 
 The protocol **version** is deliberately not a profile field. The host knows
 which versions it implements; the profile only declares which protocol the
@@ -182,6 +184,36 @@ supported set.
 
 A profile with no `engine` field uses only the built-in sources, which is how
 every profile shipped so far behaves.
+
+### The user's own words
+
+An engine may also be told what the user has typed before, so that it can
+rank those words itself. Optional on both sides: a profile opts in with
+`engine_user_words`, and an engine that refuses these requests is **not**
+treated as faulty -- the host stops sending them and carries on using it for
+everything else.
+
+| Request | Meaning |
+|---|---|
+| `USER now <tick>` | The host's clock now reads this. |
+| `USER learn <tick> <word>` | The user committed `<word>` at `<tick>`. |
+| `USER restore <count> <tick> <word>` | Replay one stored entry. |
+| `USER forget <word>` / `USER clear` | Drop one, or all. |
+| `USER list` | Every entry, as `<word>,count:<n>,tick:<n>`. |
+
+**The host stores; the engine ranks.** The host owns the file, the
+per-profile scoping, the privacy policy and any synchronisation -- the engine
+is handed values and never a path. The engine ranks, because where a user's
+word belongs in a candidate list is a question only the thing that scored
+the rest of the list can answer; a host that merely appended them would put
+them in the wrong place as soon as the engine's own ranking disagreed.
+
+`<tick>` is **whole days since the Unix epoch**, which is the unit an
+engine's decay should be expressed in. The host sends the same value in
+`learn` and in `now`, and never sends a tick that went backwards.
+
+Replaying a store must be idempotent: the host sends `USER clear` and then
+one `restore` per entry at startup, and a restart must not look like use.
 
 ## 4. What the host guarantees, and enforces
 

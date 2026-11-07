@@ -111,6 +111,8 @@ class ProfileSwitch {
 
  private:
   const ProfileBinding* FindBinding(std::string_view profile_id) const;
+  // Joins a binding's user dictionary to its engine source, if it has both.
+  static void ConnectUserWords(const ProfileBinding& binding);
 
   const InputProfileRegistry* registry_;
   InputSession* session_;

@@ -128,6 +128,7 @@ engine_priority    90               # optional
 engine_codepoints  1865-18AA        # optional: reject candidates outside
 engine_mode        full             # optional: what to ask the engine for
 engine_scored      yes              # optional: that mode's items carry metrics
+engine_user_words  yes              # optional: hand it the user's own words
 ```
 
 A profile with no `engine` uses only the built-in sources, which is how every
@@ -156,6 +157,15 @@ the list — which is what lets engine candidates be merged with the host's own
 fields have to agree: declaring a plain mode scored would cut candidates at a
 comma, and leaving a scored mode undeclared would offer the metrics as part of
 the text.
+
+`engine_user_words` hands the engine what the user has committed, so that
+the engine ranks it. The store stays the host's -- `user_db`, one per
+profile, as it already was -- and `ProfileSwitch::Bind` is what joins the two:
+it replays the dictionary into the engine and subscribes the engine to later
+commits. Done there rather than in each front-end because there are three of
+them, and the one that forgot would be a profile whose habits silently did
+not stick. Off by default, and an engine that refuses the requests keeps
+working without them.
 
 The protocol *version* is deliberately not a profile field: the host knows
 which versions it implements, so the profile only declares which protocol the

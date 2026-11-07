@@ -162,6 +162,8 @@ bool InputProfileRegistry::LoadFromString(const std::string& content) {
       if (IsAcceptableEngineMode(value)) profile.engine_mode = value;
     } else if (key == "engine_scored") {
       profile.engine_scored = ParseBool(value, profile.engine_scored);
+    } else if (key == "engine_user_words") {
+      profile.engine_user_words = ParseBool(value, profile.engine_user_words);
     } else if (key == "engine_priority") {
       profile.engine_priority = std::atoi(value.c_str());
     } else if (key == "engine_codepoints") {

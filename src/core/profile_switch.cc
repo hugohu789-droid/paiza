@@ -14,14 +14,50 @@
 namespace paiza {
 
 void ProfileSwitch::Bind(std::string profile_id, ProfileBinding binding) {
+  ConnectUserWords(binding);
   const auto existing =
       std::find_if(bindings_.begin(), bindings_.end(),
                    [&](const auto& entry) { return entry.first == profile_id; });
   if (existing != bindings_.end()) {
+    // The previous binding's dictionary may still be feeding commits to an
+    // engine source that is about to be replaced.
+    if (existing->second.user_dictionary != nullptr &&
+        existing->second.user_dictionary != binding.user_dictionary) {
+      existing->second.user_dictionary->set_commit_listener(nullptr);
+    }
     existing->second = binding;
     return;
   }
   bindings_.emplace_back(std::move(profile_id), binding);
+}
+
+// A profile with both an engine and a user dictionary wants them joined:
+// the dictionary stores, the engine ranks. Done here rather than in each
+// front-end because there are three of them, and the one that forgot would
+// be a profile whose habits silently did not stick.
+void ProfileSwitch::ConnectUserWords(const ProfileBinding& binding) {
+  UserDictionary* dictionary = binding.user_dictionary;
+  ExternalEngineSource* engine = binding.engine_source;
+  if (dictionary == nullptr) return;
+  if (engine == nullptr) {
+    dictionary->set_commit_listener(nullptr);
+    dictionary->set_answers_queries(true);
+    return;
+  }
+  engine->ReplayUserWords(dictionary->WordsByUse());
+  // The engine took them, so it ranks them: this dictionary stores and
+  // stops answering. Leaving it as a source as well would put every
+  // committed word first for ever -- it sits above the engine -- and the
+  // engine's habit model, which is the thing that lets an old habit fade,
+  // would never show.
+  dictionary->set_answers_queries(!engine->user_words_enabled());
+  // Gating is checked inside: a commit recorded while another profile is
+  // active still belongs to this profile's engine, and the engine is the
+  // one that decides whether it wants user words at all.
+  dictionary->set_commit_listener(
+      [engine](const std::wstring& word, int64_t when) {
+        engine->LearnCommitted(word, when);
+      });
 }
 
 const ProfileBinding* ProfileSwitch::FindBinding(

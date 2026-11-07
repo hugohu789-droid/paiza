@@ -159,6 +159,9 @@ ExternalEngineSource::ExternalEngineSource(
     Fail("unsupported protocol version " + fields[2]);
     return;
   }
+  // Allowed until the engine says otherwise, so that a commit reaches it
+  // whether or not the host replayed a store first.
+  user_words_ok_ = profile_.engine_user_words;
 }
 
 ExternalEngineSource::~ExternalEngineSource() {
@@ -168,6 +171,54 @@ ExternalEngineSource::~ExternalEngineSource() {
     std::string unused;
     transport_->Exchange("QUIT", &unused);
   }
+}
+
+std::string ExternalEngineSource::Tick(int64_t unix_seconds) {
+  // Whole days: the engine's habit half-life is in ticks, and a day is the
+  // unit that makes "a word I used a month ago has faded" mean what it
+  // says. Before the epoch is clamped to 0 rather than wrapping.
+  const int64_t days = unix_seconds > 0 ? unix_seconds / 86400 : 0;
+  return std::to_string(days);
+}
+
+bool ExternalEngineSource::TryExchange(const std::string& request) {
+  if (!IsAvailable() || !user_words_ok_) return false;
+  if (HasControlChar(request)) return false;
+  std::string response;
+  if (!transport_->Exchange(request, &response)) {
+    // No answer at all is a real fault, unlike a refusal.
+    Fail("engine did not answer");
+    user_words_ok_ = false;
+    return false;
+  }
+  const std::vector<std::string> fields = SplitFields(response);
+  if (fields.empty() || fields[0] != "OK") {
+    // The engine does not do this. Stop asking; it is still a good engine
+    // for everything else (docs/engine-contract.md: an engine need only
+    // implement HELLO, TYPE, UNTYPE and QUIT).
+    user_words_ok_ = false;
+    return false;
+  }
+  return true;
+}
+
+void ExternalEngineSource::ReplayUserWords(
+    const std::vector<UserWordUse>& words) {
+  if (!user_words_ok_ || !IsAvailable()) return;
+  if (!TryExchange("USER clear")) return;
+  for (const UserWordUse& use : words) {
+    if (use.word.empty() || use.count == 0) continue;
+    if (!TryExchange("USER restore " + std::to_string(use.count) + " " +
+                     Tick(use.last_used) + " " + WideToUtf8(use.word))) {
+      return;
+    }
+  }
+}
+
+void ExternalEngineSource::LearnCommitted(const std::wstring& word,
+                                          int64_t unix_seconds) {
+  if (word.empty() || !profile_.engine_user_words) return;
+  TryExchange("USER learn " + Tick(unix_seconds) + " " + WideToUtf8(word));
 }
 
 std::wstring ExternalEngineSource::name() const {

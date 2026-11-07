@@ -111,6 +111,11 @@ struct InputProfile {
   // Off unless the profile says otherwise, because a mode that returns plain
   // text must not have its candidates truncated at a comma.
   bool engine_scored = false;
+  // True when the host may hand this engine the user's own words, so that
+  // the engine ranks them. Off unless the profile says otherwise: an engine
+  // need only implement the four requests the contract requires, and one
+  // that has never heard of user words should not be sent any.
+  bool engine_user_words = false;
   // Where the engine sits among candidate sources; 0 means the host default.
   int engine_priority = 0;
   // Optional inclusive code-point range a candidate must stay within.

@@ -108,7 +108,7 @@ void UserDictionary::LoadFromDatabase() {
 }
 
 bool UserDictionary::IsAvailable() const {
-  if (!enabled_.load()) return false;
+  if (!enabled_.load() || !answers_queries_.load()) return false;
   std::lock_guard<std::mutex> lock(mutex_);
   return !entries_.empty();
 }
@@ -147,13 +147,54 @@ void UserDictionary::QueueWriteLocked(const std::string& latin_key,
 void UserDictionary::RecordCommit(const std::string& latin_key,
                                   const std::wstring& word) {
   if (latin_key.empty() || word.empty()) return;
+  const int64_t when = NowSeconds();
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    UserWord& entry = UpsertLocked(latin_key, word, /*frequency=*/1,
-                                   NowSeconds(), /*add_frequencies=*/true);
+    UserWord& entry = UpsertLocked(latin_key, word, /*frequency=*/1, when,
+                                   /*add_frequencies=*/true);
     QueueWriteLocked(latin_key, entry);
   }
   wake_writer_.notify_all();
+
+  // Outside `mutex_` on purpose: the listener talks to another process, and
+  // holding the typing path's lock across that would make a slow engine a
+  // slow IME.
+  CommitListener listener;
+  {
+    std::lock_guard<std::mutex> lock(listener_mutex_);
+    listener = commit_listener_;
+  }
+  if (listener) listener(word, when);
+}
+
+void UserDictionary::set_commit_listener(CommitListener listener) {
+  std::lock_guard<std::mutex> lock(listener_mutex_);
+  commit_listener_ = std::move(listener);
+}
+
+std::vector<UserWordUse> UserDictionary::WordsByUse() const {
+  std::map<std::wstring, UserWordUse> by_word;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (const auto& [latin, words] : entries_) {
+      for (const UserWord& word : words) {
+        UserWordUse& use = by_word[word.word];
+        use.word = word.word;
+        use.count += word.frequency;
+        use.last_used = std::max(use.last_used, word.last_used);
+      }
+    }
+  }
+  std::vector<UserWordUse> out;
+  out.reserve(by_word.size());
+  for (auto& [word, use] : by_word) out.push_back(std::move(use));
+  std::sort(out.begin(), out.end(),
+            [](const UserWordUse& a, const UserWordUse& b) {
+              if (a.count != b.count) return a.count > b.count;
+              if (a.last_used != b.last_used) return a.last_used > b.last_used;
+              return a.word < b.word;
+            });
+  return out;
 }
 
 ImportResult UserDictionary::ImportFromFile(const std::wstring& path) {

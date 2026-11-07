@@ -263,6 +263,9 @@ TEST(InputProfileTest, ShippedZCodeProfileDescribesAnExternalEngine) {
   EXPECT_TRUE(IsAcceptableEngineMode(profile->engine_mode));
   // ...and it must be declared scored, or the metrics would be read as text.
   EXPECT_TRUE(profile->engine_scored);
+  // The user's own words go to this engine: it is the only thing that can
+  // place them in its own ranking.
+  EXPECT_TRUE(profile->engine_user_words);
 
   // The borrowed range. Getting this wrong would either reject every real
   // candidate or accept arbitrary text from the engine.
@@ -425,6 +428,15 @@ TEST(InputProfileTest, UnusableEngineModeLeavesNone) {
                                         value + "\n"));
     EXPECT_TRUE(registry.Find("r")->engine_mode.empty()) << '[' << value << ']';
   }
+}
+
+TEST(InputProfileTest, UserWordsAreOffUnlessAProfileAsks) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString("id r\nengine zcode_stdio\n"));
+  EXPECT_FALSE(registry.Find("r")->engine_user_words);
+  ASSERT_TRUE(registry.LoadFromString(
+      "id s\nengine zcode_stdio\nengine_user_words yes\n"));
+  EXPECT_TRUE(registry.Find("s")->engine_user_words);
 }
 
 TEST(InputProfileTest, EngineModeIsNotValidatedAgainstAKnownList) {

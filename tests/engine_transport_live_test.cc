@@ -25,6 +25,7 @@
 #include "core/input_profile.h"
 #include "common/string_utils.h"
 #include "core/profile_switch.h"
+#include "core/user_dictionary.h"
 
 namespace paiza {
 namespace {
@@ -487,6 +488,71 @@ TEST(MakeEngineSource, AScoredModeIsParsedAndRankedEndToEnd) {
   // The stub scores its second item higher on purpose, so this fails if the
   // host ranks by position instead of by the engine's score.
   EXPECT_GT(candidates[1].score, candidates[0].score);
+}
+
+// The whole user-word chain against a real process: what the host's own
+// dictionary holds is replayed into the engine when the two are bound, and
+// a commit afterwards reaches it on its own. The stub takes the requests
+// only with --user-words, which is also how the opposite case below gets
+// tested.
+TEST(MakeEngineSource, AUserDictionaryFeedsTheEngineThroughProfileSwitch) {
+  InputProfile profile = StubEngineProfile();
+  profile.engine_user_words = true;
+  profile.engine_args = L"--user-words";
+  std::string reason;
+  auto source = MakeEngineSource(profile, EngineInstallDir(), &reason);
+  ASSERT_NE(source, nullptr) << reason;
+  EXPECT_TRUE(source->user_words_enabled());
+
+  UserDictionary dictionary(L"");  // memory only
+  dictionary.RecordCommit("sain", L"saiyin");
+  dictionary.RecordCommit("sain", L"saiyin");
+
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString(
+      "id stub\nengine " + WideToUtf8(EngineName()) +
+      "\nengine_protocol paiza-engine\nengine_user_words yes\n"));
+  ProfileSwitch sw(&registry, /*session=*/nullptr);
+  ProfileBinding binding;
+  binding.engine_source = source.get();
+  binding.user_dictionary = &dictionary;
+  // Binding is what joins them: the two front-ends that are not this test
+  // do nothing else either.
+  sw.Bind("stub", binding);
+  ASSERT_TRUE(sw.Activate("stub"));
+
+  // A later commit goes through on its own, without another replay.
+  dictionary.RecordCommit("bagsi", L"bagshi");
+  EXPECT_TRUE(source->IsAvailable());
+  EXPECT_TRUE(source->failure().empty());
+  EXPECT_TRUE(source->user_words_enabled());
+}
+
+// The same, with the profile silent about user words: an engine that was
+// never asked for them must not be sent any.
+TEST(MakeEngineSource, AProfileThatDoesNotAskSendsNoUserWords) {
+  std::string reason;
+  auto source =
+      MakeEngineSource(StubEngineProfile(), EngineInstallDir(), &reason);
+  ASSERT_NE(source, nullptr) << reason;
+  EXPECT_FALSE(source->user_words_enabled());
+
+  UserDictionary dictionary(L"");
+  dictionary.RecordCommit("sain", L"saiyin");
+
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString(
+      "id stub\nengine " + WideToUtf8(EngineName()) +
+      "\nengine_protocol paiza-engine\n"));
+  ProfileSwitch sw(&registry, /*session=*/nullptr);
+  ProfileBinding binding;
+  binding.engine_source = source.get();
+  binding.user_dictionary = &dictionary;
+  sw.Bind("stub", binding);
+  ASSERT_TRUE(sw.Activate("stub"));
+  dictionary.RecordCommit("bagsi", L"bagshi");
+  EXPECT_FALSE(source->user_words_enabled());
+  EXPECT_TRUE(source->IsAvailable());
 }
 
 }  // namespace

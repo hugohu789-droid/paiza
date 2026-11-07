@@ -84,6 +84,14 @@ engine_mode      full
 # code-point check below, so the window would simply be empty).
 engine_scored    yes
 
+# The host may hand this engine the words the user has committed, so that
+# the engine ranks them: it is the only place that decision can be made
+# consistently with the engine's own scoring. Storage stays the host's --
+# `user_db` above, one file per profile. Off by default for other profiles,
+# because an engine need only implement the four requests the contract
+# requires and one that never heard of user words should not be sent any.
+engine_user_words yes
+
 # --- what this profile deliberately does not have -------------------------
 
 # No `keymap`: a key mapping turns one key into fixed code points, and ZCode

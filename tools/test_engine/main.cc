@@ -14,6 +14,8 @@
 //   --die       exits after the first request, without answering
 //   --slow-hello  delays only the handshake
 //   --garbage   answers with something that is not OK or ERR
+//   --user-words  accepts the optional USER requests instead of refusing
+//                 them, so a host's user-word path has somewhere to go
 //   --scored    answers with items carrying metrics, the way a scored mode
 //               does, ranking the second item above the first so that a host
 //               honouring the score is distinguishable from one that simply
@@ -26,6 +28,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -80,7 +83,7 @@ std::string Upper(const std::string& text) {
 
 int main(int argc, char** argv) {
   bool hang = false, flood = false, die = false, garbage = false;
-  bool slow_hello = false, scored = false;
+  bool slow_hello = false, scored = false, user_words = false;
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
     if (arg == "--hang") hang = true;
@@ -89,9 +92,11 @@ int main(int argc, char** argv) {
     else if (arg == "--garbage") garbage = true;
     else if (arg == "--slow-hello") slow_hello = true;
     else if (arg == "--scored") scored = true;
+    else if (arg == "--user-words") user_words = true;
   }
 
   std::string keys;
+  std::map<std::string, int> learned;
   std::string line;
   while (std::getline(std::cin, line)) {
     if (!line.empty() && line.back() == '\r') line.pop_back();
@@ -121,6 +126,38 @@ int main(int argc, char** argv) {
     }
     if (flood) {
       Say("OK\t" + std::string(200 * 1024, 'x'));
+      continue;
+    }
+
+    // The user's own words, when asked for. Optional by the contract, so a
+    // run without --user-words falls through to "unknown request" -- which
+    // is the case a host has to survive, and is worth being able to test.
+    if (verb == "USER") {
+      if (!user_words || fields.size() < 2) {
+        Say("ERR\tunknown request");
+        continue;
+      }
+      const std::string& what = fields[1];
+      if (what == "clear") {
+        learned.clear();
+        Say("OK");
+      } else if (what == "learn" && fields.size() >= 4) {
+        learned[fields[3]] += 1;
+        Say("OK");
+      } else if (what == "restore" && fields.size() >= 5) {
+        learned[fields[4]] = std::atoi(fields[2].c_str());
+        Say("OK");
+      } else if (what == "now") {
+        Say("OK");
+      } else if (what == "list") {
+        std::string out = "OK";
+        for (const auto& entry : learned) {
+          out += "\t" + entry.first + ",count:" + std::to_string(entry.second);
+        }
+        Say(out);
+      } else {
+        Say("ERR\tbad USER request");
+      }
       continue;
     }
 

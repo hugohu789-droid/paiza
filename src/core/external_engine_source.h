@@ -28,6 +28,7 @@
 #define PAIZA_CORE_EXTERNAL_ENGINE_SOURCE_H_
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -35,6 +36,7 @@
 #include "core/candidate_source.h"
 #include "core/engine_transport.h"
 #include "core/input_profile.h"
+#include "core/user_dictionary.h"
 
 namespace paiza {
 
@@ -104,6 +106,20 @@ class ExternalEngineSource : public CandidateSource {
   std::vector<Candidate> Query(const std::string& latin_input,
                                size_t max_results) override;
 
+  // The user's own words, handed to the engine so that it can rank them:
+  // the host stores them, the engine decides where they go in the list,
+  // which is the only place that decision can be made consistently with the
+  // engine's own scoring. No-ops unless the profile sets
+  // `engine_user_words`, because an engine is not obliged to understand
+  // them -- and if one rejects them anyway, that is not treated as a
+  // failure: the words are simply dropped and nothing further is sent.
+  //
+  // Times are Unix seconds here and whole days on the wire, which is the
+  // unit the engine's decay half-life is expressed in.
+  void ReplayUserWords(const std::vector<UserWordUse>& words);
+  void LearnCommitted(const std::wstring& word, int64_t unix_seconds);
+  bool user_words_enabled() const { return user_words_ok_; }
+
   // Profile gating, as on the other sources: only the active profile's
   // sources answer queries.
   void set_enabled(bool enabled) { enabled_.store(enabled); }
@@ -130,8 +146,18 @@ class ExternalEngineSource : public CandidateSource {
   std::unique_ptr<EngineTransport> transport_;
   std::atomic<bool> enabled_{true};
   std::string failure_;
+  // One request/response that is allowed to be refused: an engine that does
+  // not implement the user-word commands says ERR, and that is an answer,
+  // not a fault. Returns false on a refusal without killing the engine.
+  bool TryExchange(const std::string& request);
+  // Unix seconds -> the engine's tick, whole days.
+  static std::string Tick(int64_t unix_seconds);
+
   // The Latin input the engine's session currently holds.
   std::string session_latin_;
+  // False once the engine has refused a user-word command, or when the
+  // profile never asked for them.
+  bool user_words_ok_ = false;
 };
 
 }  // namespace paiza
