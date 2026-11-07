@@ -7,9 +7,15 @@ to any one engine. The first implementation is a Mongolian form-code shaper,
 but a conforming engine could produce anything: another script, a prediction
 model, a handwriting recogniser.
 
-Status: contract defined. The host side is implemented and tested against a
-real engine process on all three platforms; what remains is wiring it into the
-three platform frontends (see [input-profiles.md](input-profiles.md)).
+Status: in use. The host side is implemented and tested against a real
+engine process; all three front-ends construct the engine a profile
+declares; the ZCode profile drives
+[zcode-cpp](https://github.com/hugohu789-droid/zcode-cpp) end to end, with
+its candidates rendered by the real candidate window on Windows and Linux
+(screenshots in the project README). What remains is surfacing
+`active_engine_error()` in the three settings dialogs — the value is
+available and tested, no dialog reads it yet. See
+[input-profiles.md](input-profiles.md).
 
 ---
 

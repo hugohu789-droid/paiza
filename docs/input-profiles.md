@@ -511,3 +511,47 @@ dual-licensable. The existing named-pipe service on Windows is the model.
 Increments 1 to 5 do not depend on the external engine port and can land first.
 Every increment must keep the full test suite green and the three-platform CI
 passing.
+
+
+## 8. Where it got to
+
+Increments 1–7a are in. The ZCode profile runs end to end against the real
+engine on Windows and Linux, and the candidate window renders it:
+
+| Windows | Linux |
+|---|---|
+| ![ZCode candidates on Windows](images/zcode-candidates-windows.png) | ![the same list on Linux](images/zcode-candidates-linux-light.png) |
+
+Both are reproducible without installing anything — the engine executable
+has to sit next to the profile files, because that is where the host
+resolves it:
+
+```
+PaizaService.exe --preview-candidates --profiles DIR --profile zcode --query bagsi [--user DB]
+```
+
+```bash
+PAIZA_PROFILES=DIR PAIZA_PROFILE=zcode PAIZA_INPUT=bagsi [PAIZA_USER=DB] OUT_DIR=/tmp ./build/bin/paiza_candidate_preview
+```
+
+Three things were added to the profile after the first rollout, each because
+end-to-end use showed the need:
+
+* **`engine_mode`** (§2.3). The mode was a constant, so a profile could
+  choose *which* engine to run but not *what to ask it for*. It is now the
+  one field the host does not interpret. The ZCode profile asks for `full`:
+  `score` on its own answers with nothing for a word outside the engine's
+  38,743, which is a blank candidate window and nothing to commit.
+* **`engine_scored`**. Items in that mode carry the metrics behind the
+  ranking, so engine candidates can be merged with the host's own instead of
+  merely appended to them.
+* **`engine_user_words`** and the three `engine_habit_*` numbers (§4). The
+  host stores, the engine ranks. `ProfileSwitch::Bind` joins them — one
+  place, not three front-ends — and for such a profile the user dictionary
+  stops answering queries itself, because a source above the engine would
+  pin every committed word to the top for ever and the decay would never
+  show.
+
+Still open: `romanize_query`, `skeleton_input`, `vowel_keys` and
+`inline_default` are parsed and not consumed (7b), and no settings dialog
+shows `active_engine_error()` (7c).

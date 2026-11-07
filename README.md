@@ -45,6 +45,48 @@ That writes `panel_light.png`, `panel_dark.png`, `panel_page2.png` and
 line per column so stem alignment can be verified. See docs/linux-port.md
 and docs/macos-port.md.
 
+### The ZCode profile
+
+The same window, the same code, a different input profile: candidates here
+come from an **external engine process** and are ZCode form code, not
+Unicode Mongolian. Typing `bagsi`:
+
+| Windows | Linux |
+|---|---|
+| ![ZCode candidates on Windows: preedit "bagsi" and seven vertical form-code candidates](docs/images/zcode-candidates-windows.png) | ![The same list rendered by the Linux panel](docs/images/zcode-candidates-linux-light.png) |
+
+These are only legible in a ZCode ("Z52") font — the profile names one.
+A Unicode Mongolian font would render the same code points as the Sibe and
+Manchu letters they are in Unicode: wrong text, not a different look.
+
+Typing a word the engine's 38,743-word dictionary does not hold (`bicig`)
+still gives something to commit — the engine's own reading of what was
+typed, which is what the `full` mode exists for:
+
+![One candidate for bicig: the shaped letters, because the dictionary has no such word](docs/images/zcode-out-of-vocabulary.png)
+
+And the habit model, same query before and after committing what was the
+fourth candidate once:
+
+| No history | After one commit |
+|---|---|
+| ![bagsi ranked by the dictionary alone](docs/images/zcode-candidates-windows.png) | ![the committed word now leads](docs/images/zcode-habit-after.png) |
+
+Reproducible the same way, with a user dictionary passed in — without one
+there are no habits to show:
+
+```
+PaizaService.exe --preview-candidates --profiles data\profiles --profile zcode --query bagsi --user %TEMP%\habit.db
+```
+
+```bash
+PAIZA_PROFILES=data/profiles PAIZA_PROFILE=zcode PAIZA_INPUT=bagsi PAIZA_USER=/tmp/habit.db OUT_DIR=/tmp ./build/bin/paiza_candidate_preview
+```
+
+The engine executable is resolved inside the profiles directory, so
+`zcode_stdio` (or `zcode_stdio.exe`) has to be sitting next to the profile
+files for either of these to find it.
+
 ## Architecture (Windows reference topology)
 
 ```
@@ -208,7 +250,10 @@ Why this is the design's payoff:
 * **Priority-ordered polymorphism.** Each source advertises a `priority()`;
   the engine merges and de-duplicates so user words (200) outrank the
   static lexicon (100) outrank the fallback, with no source-specific code
-  in the merge loop.
+  in the merge loop. (One profile-level exception, below: when an external
+  engine takes the user's words to rank them itself, the user dictionary
+  stops answering queries and becomes storage only -- otherwise it would
+  sit above the engine and pin every committed word to the top for ever.)
 
 For the full class reference — every engine class with its attributes,
 methods and relationships, per-layer diagrams, the search cascade, threading
@@ -294,6 +339,86 @@ and `tune_scoring`.
 External hosts can use the C API in `core/engine_c_api.h`
 (`Engine_Initialize / Search / CommitCandidate / ImportUserDictionary /
 Destroy`).
+
+## Input profiles and external engines
+
+One build serves more than one Mongolian text encoding. An **input profile**
+is the bundle of settings that distinguishes them -- keymap, lexicon, user
+database, candidate font, orthography flags -- as one plain text file per
+profile under `data/profiles/`. Profiles are referenced by a string id, so
+adding one is a data change, not a schema change. See
+**docs/input-profiles.md**.
+
+Two ship today:
+
+| Profile | Text | Candidates from |
+|---|---|---|
+| `unicode` | Unicode Mongolian (GB/T) | the compiled lexicon, the user dictionary, the plain-text dictionary |
+| `zcode` | ZCode form code, the 52 borrowed code points `U+1865..U+18AA` | an **external engine process** |
+
+### The engine contract
+
+A profile may name an engine that Paiza did not write. It runs in **its own
+process** and speaks a line protocol over a pipe -- see
+**docs/engine-contract.md**. Three reasons, in order:
+
+1. **Licence isolation.** Paiza is AGPL-3.0 and is also offered
+   commercially. An engine under an incompatible licence (the first one is
+   GPL-2.0-or-later) is driven across a process boundary instead of being
+   linked in, so the core stays dual-licensable.
+2. **Fault isolation.** On Windows the text service is loaded into
+   arbitrary host applications, including sandboxed browser renderers; a
+   crashing or wedged engine must never reach a host's UI thread.
+3. **Language independence.** An engine can be written in anything that can
+   read and write lines.
+
+The engine only ever reads stdin and writes stdout, on every platform; what
+the host puts behind those two handles differs (overlapped named pipes on
+Windows, so the per-exchange timeout is enforceable; anonymous pipes and
+`poll()` elsewhere), and that is the host's business. The host treats the
+engine as untrusted: a hard timeout per exchange, a response size cap, a
+candidate count cap, and per-candidate validation (valid UTF-8, no control
+characters, no bidirectional overrides, inside the profile's declared
+code-point range) before anything reaches the user's document.
+
+The reference engine is [zcode-cpp](https://github.com/hugohu789-droid/zcode-cpp),
+a C++20 port of the form-code shaper and dictionary of
+[east-mod/ime](https://github.com/east-mod/ime).
+
+### What to ask the engine for
+
+`engine_mode` is the one profile field the host does not interpret: it goes
+into the protocol's `<mode>` field unchanged, so the set of modes belongs to
+the engine and adding one stays a data change. The ZCode profile asks for
+`full` -- dictionary words with every metric behind their ranking, followed
+by the engine's own reading of what was typed. The metrics matter because
+position alone is not enough once the host has candidates of its own to
+merge in; the fallback matters because the engine's dictionary holds 38,743
+words and a mode that answers with words alone leaves the candidate window
+blank for anything outside them.
+
+### The user's own words
+
+**The host stores; the engine ranks.** The user dictionary keeps every
+commit, per profile, in SQLite as it always did. For a profile whose engine
+takes them (`engine_user_words`), `ProfileSwitch::Bind` replays that store
+into the engine at startup and subscribes the engine to later commits, and
+the engine places them in its own ranking. Where a word belongs in a
+candidate list is a question only the thing that scored the rest of the
+list can answer.
+
+The habit model is time-decayed, so an old choice fades instead of ruling
+for ever:
+
+```
+bonus = weight x count/(count + saturation) x 0.5^(days since / half_life)
+```
+
+added to a score the engine normalises to at most 1. The three numbers are
+profile fields (`engine_habit_weight`, `engine_habit_half_life`,
+`engine_habit_saturation`, default `1.0 / 10 / 2`). All of this is optional
+on both sides: an engine that refuses the requests keeps working without
+them, and the host leaves the dictionary answering queries itself.
 
 ## Design decisions
 
