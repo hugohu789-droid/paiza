@@ -163,6 +163,9 @@ engine_codepoints  1865-18AA        # optional: reject candidates outside this
 engine_mode        full             # optional: the <mode> to ask for
 engine_scored      yes              # optional: that mode's items carry metrics
 engine_user_words  yes              # optional: hand it the user's own words
+engine_habit_weight     1.0         # optional: how much a habit may add
+engine_habit_half_life  10.0        # optional: days until it halves
+engine_habit_saturation 2.0         # optional: uses for half strength
 ```
 
 | Field | Required | Meaning |
@@ -176,6 +179,9 @@ engine_user_words  yes              # optional: hand it the user's own words
 | `engine_mode` | no | The `<mode>` to ask for, passed through uninterpreted. One short token, no space. Default `fuzzy`. |
 | `engine_scored` | no | `yes` when that mode's items carry metrics after the text. Default `no`. |
 | `engine_user_words` | no | `yes` to hand this engine the user's own words. Default `no`. |
+| `engine_habit_weight` | no | How much a settled habit may add. Default `1.0`. |
+| `engine_habit_half_life` | no | Days before an unused word's bonus halves. Default `10`. |
+| `engine_habit_saturation` | no | Uses at which the habit is half strength. Default `2`. |
 
 The protocol **version** is deliberately not a profile field. The host knows
 which versions it implements; the profile only declares which protocol the
@@ -195,6 +201,7 @@ everything else.
 
 | Request | Meaning |
 |---|---|
+| `USER options <weight> <half_life> <saturation>` | How to weigh habits, as a set. |
 | `USER now <tick>` | The host's clock now reads this. |
 | `USER learn <tick> <word>` | The user committed `<word>` at `<tick>`. |
 | `USER restore <count> <tick> <word>` | Replay one stored entry. |
@@ -214,6 +221,10 @@ engine's decay should be expressed in. The host sends the same value in
 
 Replaying a store must be idempotent: the host sends `USER clear` and then
 one `restore` per entry at startup, and a restart must not look like use.
+`USER options` goes first, before anything is ranked with the old settings;
+its numbers are plain decimal, never an exponent and never a locale comma.
+An engine may take the words and refuse the settings -- its own are then
+used, and the host does not treat that as a reason to stop sending words.
 
 ## 4. What the host guarantees, and enforces
 
@@ -267,4 +278,12 @@ real process to talk to. Its `--hang`, `--flood`, `--die` and `--garbage`
 flags make it misbehave on command, which is also a convenient way to check
 that a *host* integration handles a bad engine; `--scored` makes it answer
 with items that carry metrics, which is how the scored path above is tested
-without a real dictionary behind it.
+without a real dictionary behind it, and `--user-words` makes it accept the
+optional user-word requests instead of refusing them, so both halves of that
+choice have a live test.
+
+To see any of this rendered rather than asserted, the Windows service's
+`--preview-candidates` and the Linux `paiza_candidate_preview` both assemble
+the sources the way a front-end does, and both take a user dictionary
+(`--user <db>` and `PAIZA_USER=<db>`) -- without one, a profile whose engine
+ranks the user's words has no habits to show.

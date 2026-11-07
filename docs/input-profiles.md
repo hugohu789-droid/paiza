@@ -129,6 +129,9 @@ engine_codepoints  1865-18AA        # optional: reject candidates outside
 engine_mode        full             # optional: what to ask the engine for
 engine_scored      yes              # optional: that mode's items carry metrics
 engine_user_words  yes              # optional: hand it the user's own words
+engine_habit_weight     1.0         # optional: how much a habit may add
+engine_habit_half_life  10.0        # optional: days until it halves
+engine_habit_saturation 2.0         # optional: uses for half strength
 ```
 
 A profile with no `engine` uses only the built-in sources, which is how every
@@ -166,6 +169,22 @@ commits. Done there rather than in each front-end because there are three of
 them, and the one that forgot would be a profile whose habits silently did
 not stick. Off by default, and an engine that refuses the requests keeps
 working without them.
+
+The three `engine_habit_*` fields say how the engine should weigh what was
+typed before:
+
+```
+bonus = weight x count/(count + saturation) x 0.5^(days since / half_life)
+```
+
+added to a score the engine normalises to at most 1, so `weight` is how much
+a settled habit may be worth against a perfect dictionary match, `half_life`
+is how fast an unused word fades, and `saturation` is how many uses it takes
+to be taken seriously. The half-life is 10 days and not 30 because of how
+far one use reaches: a single commit is worth 0.333, and a word the
+dictionary scored 0.938 needs only 0.062 to lead, so at 30 one stray choice
+would stay first for about 73 days -- at 10, about 24. The defaults match
+the reference engine's, so stating none behaves like stating these.
 
 The protocol *version* is deliberately not a profile field: the host knows
 which versions it implements, so the profile only declares which protocol the

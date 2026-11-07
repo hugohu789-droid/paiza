@@ -149,7 +149,7 @@ class ExternalEngineSource : public CandidateSource {
   // One request/response that is allowed to be refused: an engine that does
   // not implement the user-word commands says ERR, and that is an answer,
   // not a fault. Returns false on a refusal without killing the engine.
-  bool TryExchange(const std::string& request);
+  bool TryExchange(const std::string& request, bool disable_on_refusal = true);
   // Unix seconds -> the engine's tick, whole days.
   static std::string Tick(int64_t unix_seconds);
 

@@ -161,6 +161,10 @@ int RunCandidatePreview(const std::wstring& command_line) {
   const std::wstring profiles_dir = FlagValue(command_line, L"--profiles");
   const std::wstring profile_id = FlagValue(command_line, L"--profile");
   const std::wstring query = FlagValue(command_line, L"--query");
+  // A user dictionary makes the preview show what a user who has typed
+  // before actually sees: for a profile whose engine takes the user's words,
+  // that is the only way the habit ranking is visible at all.
+  const std::wstring user_db = FlagValue(command_line, L"--user");
   if (!profiles_dir.empty() && !profile_id.empty()) {
     InputProfileRegistry profiles;
     profiles.LoadFromDirectory(profiles_dir);
@@ -178,6 +182,14 @@ int RunCandidatePreview(const std::wstring& command_line) {
     dictionary->LoadFromFile(ExecutableDirectory() + L"\\dictionary.txt");
     LocalDictionarySource* dictionary_ptr = dictionary.get();
     preview_engine.AddSource(std::move(dictionary));
+
+    std::unique_ptr<UserDictionary> user;
+    UserDictionary* user_ptr = nullptr;
+    if (!user_db.empty()) {
+      user = std::make_unique<UserDictionary>(user_db);
+      user_ptr = user.get();
+      preview_engine.AddSource(std::move(user));
+    }
 
     auto lexicon = std::make_unique<StaticLexicon>();
     StaticLexicon* lexicon_ptr =
@@ -206,6 +218,12 @@ int RunCandidatePreview(const std::wstring& command_line) {
       }
       if (candidate_profile.id == profile->id) {
         binding.engine_source = source_ptr;
+        // Bound to this profile only, and bound at all only because
+        // ProfileSwitch is what joins a user dictionary to an engine --
+        // replaying the stored words into it and subscribing it to later
+        // commits. Previewing without that would show a ranking no user
+        // ever sees.
+        binding.user_dictionary = user_ptr;
       }
       preview_switch.Bind(candidate_profile.id, binding);
     }

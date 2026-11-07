@@ -22,11 +22,16 @@
 // here at all, and it is the Linux half of the same check the Windows
 // service's --preview-candidates does:
 //
-//   PAIZA_PROFILES=data/profiles PAIZA_PROFILE=zcode PAIZA_INPUT=bagsi \
-//   PAIZA_FONT="Z52 Hara Tig" OUT_DIR=/tmp ./build/bin/paiza_candidate_preview
+//   PAIZA_PROFILES=data/profiles PAIZA_PROFILE=zcode PAIZA_INPUT=bagsi
+//   OUT_DIR=/tmp ./build/bin/paiza_candidate_preview
 //
 // The engine executable is resolved inside PAIZA_PROFILES, exactly as the
 // host resolves it inside the install directory.
+//
+// PAIZA_USER names a user dictionary (SQLite). With one, the panel shows
+// what a user who has typed before actually sees: for a profile whose
+// engine takes the user's words, that is the only way the habit ranking
+// shows up at all.
 
 #include <cairo.h>
 
@@ -44,6 +49,7 @@
 #include "core/key_mapping_store.h"
 #include "core/local_dictionary_source.h"
 #include "core/profile_switch.h"
+#include "core/user_dictionary.h"
 
 namespace {
 
@@ -83,6 +89,7 @@ int main() {
   std::string font = std::getenv("PAIZA_FONT") ?: "Noto Sans Mongolian";
   const std::string profiles_dir = std::getenv("PAIZA_PROFILES") ?: "";
   const std::string profile_id = std::getenv("PAIZA_PROFILE") ?: "";
+  const std::string user_db = std::getenv("PAIZA_USER") ?: "";
 
   auto dictionary = std::make_unique<paiza::LocalDictionarySource>();
   const size_t loaded =
@@ -93,6 +100,16 @@ int main() {
 
   paiza::CandidateEngine engine;
   engine.AddSource(std::move(dictionary));
+
+  paiza::UserDictionary* user_ptr = nullptr;
+  if (!user_db.empty()) {
+    auto user = std::make_unique<paiza::UserDictionary>(
+        paiza::Utf8ToWide(user_db));
+    user_ptr = user.get();
+    std::printf("user dictionary %s: %zu entries\n", user_db.c_str(),
+                user->entry_count());
+    engine.AddSource(std::move(user));
+  }
 
   // The same assembly the front-ends do: load the profiles, start the one
   // engine this profile declares, and gate every source through
@@ -135,7 +152,12 @@ int main() {
       if (candidate.id == paiza::kDefaultProfileId) {
         binding.local_dictionary = dictionary_ptr;
       }
-      if (candidate.id == profile->id) binding.engine_source = engine_ptr;
+      if (candidate.id == profile->id) {
+        binding.engine_source = engine_ptr;
+        // ProfileSwitch is what joins the two: it replays the stored words
+        // into the engine and subscribes it to later commits.
+        binding.user_dictionary = user_ptr;
+      }
       profile_switch->Bind(candidate.id, binding);
     }
     profile_switch->Activate(profile->id);

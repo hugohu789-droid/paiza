@@ -116,6 +116,18 @@ struct InputProfile {
   // need only implement the four requests the contract requires, and one
   // that has never heard of user words should not be sent any.
   bool engine_user_words = false;
+  // How the engine should weigh what the user has typed before. Only
+  // meaningful with `engine_user_words`, and sent as a set because they only
+  // mean anything together (docs/engine-contract.md):
+  //
+  //   bonus = weight * count/(count + saturation) * 0.5^(days since / half_life)
+  //
+  // added to a score the engine normalises to at most 1. The defaults match
+  // the reference engine's, so a profile that states none gets the same
+  // behaviour as one that states these.
+  float engine_habit_weight = 1.0F;
+  float engine_habit_half_life = 10.0F;
+  float engine_habit_saturation = 2.0F;
   // Where the engine sits among candidate sources; 0 means the host default.
   int engine_priority = 0;
   // Optional inclusive code-point range a candidate must stay within.

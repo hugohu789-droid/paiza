@@ -495,14 +495,49 @@ TEST(ExternalEngineSourceTest, TimesGoOutAsDays) {
   FakeTransport* t = nullptr;
   auto source = MakeSource(&t, UserWordProfile());
   source->ReplayUserWords(OneUse(L"abc", 4, 86400 * 730 + 500));
-  ASSERT_EQ(t->sent.size(), 3u);
-  EXPECT_EQ(t->sent[1], "USER clear");
-  EXPECT_EQ(t->sent[2], "USER restore 4 730 abc");
+  ASSERT_EQ(t->sent.size(), 4u);
+  EXPECT_EQ(t->sent[2], "USER clear");
+  EXPECT_EQ(t->sent[3], "USER restore 4 730 abc");
 
   t->sent.clear();
   source->LearnCommitted(L"abc", 86400 * 931 + 1);
   ASSERT_EQ(t->sent.size(), 1u);
   EXPECT_EQ(t->sent[0], "USER learn 931 abc");
+}
+
+// The three habit settings travel as a set, before anything is ranked with
+// them, and in a form no locale can reinterpret.
+TEST(ExternalEngineSourceTest, HabitSettingsGoOutFirst) {
+  InputProfile profile = UserWordProfile();
+  profile.engine_habit_weight = 0.5F;
+  profile.engine_habit_half_life = 2.5F;
+  profile.engine_habit_saturation = 4.0F;
+  FakeTransport* t = nullptr;
+  auto source = MakeSource(&t, profile);
+  source->ReplayUserWords({});
+  ASSERT_EQ(t->sent.size(), 3u);
+  EXPECT_EQ(t->sent[1], "USER options 0.5 2.5 4.0");
+  EXPECT_EQ(t->sent[2], "USER clear") << "settings before the words";
+}
+
+TEST(ExternalEngineSourceTest, TheDefaultSettingsAreSentToo) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSource(&t, UserWordProfile());
+  source->ReplayUserWords({});
+  ASSERT_GE(t->sent.size(), 2u);
+  EXPECT_EQ(t->sent[1], "USER options 1.0 10.0 2.0");
+}
+
+// An engine may take the words and not the settings; its own are the same
+// numbers, so that is not worth giving up the words over.
+TEST(ExternalEngineSourceTest, RefusingOnlyTheSettingsKeepsTheWords) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSourceWith(&t, {"ERR\tunknown request"}, UserWordProfile());
+  source->ReplayUserWords(OneUse(L"abc", 3, 86400));
+  EXPECT_TRUE(source->user_words_enabled());
+  ASSERT_EQ(t->sent.size(), 4u);
+  EXPECT_EQ(t->sent[2], "USER clear");
+  EXPECT_EQ(t->sent[3], "USER restore 3 1 abc");
 }
 
 TEST(ExternalEngineSourceTest, ATimeBeforeTheEpochIsClampedNotWrapped) {
@@ -523,17 +558,18 @@ TEST(ExternalEngineSourceTest, ReplayClearsFirstSoARestartIsNotMoreUse) {
   second.last_used = 86400 * 3;
   words.push_back(second);
   source->ReplayUserWords(words);
-  ASSERT_EQ(t->sent.size(), 4u);
-  EXPECT_EQ(t->sent[1], "USER clear");
-  EXPECT_EQ(t->sent[2], "USER restore 2 1 abc");
-  EXPECT_EQ(t->sent[3], "USER restore 1 3 def");
+  ASSERT_EQ(t->sent.size(), 5u);
+  EXPECT_EQ(t->sent[2], "USER clear");
+  EXPECT_EQ(t->sent[3], "USER restore 2 1 abc");
+  EXPECT_EQ(t->sent[4], "USER restore 1 3 def");
 }
 
 // An engine is only obliged to implement four requests. One that refuses
 // these must keep working for everything else.
 TEST(ExternalEngineSourceTest, AnEngineThatRefusesUserWordsIsNotBroken) {
   FakeTransport* t = nullptr;
-  auto source = MakeSourceWith(&t, {"ERR\tunknown command"}, UserWordProfile());
+  auto source = MakeSource(&t, UserWordProfile());
+  t->default_reply = "ERR\tunknown command";  // refuses everything after HELLO
   source->ReplayUserWords(OneUse(L"abc", 3, 86400));
   EXPECT_TRUE(source->IsAvailable()) << "a refusal is an answer, not a fault";
   EXPECT_TRUE(source->failure().empty());
@@ -567,8 +603,8 @@ TEST(ExternalEngineSourceTest, EmptyAndZeroCountEntriesAreSkipped) {
   never_used.count = 0;
   words.push_back(never_used);
   source->ReplayUserWords(words);
-  ASSERT_EQ(t->sent.size(), 2u);
-  EXPECT_EQ(t->sent[1], "USER clear");
+  ASSERT_EQ(t->sent.size(), 3u);
+  EXPECT_EQ(t->sent[2], "USER clear");
 }
 
 }  // namespace

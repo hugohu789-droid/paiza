@@ -4,6 +4,7 @@
 #include "core/external_engine_source.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 
 #include "common/string_utils.h"
@@ -173,6 +174,22 @@ ExternalEngineSource::~ExternalEngineSource() {
   }
 }
 
+// A setting as the protocol wants it: plain digits and at most one point,
+// never the host locale's comma, and never scientific notation.
+namespace {
+std::string SettingText(float value) {
+  if (!(value >= 0) || value > 1e6F) return std::string();  // also catches NaN
+  char buffer[32];
+  std::snprintf(buffer, sizeof(buffer), "%.4f", static_cast<double>(value));
+  std::string text(buffer);
+  // Trim the trailing zeros the fixed format adds, keeping one digit.
+  while (text.size() > 3 && text.back() == '0' && text[text.size() - 2] != '.') {
+    text.pop_back();
+  }
+  return text;
+}
+}  // namespace
+
 std::string ExternalEngineSource::Tick(int64_t unix_seconds) {
   // Whole days: the engine's habit half-life is in ticks, and a day is the
   // unit that makes "a word I used a month ago has faded" mean what it
@@ -181,7 +198,8 @@ std::string ExternalEngineSource::Tick(int64_t unix_seconds) {
   return std::to_string(days);
 }
 
-bool ExternalEngineSource::TryExchange(const std::string& request) {
+bool ExternalEngineSource::TryExchange(const std::string& request,
+                                       bool disable_on_refusal) {
   if (!IsAvailable() || !user_words_ok_) return false;
   if (HasControlChar(request)) return false;
   std::string response;
@@ -195,8 +213,10 @@ bool ExternalEngineSource::TryExchange(const std::string& request) {
   if (fields.empty() || fields[0] != "OK") {
     // The engine does not do this. Stop asking; it is still a good engine
     // for everything else (docs/engine-contract.md: an engine need only
-    // implement HELLO, TYPE, UNTYPE and QUIT).
-    user_words_ok_ = false;
+    // implement HELLO, TYPE, UNTYPE and QUIT). One request is exempt: an
+    // engine that takes the words but not the settings keeps its own, which
+    // are the same numbers, and that is not worth losing the words over.
+    if (disable_on_refusal) user_words_ok_ = false;
     return false;
   }
   return true;
@@ -205,6 +225,17 @@ bool ExternalEngineSource::TryExchange(const std::string& request) {
 void ExternalEngineSource::ReplayUserWords(
     const std::vector<UserWordUse>& words) {
   if (!user_words_ok_ || !IsAvailable()) return;
+  // The settings first: they only mean anything as a set, and they have to
+  // be in force before anything is ranked with them.
+  const std::string weight = SettingText(profile_.engine_habit_weight);
+  const std::string half_life = SettingText(profile_.engine_habit_half_life);
+  const std::string saturation = SettingText(profile_.engine_habit_saturation);
+  if (!weight.empty() && !half_life.empty() && !saturation.empty()) {
+    // An engine that takes the words but not the settings keeps its own,
+    // which are the same numbers; not worth giving up the words over.
+    TryExchange("USER options " + weight + " " + half_life + " " + saturation,
+                /*disable_on_refusal=*/false);
+  }
   if (!TryExchange("USER clear")) return;
   for (const UserWordUse& use : words) {
     if (use.word.empty() || use.count == 0) continue;

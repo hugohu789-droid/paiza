@@ -92,6 +92,28 @@ engine_scored    yes
 # requires and one that never heard of user words should not be sent any.
 engine_user_words yes
 
+# How the engine weighs what has been typed before:
+#
+#   bonus = weight x count/(count + saturation) x 0.5^(days since / half_life)
+#
+# added to a score the engine normalises to at most 1, so `weight` is
+# "how much a settled habit may be worth against a perfect dictionary
+# match". 0 turns the habit off and still offers the user's own words.
+engine_habit_weight      1.0
+
+# Days after which an unused word's bonus halves. 10 and not 30 because of
+# how far one use reaches: a single commit is worth 0.333, and a word the
+# dictionary scored 0.938 needs only 0.062 to lead, so at 30 one stray
+# choice would stay first for about 73 days. At 10 it leads for about 24 --
+# long enough to be useful, short enough to be wrong harmlessly.
+engine_habit_half_life   10.0
+
+# At this many uses the habit is at half strength: smaller learns faster
+# from the first use, larger wants to see a word several times. It never
+# reaches full strength at any setting, so a word used a hundred times
+# cannot bury one used five times for good.
+engine_habit_saturation  2.0
+
 # --- what this profile deliberately does not have -------------------------
 
 # No `keymap`: a key mapping turns one key into fixed code points, and ZCode

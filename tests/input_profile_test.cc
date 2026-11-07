@@ -266,6 +266,11 @@ TEST(InputProfileTest, ShippedZCodeProfileDescribesAnExternalEngine) {
   // The user's own words go to this engine: it is the only thing that can
   // place them in its own ranking.
   EXPECT_TRUE(profile->engine_user_words);
+  // Pinned: the half-life decides how long one stray choice stays in front
+  // of words the user uses more often -- about 24 days at 10, 73 at 30.
+  EXPECT_FLOAT_EQ(profile->engine_habit_weight, 1.0F);
+  EXPECT_FLOAT_EQ(profile->engine_habit_half_life, 10.0F);
+  EXPECT_FLOAT_EQ(profile->engine_habit_saturation, 2.0F);
 
   // The borrowed range. Getting this wrong would either reject every real
   // candidate or accept arbitrary text from the engine.
@@ -437,6 +442,48 @@ TEST(InputProfileTest, UserWordsAreOffUnlessAProfileAsks) {
   ASSERT_TRUE(registry.LoadFromString(
       "id s\nengine zcode_stdio\nengine_user_words yes\n"));
   EXPECT_TRUE(registry.Find("s")->engine_user_words);
+}
+
+TEST(InputProfileTest, ParsesTheHabitSettings) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString(
+      "id r\nengine_habit_weight 0.5\nengine_habit_half_life 2.5\n"
+      "engine_habit_saturation 4\n"));
+  const InputProfile* p = registry.Find("r");
+  ASSERT_NE(p, nullptr);
+  EXPECT_FLOAT_EQ(p->engine_habit_weight, 0.5F);
+  EXPECT_FLOAT_EQ(p->engine_habit_half_life, 2.5F);
+  EXPECT_FLOAT_EQ(p->engine_habit_saturation, 4.0F);
+}
+
+// The defaults are the engine's, so a profile that states nothing behaves
+// exactly like one that states them.
+TEST(InputProfileTest, HabitSettingsDefaultToTheEngines) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString("id r\n"));
+  const InputProfile* p = registry.Find("r");
+  EXPECT_FLOAT_EQ(p->engine_habit_weight, 1.0F);
+  EXPECT_FLOAT_EQ(p->engine_habit_half_life, 10.0F);
+  EXPECT_FLOAT_EQ(p->engine_habit_saturation, 2.0F);
+}
+
+// A profile file is machine-independent, so a decimal comma is a mistake to
+// reject rather than a number to truncate. A bad value keeps the default,
+// like every other malformed field here.
+TEST(InputProfileTest, AMalformedHabitSettingKeepsTheDefault) {
+  for (const char* value : {"1,5", "abc", "-1", "1.2.3", "1e3", " "}) {
+    InputProfileRegistry registry;
+    ASSERT_TRUE(registry.LoadFromString(
+        std::string("id r\nengine_habit_weight ") + value + "\n"));
+    EXPECT_FLOAT_EQ(registry.Find("r")->engine_habit_weight, 1.0F) << value;
+  }
+  // Zero would be a division by zero in the decay.
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString("id r\nengine_habit_half_life 0\n"));
+  EXPECT_FLOAT_EQ(registry.Find("r")->engine_habit_half_life, 10.0F);
+  // But zero weight is meaningful: the habit off, the words still offered.
+  ASSERT_TRUE(registry.LoadFromString("id s\nengine_habit_weight 0\n"));
+  EXPECT_FLOAT_EQ(registry.Find("s")->engine_habit_weight, 0.0F);
 }
 
 TEST(InputProfileTest, EngineModeIsNotValidatedAgainstAKnownList) {

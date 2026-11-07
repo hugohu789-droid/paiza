@@ -29,6 +29,31 @@ std::string Trim(const std::string& text) {
 
 // "yes"/"true"/"1" are true, "no"/"false"/"0" are false, anything else keeps
 // the caller's default so an unrecognised value never silently flips behaviour.
+// A non-negative float, strictly: a profile file is machine-independent, so
+// a comma for a decimal point is a mistake to reject rather than a number to
+// truncate silently. A malformed value leaves the setting at its default,
+// which is how every other malformed field here behaves.
+bool ParseNonNegativeFloat(const std::string& text, float* out) {
+  if (text.empty()) return false;
+  size_t digits = 0;
+  size_t dots = 0;
+  for (const char c : text) {
+    if (c == '.') {
+      if (++dots > 1) return false;
+    } else if (c >= '0' && c <= '9') {
+      ++digits;
+    } else {
+      return false;
+    }
+  }
+  if (digits == 0) return false;
+  char* end = nullptr;
+  const double value = std::strtod(text.c_str(), &end);
+  if (end == nullptr || *end != 0) return false;
+  *out = static_cast<float>(value);
+  return true;
+}
+
 bool ParseBool(const std::string& text, bool fallback) {
   std::string lower;
   lower.reserve(text.size());
@@ -164,6 +189,16 @@ bool InputProfileRegistry::LoadFromString(const std::string& content) {
       profile.engine_scored = ParseBool(value, profile.engine_scored);
     } else if (key == "engine_user_words") {
       profile.engine_user_words = ParseBool(value, profile.engine_user_words);
+    } else if (key == "engine_habit_weight") {
+      ParseNonNegativeFloat(value, &profile.engine_habit_weight);
+    } else if (key == "engine_habit_half_life") {
+      float half_life = 0;
+      // Zero would be a division by zero in the decay; keep the default.
+      if (ParseNonNegativeFloat(value, &half_life) && half_life > 0) {
+        profile.engine_habit_half_life = half_life;
+      }
+    } else if (key == "engine_habit_saturation") {
+      ParseNonNegativeFloat(value, &profile.engine_habit_saturation);
     } else if (key == "engine_priority") {
       profile.engine_priority = std::atoi(value.c_str());
     } else if (key == "engine_codepoints") {
