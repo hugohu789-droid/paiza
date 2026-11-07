@@ -16,6 +16,13 @@
 //   * Treating the engine as untrusted. Its candidates are committed into the
 //     user's document, so every one is validated before it is offered, and a
 //     failing engine is dropped rather than waited on.
+//
+// What kind of answer the engine gives is the profile's `engine_mode`, passed
+// through unchanged: the host does not interpret it, so an engine may offer
+// modes this build has never heard of. The one thing the host does need to
+// know is whether the items carry metrics after the text, which the profile
+// states with `engine_scored`; then the engine's own score is what ranks the
+// candidates, instead of their position in the list.
 
 #ifndef PAIZA_CORE_EXTERNAL_ENGINE_SOURCE_H_
 #define PAIZA_CORE_EXTERNAL_ENGINE_SOURCE_H_
@@ -44,6 +51,22 @@ inline constexpr size_t kEngineMaxCandidateChars = 128;
 // inside the profile's declared code-point range when it declares one.
 // Exposed for testing; ExternalEngineSource applies it to every candidate.
 bool IsAcceptableCandidate(const std::wstring& text, const InputProfile& profile);
+
+// One item of a scored response: the candidate text, then the metrics behind
+// the engine's own ranking, as "text,key:value,key:value...". `text` ends at
+// the first comma.
+struct ScoredItem {
+  std::string text;
+  // The engine's `score:` field, 0 when the item carried none. Relative
+  // within one source, which is all the merge uses it for.
+  double score = 0;
+  bool scored = false;
+};
+
+// Splits one scored item. An item with no comma is all text and no metrics,
+// which is how a mode that was declared scored but answers plainly still
+// yields a usable candidate instead of an empty one. Exposed for testing.
+ScoredItem ParseScoredItem(const std::string& item);
 
 class ExternalEngineSource;
 
@@ -100,6 +123,8 @@ class ExternalEngineSource : public CandidateSource {
   // Brings the engine's session in line with `latin`, returning the
   // candidates for it. Empty on any failure.
   std::vector<std::string> Sync(const std::string& latin, size_t max_results);
+  // The <mode> field this profile asks for, never empty.
+  const std::string& mode() const;
 
   InputProfile profile_;
   std::unique_ptr<EngineTransport> transport_;

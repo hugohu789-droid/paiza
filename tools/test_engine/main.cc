@@ -14,6 +14,10 @@
 //   --die       exits after the first request, without answering
 //   --slow-hello  delays only the handshake
 //   --garbage   answers with something that is not OK or ERR
+//   --scored    answers with items carrying metrics, the way a scored mode
+//               does, ranking the second item above the first so that a host
+//               honouring the score is distinguishable from one that simply
+//               keeps the order
 //
 // Deliberately freestanding: plain stdio, no Paiza headers, so it is also a
 // worked example of how little an engine has to do (contract §5).
@@ -76,7 +80,7 @@ std::string Upper(const std::string& text) {
 
 int main(int argc, char** argv) {
   bool hang = false, flood = false, die = false, garbage = false;
-  bool slow_hello = false;
+  bool slow_hello = false, scored = false;
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
     if (arg == "--hang") hang = true;
@@ -84,6 +88,7 @@ int main(int argc, char** argv) {
     else if (arg == "--die") die = true;
     else if (arg == "--garbage") garbage = true;
     else if (arg == "--slow-hello") slow_hello = true;
+    else if (arg == "--scored") scored = true;
   }
 
   std::string keys;
@@ -136,6 +141,15 @@ int main(int argc, char** argv) {
 
     if (keys.empty()) {
       Say("OK");
+      continue;
+    }
+    if (scored) {
+      // "text,key:value,..." -- the shape a scored mode answers with. The
+      // upper-cased variant comes second but scores higher, so a host that
+      // reads the score puts it first and a host that keeps the engine's
+      // order does not.
+      Say("OK\t" + keys + ",frequency:7,score:0.25\t" + Upper(keys) +
+          ",frequency:9,score:0.75");
       continue;
     }
     Say("OK\t" + keys + "\t" + Upper(keys));

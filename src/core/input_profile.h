@@ -46,6 +46,17 @@ InlineComposition InlineCompositionFromValue(uint32_t value);
 // fallback below.
 inline constexpr char kDefaultProfileId[] = "unicode";
 
+// The <mode> the host sends when a profile names none. "fuzzy" is the only
+// mode docs/engine-contract.md requires of every engine, so an engine that
+// implements the documented minimum still works with a profile that is silent
+// about modes. A profile that wants more says so (data/profiles/zcode.txt).
+inline constexpr char kDefaultEngineMode[] = "fuzzy";
+
+// True when `mode` is usable in the protocol's <mode> field: one token, no
+// space, no control character, and short. The set of *meanings* belongs to
+// the engine, so this checks the shape of the word and nothing else.
+bool IsAcceptableEngineMode(std::string_view mode);
+
 struct InputProfile {
   // Stable key stored in settings and used by ProfileSwitch. Required.
   std::string id;
@@ -85,6 +96,21 @@ struct InputProfile {
   std::string engine_protocol;
   // "stdio" or "pipe"; empty means the platform default.
   std::string engine_transport;
+  // What the host puts in the protocol's <mode> field, which is what decides
+  // the *kind* of answer an engine gives: for the ZCode engine, letter shapes
+  // or dictionary words, with or without the metrics behind the ranking.
+  //
+  // Deliberately opaque to the host: it is passed through unchanged, so an
+  // engine may define modes this build has never heard of, and adding one
+  // stays a data change. Empty means `kDefaultEngineMode`, the one mode every
+  // conforming engine must implement (docs/engine-contract.md).
+  std::string engine_mode;
+  // True when the items the chosen mode returns carry metrics after the text,
+  // as "text,key:value,key:value...". The host then takes the text up to the
+  // first comma and ranks by the `score:` field instead of by list position.
+  // Off unless the profile says otherwise, because a mode that returns plain
+  // text must not have its candidates truncated at a comma.
+  bool engine_scored = false;
   // Where the engine sits among candidate sources; 0 means the host default.
   int engine_priority = 0;
   // Optional inclusive code-point range a candidate must stay within.

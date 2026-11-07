@@ -73,9 +73,54 @@ Two consequences worth stating, because both are easy to get wrong:
 | `SHAPE <mode> <latin>` | Stateless: convert a whole Latin string. |
 | `QUIT` | End the conversation. |
 
-`<mode>` is `severe` (the input is finished) or `fuzzy` (the user is still
-typing, so treat it as a prefix). `[max]` caps the candidate count, `0` meaning
-no cap; `[dedup]` is `0` or `1`.
+`[max]` caps the candidate count, `0` meaning no cap; `[dedup]` is `0` or `1`.
+
+### `<mode>`: what kind of answer
+
+`<mode>` is a bare token naming the kind of answer wanted. The host does not
+interpret it: the profile's `engine_mode` goes into the field unchanged, so an
+engine may define as many modes as it likes and selecting one stays a data
+change. Two are fixed by this contract:
+
+| `<mode>` | Meaning |
+|---|---|
+| `fuzzy` | The user is still typing, so treat the input as a prefix. **Every engine must implement this one**; it is what the host sends when a profile names no mode. |
+| `severe` | The input is finished. |
+
+An engine's own modes are named in its documentation. The reference engine
+adds four (`word`, `score`, `make`, `full`) that answer with dictionary words
+instead of letter shapes; the ZCode profile selects `full`, because that is
+the one that still answers when the word typed is not in its dictionary.
+Which leads to the rule worth stating here, since it is a property of the
+*host* and not of any engine: **a mode that can answer with nothing is not
+usable as an input method's only source.** An empty candidate window gives
+the user nothing to commit.
+
+An unknown mode must be rejected with `ERR`, and the rejection must change
+nothing — which is also what makes a wrong `engine_mode` in a profile
+diagnosable, rather than silently producing different text.
+
+#### Items that carry their own score
+
+By default an item is the candidate text and nothing else. A mode may instead
+answer with the text followed by the metrics behind the engine's own ranking:
+
+```
+<text>,<key>:<value>,<key>:<value>...
+```
+
+The text ends at the **first comma**, so such a mode is only usable for text
+that cannot contain one. A profile opts in with `engine_scored yes`, and the
+host then ranks those candidates by the item's `score:` field instead of by
+their position in the list. Any other key is ignored, and an item with no
+comma is treated as plain text, so an engine may carry whatever else it finds
+useful.
+
+This exists because position is not enough once the host has candidates of its
+own to merge in: a user's own word or a learned habit has to be placed
+*within* the engine's list, which needs the number the engine actually ranked
+by. An engine that has such a number should expose it; one that does not need
+not.
 
 ### Responses
 
@@ -115,6 +160,8 @@ engine_protocol    paiza-engine     # what HELLO must report
 engine_transport   stdio            # optional: stdio | pipe
 engine_priority    90               # optional: CandidateSource priority
 engine_codepoints  1865-18AA        # optional: reject candidates outside this
+engine_mode        full             # optional: the <mode> to ask for
+engine_scored      yes              # optional: that mode's items carry metrics
 ```
 
 | Field | Required | Meaning |
@@ -125,6 +172,8 @@ engine_codepoints  1865-18AA        # optional: reject candidates outside this
 | `engine_transport` | no | `stdio` or `pipe`. A hint about how the *host* backs the engine's standard handles; the engine is unaffected either way (§2.1). Defaults per platform. |
 | `engine_priority` | no | Where the engine sits among candidate sources. Default is below the compiled lexicon. |
 | `engine_codepoints` | no | Hex range `LOW-HIGH`. Candidates containing anything outside it are rejected. |
+| `engine_mode` | no | The `<mode>` to ask for, passed through uninterpreted. One short token, no space. Default `fuzzy`. |
+| `engine_scored` | no | `yes` when that mode's items carry metrics after the text. Default `no`. |
 
 The protocol **version** is deliberately not a profile field. The host knows
 which versions it implements; the profile only declares which protocol the
@@ -184,4 +233,6 @@ engine exactly as a shell pipeline does.
 about 150 lines, no Paiza headers -- written so the transport tests have a
 real process to talk to. Its `--hang`, `--flood`, `--die` and `--garbage`
 flags make it misbehave on command, which is also a convenient way to check
-that a *host* integration handles a bad engine.
+that a *host* integration handles a bad engine; `--scored` makes it answer
+with items that carry metrics, which is how the scored path above is tested
+without a real dictionary behind it.

@@ -4,6 +4,7 @@
 #include "core/external_engine_source.h"
 
 #include <algorithm>
+#include <cstdlib>
 
 #include "common/string_utils.h"
 #include "core/engine_path.h"
@@ -50,6 +51,38 @@ bool IsForbiddenInDocument(wchar_t c) {
 }
 
 }  // namespace
+
+ScoredItem ParseScoredItem(const std::string& item) {
+  ScoredItem out;
+  const size_t comma = item.find(',');
+  if (comma == std::string::npos) {
+    out.text = item;
+    return out;
+  }
+  out.text = item.substr(0, comma);
+  // "...,score:0.9616858,..." -- the last field in practice, but found by
+  // name rather than by position, so the order of the metrics is not part of
+  // the contract.
+  static constexpr char kKey[] = ",score:";
+  const size_t at = item.find(kKey, comma);
+  if (at == std::string::npos) return out;
+  const size_t begin = at + sizeof(kKey) - 1;
+  const size_t end = item.find(',', begin);
+  const std::string number =
+      item.substr(begin, end == std::string::npos ? std::string::npos
+                                                  : end - begin);
+  // strtod rather than stod: this runs inside a text service loaded into
+  // other applications, and a malformed number is not worth an exception for.
+  // An unparseable one leaves the item unscored, so it keeps its position in
+  // the list and the candidate is still offered.
+  char* parsed_end = nullptr;
+  const double value = std::strtod(number.c_str(), &parsed_end);
+  if (parsed_end != nullptr && *parsed_end == 0 && !number.empty()) {
+    out.score = value;
+    out.scored = true;
+  }
+  return out;
+}
 
 bool IsAcceptableCandidate(const std::wstring& text,
                            const InputProfile& profile) {
@@ -141,6 +174,13 @@ std::wstring ExternalEngineSource::name() const {
   return L"engine:" + Utf8ToWide(profile_.id);
 }
 
+const std::string& ExternalEngineSource::mode() const {
+  // A profile that names no mode gets the one every conforming engine must
+  // implement, so the documented minimum engine keeps working.
+  static const std::string kFallback = kDefaultEngineMode;
+  return profile_.engine_mode.empty() ? kFallback : profile_.engine_mode;
+}
+
 int ExternalEngineSource::priority() const {
   // Default below the compiled lexicon, so an engine supplements the
   // dictionary rather than displacing it.
@@ -208,7 +248,7 @@ std::vector<std::string> ExternalEngineSource::Sync(const std::string& latin,
 
   if (deleting) {
     for (size_t i = session_latin_.size(); i > latin.size(); --i) {
-      if (!Exchange("UNTYPE 0 fuzzy " + cap, &fields)) return {};
+      if (!Exchange("UNTYPE 0 " + mode() + " " + cap, &fields)) return {};
     }
     session_latin_ = latin;
     return fields;
@@ -218,13 +258,15 @@ std::vector<std::string> ExternalEngineSource::Sync(const std::string& latin,
     // Nothing changed, but the caller still wants the list (a different cap,
     // or a repeated query).
     if (latin.empty()) return {};
-    if (!Exchange("CAND 0 fuzzy " + cap, &fields)) return {};
+    if (!Exchange("CAND 0 " + mode() + " " + cap, &fields)) return {};
     return fields;
   }
 
   for (size_t i = session_latin_.size(); i < latin.size(); ++i) {
     const std::string key(1, latin[i]);
-    if (!Exchange("TYPE 0 " + key + " fuzzy " + cap, &fields)) return {};
+    if (!Exchange("TYPE 0 " + key + " " + mode() + " " + cap, &fields)) {
+      return {};
+    }
   }
   session_latin_ = latin;
   return fields;
@@ -256,13 +298,32 @@ std::vector<Candidate> ExternalEngineSource::Query(
   // fields[0] is "OK"; the rest are candidates. Surplus is discarded even if
   // the engine ignored the cap it was given.
   for (size_t i = 1; i < fields.size() && candidates.size() < limit; ++i) {
-    const std::wstring text = Utf8ToWide(fields[i]);
+    std::string item = fields[i];
+    double engine_score = 0;
+    bool scored = false;
+    if (profile_.engine_scored) {
+      const ScoredItem parsed = ParseScoredItem(item);
+      item = parsed.text;
+      engine_score = parsed.score;
+      scored = parsed.scored;
+    }
+    const std::wstring text = Utf8ToWide(item);
     if (!IsAcceptableCandidate(text, profile_)) continue;
     Candidate candidate;
     candidate.text = text;
     candidate.comment = name();
-    // Ordered by the engine; keep that order by decreasing score.
-    candidate.score = static_cast<int32_t>(limit - candidates.size());
+    if (scored) {
+      // The engine's own score, scaled to the integer the merge sorts on.
+      // Scores from the ZCode engine run roughly 0..3, so the factor keeps
+      // four decimal places; clamped because the number came from the engine
+      // and a cast that overflows int32_t is undefined behaviour.
+      const double scaled =
+          std::min(std::max(engine_score * 10000.0, -1.0e9), 1.0e9);
+      candidate.score = static_cast<int32_t>(scaled);
+    } else {
+      // Ordered by the engine; keep that order by decreasing score.
+      candidate.score = static_cast<int32_t>(limit - candidates.size());
+    }
     candidates.push_back(std::move(candidate));
   }
   return candidates;

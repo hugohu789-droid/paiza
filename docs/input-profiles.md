@@ -126,10 +126,36 @@ engine_protocol    paiza-engine     # what HELLO must report
 engine_transport   stdio            # optional: stdio | pipe
 engine_priority    90               # optional
 engine_codepoints  1865-18AA        # optional: reject candidates outside
+engine_mode        full             # optional: what to ask the engine for
+engine_scored      yes              # optional: that mode's items carry metrics
 ```
 
 A profile with no `engine` uses only the built-in sources, which is how every
 profile shipped so far behaves.
+
+`engine_mode` is the one profile field the host does not interpret: it goes
+into the protocol's `<mode>` field unchanged, so the set of modes belongs to
+the engine and adding one stays a data change. The host checks only that it is
+a single short token, because it is spliced into a space-separated request
+line. A profile that names none gets `fuzzy`, the only mode the contract
+requires of every engine.
+
+Choosing one is not only a matter of taste: **a mode that can answer with
+nothing cannot be an input method's only source.** The ZCode engine's `word`
+and `score` answer with dictionary words alone, so a word outside its
+vocabulary leaves the candidate window empty and the user with nothing to
+commit; `full` is the same list with the engine's own reading of what was
+typed appended, and that is what the shipped profile asks for.
+
+`engine_scored` is the one thing the host does need to know about the chosen
+mode: whether its items are `text,key:value,key:value...` rather than bare
+text. When they are, the host takes the text up to the first comma and ranks
+the candidates by the item's `score:` field instead of by their position in
+the list — which is what lets engine candidates be merged with the host's own
+(a user word, a learned habit) rather than merely appended to them. The two
+fields have to agree: declaring a plain mode scored would cut candidates at a
+comma, and leaving a scored mode undeclared would offer the metrics as part of
+the text.
 
 The protocol *version* is deliberately not a profile field: the host knows
 which versions it implements, so the profile only declares which protocol the

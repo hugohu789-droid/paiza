@@ -74,6 +74,17 @@ InlineComposition InlineCompositionFromValue(uint32_t value) {
   }
 }
 
+bool IsAcceptableEngineMode(std::string_view mode) {
+  // One token: the request is space-separated, so a mode carrying a space
+  // would silently become two fields and shift everything after it.
+  if (mode.empty() || mode.size() > 16) return false;
+  for (const char c : mode) {
+    const auto u = static_cast<unsigned char>(c);
+    if (u <= ' ' || u == 0x7F) return false;
+  }
+  return true;
+}
+
 InputProfile BuiltInUnicodeProfile() {
   InputProfile profile;
   profile.id = kDefaultProfileId;
@@ -144,6 +155,13 @@ bool InputProfileRegistry::LoadFromString(const std::string& content) {
       profile.engine_protocol = value;
     } else if (key == "engine_transport") {
       profile.engine_transport = value;
+    } else if (key == "engine_mode") {
+      // Checked here, like `engine`: a malformed mode would be spliced into
+      // a request line, so a profile that carries one is left with no mode
+      // rather than one the request builder could be handed.
+      if (IsAcceptableEngineMode(value)) profile.engine_mode = value;
+    } else if (key == "engine_scored") {
+      profile.engine_scored = ParseBool(value, profile.engine_scored);
     } else if (key == "engine_priority") {
       profile.engine_priority = std::atoi(value.c_str());
     } else if (key == "engine_codepoints") {

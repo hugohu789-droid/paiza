@@ -467,5 +467,27 @@ TEST(MakeEngineSource, AProfileNeedNotNameAPlatformExtension) {
   EXPECT_FALSE(source->Query("ab", 8).empty());
 }
 
+// The profile's mode reaches a real process, and a scored answer from one is
+// parsed and ranked. The unit tests cover the wire format against a fake
+// transport; this is the same thing end to end, through a pipe.
+TEST(MakeEngineSource, AScoredModeIsParsedAndRankedEndToEnd) {
+  InputProfile profile = StubEngineProfile();
+  profile.engine_args = L"--scored";
+  profile.engine_mode = "score";
+  profile.engine_scored = true;
+  std::string reason;
+  auto source = MakeEngineSource(profile, EngineInstallDir(), &reason);
+  ASSERT_NE(source, nullptr) << reason;
+
+  const std::vector<Candidate> candidates = source->Query("ab", 8);
+  ASSERT_EQ(candidates.size(), 2u);
+  // The metrics are stripped: what is left is committable text.
+  EXPECT_EQ(candidates[0].text, L"ab");
+  EXPECT_EQ(candidates[1].text, L"AB");
+  // The stub scores its second item higher on purpose, so this fails if the
+  // host ranks by position instead of by the engine's score.
+  EXPECT_GT(candidates[1].score, candidates[0].score);
+}
+
 }  // namespace
 }  // namespace paiza

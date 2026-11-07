@@ -313,5 +313,152 @@ TEST(ExternalEngineSourceTest, PriorityDefaultsBelowTheLexicon) {
   EXPECT_EQ(custom->priority(), 150);
 }
 
+// ---- the mode the profile asks for -------------------------------------
+//
+// Which answer an engine gives is the profile's business, and the host is
+// deliberately ignorant of what a mode means: it passes the token through.
+
+TEST(ExternalEngineSourceTest, ModeDefaultsToTheOneEveryEngineImplements) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSourceWith(&t, {"OK\tA"});
+  source->Query("s", 9);
+  ASSERT_EQ(t->sent.size(), 2u);
+  EXPECT_EQ(t->sent[1], "TYPE 0 s fuzzy 9");
+}
+
+TEST(ExternalEngineSourceTest, ProfileModeIsSentVerbatim) {
+  InputProfile profile = EngineProfile();
+  profile.engine_mode = "score";
+  FakeTransport* t = nullptr;
+  auto source = MakeSourceWith(&t, {"OK\tA", "OK\tAB", "OK\tA"}, profile);
+  source->Query("s", 9);
+  source->Query("sa", 9);
+  source->Query("s", 9);
+  ASSERT_EQ(t->sent.size(), 4u);
+  EXPECT_EQ(t->sent[1], "TYPE 0 s score 9");
+  EXPECT_EQ(t->sent[2], "TYPE 0 a score 9");
+  EXPECT_EQ(t->sent[3], "UNTYPE 0 score 9");
+}
+
+TEST(ExternalEngineSourceTest, AModeTheHostDoesNotKnowIsStillSent) {
+  // The host must not hold a list of valid modes: an engine may define its
+  // own, and a profile is how one is selected.
+  InputProfile profile = EngineProfile();
+  profile.engine_mode = "handwriting";
+  FakeTransport* t = nullptr;
+  auto source = MakeSourceWith(&t, {"OK\tA"}, profile);
+  source->Query("s", 9);
+  ASSERT_EQ(t->sent.size(), 2u);
+  EXPECT_EQ(t->sent[1], "TYPE 0 s handwriting 9");
+}
+
+TEST(ExternalEngineSourceTest, CandModeMatchesTypeMode) {
+  InputProfile profile = EngineProfile();
+  profile.engine_mode = "score";
+  FakeTransport* t = nullptr;
+  auto source = MakeSourceWith(&t, {"OK\tA", "OK\tA"}, profile);
+  source->Query("s", 9);
+  t->sent.clear();
+  source->Query("s", 9);  // Same input again: a bare CAND.
+  ASSERT_EQ(t->sent.size(), 1u);
+  EXPECT_EQ(t->sent[0], "CAND 0 score 9");
+}
+
+// ---- scored items ------------------------------------------------------
+
+TEST(ExternalEngineSourceTest, ScoredItemSplitsAtTheFirstComma) {
+  const ScoredItem item = ParseScoredItem(
+      "abc,frequency:110487,frequencyScore:1.0,levenshteinD:0,"
+      "levenshteinScore:0.8181818,jaroWinklerScore:3.0,score:0.9616858");
+  EXPECT_EQ(item.text, "abc");
+  EXPECT_TRUE(item.scored);
+  EXPECT_NEAR(item.score, 0.9616858, 1e-9);
+}
+
+TEST(ExternalEngineSourceTest, AnItemWithoutMetricsIsAllText) {
+  const ScoredItem item = ParseScoredItem("abc");
+  EXPECT_EQ(item.text, "abc");
+  EXPECT_FALSE(item.scored);
+}
+
+TEST(ExternalEngineSourceTest, AMalformedScoreLeavesTheItemUnscored) {
+  const ScoredItem item = ParseScoredItem("abc,frequency:7,score:not-a-number");
+  EXPECT_EQ(item.text, "abc");
+  EXPECT_FALSE(item.scored);
+}
+
+// Java writes small floats in scientific notation ("5.61152E-4") and the
+// ZCode port reproduces that formatting exactly, so the host has to read it.
+TEST(ExternalEngineSourceTest, ScientificNotationIsRead) {
+  const ScoredItem item = ParseScoredItem("abc,frequency:62,score:5.61152E-4");
+  EXPECT_TRUE(item.scored);
+  EXPECT_NEAR(item.score, 0.000561152, 1e-12);
+}
+
+TEST(ExternalEngineSourceTest, ScoredModeStripsTheMetricsFromTheCandidate) {
+  InputProfile profile = EngineProfile();
+  profile.engine_mode = "score";
+  profile.engine_scored = true;
+  FakeTransport* t = nullptr;
+  auto source = MakeSourceWith(
+      &t, {"OK\tabc,frequency:7,score:0.25\tdef,frequency:9,score:0.75"},
+      profile);
+  const std::vector<Candidate> candidates = source->Query("s", 9);
+  ASSERT_EQ(candidates.size(), 2u);
+  // What gets committed is the word alone; the metrics are not part of it.
+  EXPECT_EQ(candidates[0].text, L"abc");
+  EXPECT_EQ(candidates[1].text, L"def");
+  // And the engine's own score is what ranks them, so the merge puts "def"
+  // first even though the engine listed it second.
+  EXPECT_GT(candidates[1].score, candidates[0].score);
+}
+
+// Without the declaration the metrics would be part of the text, which is why
+// the two settings have to agree.
+// The score came from the engine, which is untrusted: a value no int32_t can
+// hold must clamp, not overflow.
+TEST(ExternalEngineSourceTest, AnAbsurdScoreIsClampedNotOverflowed) {
+  InputProfile profile = EngineProfile();
+  profile.engine_mode = "score";
+  profile.engine_scored = true;
+  FakeTransport* t = nullptr;
+  auto source = MakeSourceWith(
+      &t, {"OK\tabc,score:1e300\tdef,score:-1e300"}, profile);
+  const std::vector<Candidate> candidates = source->Query("s", 9);
+  ASSERT_EQ(candidates.size(), 2u);
+  EXPECT_GT(candidates[0].score, candidates[1].score);
+}
+
+TEST(ExternalEngineSourceTest, AnUndeclaredScoredModeKeepsTheWholeItem) {
+  InputProfile profile = EngineProfile();
+  profile.engine_mode = "score";
+  profile.engine_scored = false;
+  FakeTransport* t = nullptr;
+  auto source =
+      MakeSourceWith(&t, {"OK\tabc,frequency:7,score:0.25"}, profile);
+  const std::vector<Candidate> candidates = source->Query("s", 9);
+  ASSERT_EQ(candidates.size(), 1u);
+  EXPECT_EQ(candidates[0].text, L"abc,frequency:7,score:0.25");
+}
+
+// The code-point range is checked against the parsed text, not the raw item:
+// a scored item is full of ASCII, so checking the raw item would reject every
+// candidate from a profile that declares a range.
+TEST(ExternalEngineSourceTest, ScoredTextIsWhatTheCodePointRangeSees) {
+  InputProfile profile = EngineProfile();
+  profile.engine_mode = "score";
+  profile.engine_scored = true;
+  profile.engine_codepoints_set = true;
+  profile.engine_codepoint_low = 0x1865;
+  profile.engine_codepoint_high = 0x18AA;
+  FakeTransport* t = nullptr;
+  // U+1873 U+186A in UTF-8, then the metrics.
+  auto source = MakeSourceWith(
+      &t, {"OK\t\xE1\xA1\xB3\xE1\xA1\xAA,frequency:7,score:0.5"}, profile);
+  const std::vector<Candidate> candidates = source->Query("s", 9);
+  ASSERT_EQ(candidates.size(), 1u);
+  EXPECT_EQ(candidates[0].text, L"ᡳᡪ");
+}
+
 }  // namespace
 }  // namespace paiza

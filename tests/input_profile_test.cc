@@ -254,6 +254,16 @@ TEST(InputProfileTest, ShippedZCodeProfileDescribesAnExternalEngine) {
   EXPECT_TRUE(IsAcceptableEngineName(profile->engine, &why)) << why;
   EXPECT_EQ(profile->engine_protocol, "paiza-engine");
 
+  // The mode the shipped profile asks for. Scored, because that is the only
+  // kind that says why a word ranks where it does, and `full` rather than
+  // `score` because `score` answers with nothing for a word the dictionary
+  // does not hold -- an empty candidate window. Pinned because changing it
+  // changes what every candidate window shows.
+  EXPECT_EQ(profile->engine_mode, "full");
+  EXPECT_TRUE(IsAcceptableEngineMode(profile->engine_mode));
+  // ...and it must be declared scored, or the metrics would be read as text.
+  EXPECT_TRUE(profile->engine_scored);
+
   // The borrowed range. Getting this wrong would either reject every real
   // candidate or accept arbitrary text from the engine.
   EXPECT_TRUE(profile->engine_codepoints_set);
@@ -378,6 +388,51 @@ TEST(InputProfileTest, AcceptableEngineNameIsKept) {
   ASSERT_TRUE(registry.LoadFromString("id r\nengine zcode-stdio\n"));
   EXPECT_TRUE(registry.Find("r")->has_engine());
   EXPECT_EQ(registry.Find("r")->engine, L"zcode-stdio");
+}
+
+// ---- engine_mode -------------------------------------------------------
+
+TEST(InputProfileTest, ParsesEngineModeAndScoredFlag) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString(
+      "id r\nengine zcode_stdio\nengine_mode score\nengine_scored yes\n"));
+  const InputProfile* p = registry.Find("r");
+  ASSERT_NE(p, nullptr);
+  EXPECT_EQ(p->engine_mode, "score");
+  EXPECT_TRUE(p->engine_scored);
+}
+
+TEST(InputProfileTest, ProfileWithoutAModeLeavesItToTheHostDefault) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString("id r\nengine zcode_stdio\n"));
+  const InputProfile* p = registry.Find("r");
+  ASSERT_NE(p, nullptr);
+  // Empty, not "fuzzy": the profile said nothing, and what to send instead is
+  // the engine source's decision (kDefaultEngineMode).
+  EXPECT_TRUE(p->engine_mode.empty());
+  EXPECT_FALSE(p->engine_scored);
+}
+
+// A mode is spliced into a space-separated request line, so one that is not a
+// single token would shift every field after it. Checked when the profile is
+// read, as the engine name is.
+TEST(InputProfileTest, UnusableEngineModeLeavesNone) {
+  const char* bad[] = {"two words", "with\ttab", "", "x x",
+                       "sixteen-plus-characters-long"};
+  for (const char* value : bad) {
+    InputProfileRegistry registry;
+    ASSERT_TRUE(registry.LoadFromString(std::string("id r\nengine_mode ") +
+                                        value + "\n"));
+    EXPECT_TRUE(registry.Find("r")->engine_mode.empty()) << '[' << value << ']';
+  }
+}
+
+TEST(InputProfileTest, EngineModeIsNotValidatedAgainstAKnownList) {
+  // The host does not know what modes exist; that belongs to the engine.
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString("id r\nengine_mode handwriting\n"));
+  EXPECT_EQ(registry.Find("r")->engine_mode, "handwriting");
+  EXPECT_TRUE(IsAcceptableEngineMode("handwriting"));
 }
 
 }  // namespace

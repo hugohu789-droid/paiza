@@ -45,6 +45,45 @@ engine_codepoints 1865-18AA
 # `engine_transport` is deliberately omitted: it defaults per platform, and
 # the engine sees plain stdin/stdout either way.
 
+# What kind of answer to ask the engine for. The host passes this through
+# unchanged, so the list of modes belongs to the engine, not to this build.
+# zcode_stdio offers five (docs/engine-contract.md, and that engine's
+# docs/stdio-protocol.md):
+#
+#   severe  letter shapes, the last letter in its final form
+#   fuzzy   letter shapes, the last letter medial or final (still typing)
+#   word    dictionary words, best score first
+#   score   the same words, each with every metric behind its ranking
+#   make    severe shapes and dictionary words merged
+#   full    score, then the severe shapes it does not already contain
+#
+# `full` is the default, and the only one fit for interactive typing. The
+# reasoning in order:
+#
+#   The scored modes are the only ones that say *why* a word ranks where it
+#   does. Without that the host can only keep the order the engine sent,
+#   which stops working the moment there is anything to merge in -- a user
+#   word, a learned habit has to be placed *within* the engine's list.
+#
+#   But the dictionary holds 38,743 words, and people type words that are
+#   not among them. `score` on its own then answers with nothing at all: a
+#   blank candidate window and nothing to commit. (Measured: no candidates
+#   for `surghaghuli`, for `bicig`, and for about a quarter of real word
+#   prefixes.)
+#
+#   `full` appends the splicer's own reading of what was typed for exactly
+#   that case, with the metrics zeroed, so the shapes sort below every real
+#   word on the one scale and the window is never empty.
+engine_mode      full
+
+# Items in that mode are "text,frequency:...,score:..." rather than bare
+# text, so the host takes the text up to the first comma and reads the score.
+# Must match `engine_mode`: saying yes for a mode that answers plainly would
+# cut candidates at a comma, and saying no for a scored mode would offer the
+# metrics as if they were text (and every candidate would then fail the
+# code-point check below, so the window would simply be empty).
+engine_scored    yes
+
 # --- what this profile deliberately does not have -------------------------
 
 # No `keymap`: a key mapping turns one key into fixed code points, and ZCode
