@@ -104,10 +104,16 @@ jobs:
       - name: Build the installer
         working-directory: paiza
         run: |
-          choco install innosetup --no-progress -y
+          # The runner image already has Inno Setup; install only if that
+          # ever stops being true, rather than spending twenty seconds
+          # being told it is already there.
           # Braced: $env:ProgramFiles(x86) does not parse, because the
           # parentheses end the variable name.
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup --no-progress -y
+          }
+          & $iscc `
             /DAppVersion=${{ steps.version.outputs.value }} `
             /DStageDir=..\stage `
             installer\paiza.iss
