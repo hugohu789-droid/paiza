@@ -84,6 +84,29 @@ checkout its `LICENSE`, `NOTICE.md` and `third_party\fonts\z52haratig.ttf`)
 
 The result lands in `installer\Output\`.
 
+## Languages
+
+English and Simplified Chinese, chosen automatically: `ShowLanguageDialog=no`
+with `LanguageDetectionMethod=uilanguage` means a Chinese Windows gets
+Chinese and everything else falls back to the first entry, which is English.
+No language prompt either way — asking is noise when one of two choices is
+the universal fallback.
+
+`i18n/ChineseSimplified.isl` is **vendored on purpose**. Chinese is a
+user-contributed translation and is *not* part of the official Inno Setup
+distribution: some builds bundle it, a clean Chocolatey install does not,
+and the CI runner's did not — which is how this was found, by a red run
+after it had compiled perfectly on a developer machine that happened to
+have the file. The maintainer, source repository and contact are in the
+file's own header, kept intact; it is distributed through
+[jrsoftware.org/files/istrans](https://jrsoftware.org/files/istrans/) for
+exactly this use. If you need certainty about its licence, that header
+names the upstream repository to ask.
+
+To add a language, drop its `.isl` beside that one and add a `[Languages]`
+entry plus the `[CustomMessages]` lines; do not reference
+`compiler:Languages\`, for the reason above.
+
 ## Known gaps
 
 * **Not code-signed.** SmartScreen will warn, and a text service is exactly

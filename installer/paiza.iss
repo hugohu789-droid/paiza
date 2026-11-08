@@ -50,10 +50,25 @@ ArchitecturesInstallIn64BitMode=x64compatible
 ArchitecturesAllowed=x64compatible
 LicenseFile={#StageDir}\LICENSE
 UninstallDisplayName=Paiza Mongolian IME
+; No language prompt: use the OS UI language when there is a translation
+; for it, otherwise English. Asking is noise for a two-language installer
+; where one of them is the universal fallback.
+ShowLanguageDialog=no
+LanguageDetectionMethod=uilanguage
 
 [Languages]
+; English first: with ShowLanguageDialog=no, Inno picks the entry matching
+; the OS UI language and falls back to the *first* one, so a Chinese
+; Windows gets Chinese and everything else gets English, with no language
+; prompt in either case.
+;
+; The Chinese file is vendored in i18n\ rather than taken from
+; compiler:Languages\, because Chinese is a user-contributed translation
+; and is **not** part of the official Inno Setup distribution: some builds
+; bundle it, a clean one from Chocolatey does not, and the CI runner's did
+; not. See installer/README.md for its provenance.
 Name: "en"; MessagesFile: "compiler:Default.isl"
-Name: "zh"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+Name: "zh"; MessagesFile: "i18n\ChineseSimplified.isl"
 
 [CustomMessages]
 en.ZCodeComp=ZCode form-code support (external engine, GPL-2.0-or-later)
