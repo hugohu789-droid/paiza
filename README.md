@@ -420,6 +420,20 @@ profile fields (`engine_habit_weight`, `engine_habit_half_life`,
 on both sides: an engine that refuses the requests keeps working without
 them, and the host leaves the dictionary answering queries itself.
 
+### What else a profile decides
+
+| Field | Effect |
+|---|---|
+| `romanize_query` | Whether a keystroke also queries on the romanization of the preedit. Off for a profile whose preedit is not Unicode Mongolian, where that second key means nothing and only adds noise. |
+| `skeleton_input`, `vowel_keys` | Consonant-skeleton input (`bgs` reaches `bagsi`) and which keys it may skip. An abbreviation convention of one orthography, not a property of lexicon lookup. |
+| `inline_default` | How much of the composition the host application shows in its own document. A *default*: the user's setting wins. ZCode declares `hidden`, because the host renders it in its own font and that font has no glyphs for form code. |
+| `font` | The candidate-window font. The stored setting keeps **one value per profile**, so a form-code face chosen for ZCode does not become the Unicode profile's font; the profile's declaration is the fallback. |
+
+When a profile's engine will not start, the settings dialog says so under
+the profile selector, on all three platforms — and only then. A profile
+that silently produces no candidates is otherwise indistinguishable from a
+dictionary that does not know the word.
+
 ## Design decisions
 
 ### IPC: named pipes (spec item 11)

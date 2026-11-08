@@ -552,6 +552,57 @@ end-to-end use showed the need:
   pin every committed word to the top for ever and the decay would never
   show.
 
-Still open: `romanize_query`, `skeleton_input`, `vowel_keys` and
-`inline_default` are parsed and not consumed (7b), and no settings dialog
-shows `active_engine_error()` (7c).
+### 7b: the four fields now reach something
+
+Each of the four is read by a different layer, which is why they were all
+missed together — none of them belongs to the engine wiring:
+
+| Field | Reaches | Through |
+|---|---|---|
+| `romanize_query` | `InputSession::set_romanize_query` — skips the second, romanized query key | `ProfileSwitch::ApplyTo` |
+| `skeleton_input` | `StaticLexicon::set_skeleton_input` — the consonant-skeleton pass | `ProfileSwitch::Activate`, on the active profile's lexicon only |
+| `vowel_keys` | `StaticLexicon::set_vowel_keys` — which keys that pass may skip | the same |
+| `inline_default` | `ProfileSwitch::active_inline_composition` | each front-end, where it reads the setting |
+
+`inline_default` is the odd one, because it is a *default* and the user's
+setting has to win. The three settings stores therefore say whether they
+actually held a value, as opposed to having handed back their own built-in
+default; without that distinction a profile could never move the setting,
+since the store always has something to say.
+
+On Windows there is a second wrinkle: the text service runs in the host
+application's process and knows nothing about profiles. So the service —
+which does — republishes the active profile's default to
+`InlineCompositionDefault` on every switch, and the text service prefers
+the user's own `InlineComposition` and falls back to that. Writing the
+resolved value into the user's key instead would turn a profile default
+into a user choice, which the next profile switch could not move.
+
+### 7c: per-profile font, and saying why an engine is missing
+
+The candidate font is now **one value per profile**. It has to be: a ZCode
+profile's text is legible only in a form-code font, and a Unicode Mongolian
+font renders those same code points as the Sibe and Manchu letters they are
+in Unicode — different words, not a different look.
+
+Rather than adding a key per profile to three stores, the values are packed
+into the one string each store already keeps
+(`core/profile_settings.h`): `zcode=Z52 Hara Tig;unicode=Noto Sans
+Mongolian`. A string with no `=` is what the user had before this existed
+and answers for every profile, so nothing is lost and it migrates the first
+time they change a font. Resolution is
+`ProfileSwitch::active_candidate_font`: the user's choice for this profile,
+else the font the profile declares, else the built-in default.
+
+`active_engine_error()` now appears under the profile selector in all three
+dialogs, and only when there is one — it is not a status line. The route
+differs by platform, for a reason that is structural rather than
+incidental:
+
+| | Where the dialog lives | How it learns |
+|---|---|---|
+| Windows | inside the service, which owns the switch | asks it directly |
+| macOS | inside the input controller, likewise | asks it directly |
+| Linux | a **separate process** from the ibus engine | the engine writes the reason to `engine-status` beside `settings.ini` on every profile switch; the dialog reads it |
+
+Still open: nothing from increments 1–7.

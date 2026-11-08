@@ -72,6 +72,11 @@ class SettingsWindow : public ui::Window {
   // dropdown below the font button.
   void OpenFontPicker();
   void ApplyCandidateFont(const std::wstring& font);
+  // The font in force for the profile the dialog is showing: that profile's
+  // own choice if the user made one, else the font the profile declares,
+  // else the built-in default. The stored setting holds one value per
+  // profile (core/profile_settings.h), so it is never displayed raw.
+  std::wstring EffectiveCandidateFont() const;
   void OpenProfilePicker();
   void ApplyProfile(const std::string& profile_id);
   void OpenInlinePicker();
@@ -105,6 +110,8 @@ class SettingsWindow : public ui::Window {
   ui::Button* font_button_ = nullptr;
   ui::Label* profile_label_ = nullptr;
   ui::Button* profile_button_ = nullptr;
+  // Only visible when the active profile's engine is not working.
+  ui::Label* engine_problem_ = nullptr;
   ui::Label* inline_label_ = nullptr;
   ui::Button* inline_button_ = nullptr;
   ui::Label* user_dict_label_ = nullptr;

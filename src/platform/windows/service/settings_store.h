@@ -45,6 +45,11 @@ struct Settings {
   // private-use profile is usually unreadable in the host's font, so it can
   // be hidden; see docs/input-profiles.md.
   InlineComposition inline_composition = InlineComposition::kFull;
+  // Whether the value above came from the store or is just this struct's
+  // own default. The active profile supplies the default when the user has
+  // not chosen (ProfileSwitch::active_inline_composition), and without this
+  // the profile could never move it.
+  bool inline_composition_set = false;
 };
 
 class SettingsStore {
@@ -53,6 +58,22 @@ class SettingsStore {
   static Settings Load();
   static void Save(const Settings& settings);
 };
+
+// Publishes the active profile's inline-composition default where the TSF
+// can read it. The text service runs in another process and knows nothing
+// about profiles, so the service -- which does -- leaves the profile's
+// default beside the user's setting. The TSF prefers the user's and falls
+// back to this, which keeps "the profile supplies the default, the user
+// setting wins" true across the process boundary. Writing the resolved
+// value into the user's own key instead would turn a profile default into
+// a user choice, and the next profile switch could not move it.
+void PublishInlineCompositionDefault(InlineComposition value);
+
+// Publishes the candidate font resolved for the active profile, for the
+// same reason and by the same route: the text service cannot resolve it
+// itself, because the answer depends on the profile and on what the profile
+// declares, neither of which that process knows.
+void PublishCandidateFont(const std::wstring& family);
 
 }  // namespace paiza::service
 

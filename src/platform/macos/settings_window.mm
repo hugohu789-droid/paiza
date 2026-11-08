@@ -3,6 +3,8 @@
 
 #import "settings_window.h"
 
+#import "paiza_input_controller.h"  // paiza::macos::SharedProfileSwitch
+
 #import <CoreText/CoreText.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
@@ -20,6 +22,8 @@
 #include "core/key_mapping_store.h"
 #include "core/input_profile.h"
 #include "core/localization.h"
+#include "core/profile_settings.h"
+#include "core/profile_switch.h"
 #include "core/mapping_preview.h"
 #include "core/user_dictionary.h"
 
@@ -176,6 +180,11 @@ bool FontSupportsMongolian(NSString* family) {
 @end
 
 @interface PaizaSettingsWindowController () <NSWindowDelegate>
+// The font in force for the profile on display: that profile's own choice
+// if the user made one, else the font the profile declares, else the
+// built-in default. The setting holds one value per profile
+// (core/profile_settings.h), so it is never used raw.
+- (std::wstring)effectiveCandidateFont;
 @end
 
 @implementation PaizaSettingsWindowController {
@@ -205,6 +214,8 @@ bool FontSupportsMongolian(NSString* family) {
   NSPopUpButton* _languagePopup;
   NSTextField* _fontLabel;
   NSTextField* _profileLabel;
+  // Only visible when the active profile's engine is not working.
+  NSTextField* _engineProblem;
   NSPopUpButton* _profilePopup;
   NSTextField* _inlineLabel;
   NSPopUpButton* _inlinePopup;
@@ -235,6 +246,15 @@ bool FontSupportsMongolian(NSString* family) {
     _userDictionary = userDictionary;
   }
   return self;
+}
+
+- (std::wstring)effectiveCandidateFont {
+  const std::wstring chosen = paiza::PerProfileValue(
+      _settings.candidate_font, _settings.active_profile);
+  if (!chosen.empty()) return chosen;
+  const paiza::InputProfile* active = _profiles.Find(_settings.active_profile);
+  if (active != nullptr && !active->font.empty()) return active->font;
+  return L"Noto Sans Mongolian";
 }
 
 - (void)showSettings {
@@ -389,6 +409,19 @@ bool FontSupportsMongolian(NSString* family) {
   _profilePopup.action = @selector(profileChanged:);
   [_background addSubview:_profilePopup];
   row += kRowHeight + 6;
+
+  // Why the active profile's engine is not working, when it is not. Hidden
+  // while it is fine: the case it exists for is a profile that silently
+  // produces no candidates because its engine never started, which
+  // otherwise looks like the dictionary not knowing the word.
+  _engineProblem = [self addLabel:NSMakeRect(card1_x, row,
+                                             controls_right - card1_x,
+                                             kRowHeight)
+                             size:12
+                             bold:NO
+                            color:[NSColor systemRedColor]];
+  _engineProblem.hidden = YES;
+  row += kRowHeight;
 
   // Row: how much of the composition the host shows inline.
   _inlineLabel = [self addLabel:NSMakeRect(card1_x, row, 200, kRowHeight)
@@ -612,6 +645,17 @@ bool FontSupportsMongolian(NSString* family) {
   _languageLabel.stringValue = Ns(s.language_label);
   _fontLabel.stringValue = Ns(s.candidate_font_label);
   _profileLabel.stringValue = Ns(s.profile_label);
+  {
+    paiza::ProfileSwitch* sw = paiza::macos::SharedProfileSwitch();
+    const std::string why =
+        sw != nullptr ? sw->active_engine_error() : std::string();
+    _engineProblem.hidden = why.empty();
+    if (!why.empty()) {
+      _engineProblem.stringValue =
+          [NSString stringWithFormat:@"%@: %s", Ns(s.engine_problem_label),
+                                     why.c_str()];
+    }
+  }
   _inlineLabel.stringValue = Ns(s.inline_composition_label);
   // Order matches the InlineComposition enum, so the index is the value.
   [_inlinePopup removeAllItems];
@@ -678,7 +722,7 @@ bool FontSupportsMongolian(NSString* family) {
       sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
 
   NSInteger selected = 0;
-  const NSString* current = NsW(_settings.candidate_font);
+  const NSString* current = NsW([self effectiveCandidateFont]);
   // Mongolian-capable fonts first (marked with U+1820), then the rest.
   for (NSString* family in sorted_mn) {
     [_fontPopup addItemWithTitle:[family stringByAppendingString:@"  ᠠ"]];
@@ -712,7 +756,7 @@ bool FontSupportsMongolian(NSString* family) {
                                      : NSControlStateValueOff;
   // Live preview of the chosen candidate font, drawn as connected
   // vertical Mongolian by PaizaVerticalSampleView.
-  _verticalSample.fontFamily = NsW(_settings.candidate_font);
+  _verticalSample.fontFamily = NsW([self effectiveCandidateFont]);
   _verticalSample.needsDisplay = YES;
 
   const bool enabled[5] = {_settings.equiv_ou, _settings.equiv_qv,
@@ -840,7 +884,11 @@ bool FontSupportsMongolian(NSString* family) {
   (void)sender;
   NSString* family = _fontPopup.selectedItem.representedObject;
   if (family.length == 0) return;  // Separator row.
-  _settings.candidate_font = paiza::Utf8ToWide([family UTF8String]);
+  // Stored against the profile on display, so choosing a form-code face
+  // for ZCode does not also change what the Unicode profile uses.
+  _settings.candidate_font = paiza::SetPerProfileValue(
+      _settings.candidate_font, _settings.active_profile,
+      paiza::Utf8ToWide([family UTF8String]));
   [self refreshValues];
 }
 

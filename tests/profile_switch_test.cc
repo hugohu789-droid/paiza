@@ -20,6 +20,7 @@
 #include "core/input_session.h"
 #include "core/key_mapping_store.h"
 #include "core/local_dictionary_source.h"
+#include "core/static_lexicon.h"
 #include "core/user_dictionary.h"
 
 namespace paiza {
@@ -298,6 +299,126 @@ TEST_F(ProfileSwitchTest, LocalDictionaryStaysUnavailableWhenEmpty) {
 TEST_F(ProfileSwitchTest, RegistryAccessorReturnsTheRegistry) {
   ProfileSwitch sw(&registry_, nullptr);
   EXPECT_EQ(sw.registry(), &registry_);
+}
+
+// ---- behaviour fields a non-Unicode profile needs ----------------------
+//
+// Four profile fields used to be parsed and then ignored, so a profile could
+// state them correctly and nothing happened. These pin that each one now
+// reaches the thing that acts on it.
+
+TEST_F(ProfileSwitchTest, RomanizeQueryFollowsTheProfile) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString("id yes\nromanize_query yes\n"));
+  ASSERT_TRUE(registry.LoadFromString("id no\nromanize_query no\n"));
+  InputSession session(&engine_, &mappings_);
+  ProfileSwitch sw(&registry, &session);
+  sw.Bind("yes", ProfileBinding());
+  sw.Bind("no", ProfileBinding());
+
+  ASSERT_TRUE(sw.Activate("yes"));
+  EXPECT_TRUE(session.romanize_query());
+  ASSERT_TRUE(sw.Activate("no"));
+  EXPECT_FALSE(session.romanize_query())
+      << "a profile whose preedit is not Unicode Mongolian must be able to "
+         "switch off the second, romanized query key";
+  ASSERT_TRUE(sw.Activate("yes"));
+  EXPECT_TRUE(session.romanize_query()) << "and switching back restores it";
+}
+
+TEST_F(ProfileSwitchTest, RomanizeQueryDefaultsOnForAProfileThatIsSilent) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString("id q\n"));
+  InputSession session(&engine_, &mappings_);
+  ProfileSwitch sw(&registry, &session);
+  sw.Bind("q", ProfileBinding());
+  ASSERT_TRUE(sw.Activate("q"));
+  EXPECT_TRUE(session.romanize_query());
+}
+
+TEST_F(ProfileSwitchTest, SkeletonInputAndVowelKeysReachTheLexicon) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString("id on\nskeleton_input yes\n"));
+  ASSERT_TRUE(registry.LoadFromString(
+      "id off\nskeleton_input no\nvowel_keys xyz\n"));
+  StaticLexicon lexicon;  // Not loaded; only the settings matter here.
+  ProfileSwitch sw(&registry, /*session=*/nullptr);
+  ProfileBinding binding;
+  binding.static_lexicon = &lexicon;
+  sw.Bind("on", binding);
+  sw.Bind("off", binding);
+
+  ASSERT_TRUE(sw.Activate("on"));
+  EXPECT_TRUE(lexicon.skeleton_input());
+  ASSERT_TRUE(sw.Activate("off"));
+  EXPECT_FALSE(lexicon.skeleton_input())
+      << "consonant-skeleton input is a convention of one orthography, not a "
+         "property of lexicon lookup";
+}
+
+// The setting is only a *default*: it must not overrule a user who chose.
+TEST_F(ProfileSwitchTest, InlineCompositionPrefersTheUsersChoice) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString("id full\ninline_default full\n"));
+  ASSERT_TRUE(registry.LoadFromString("id hidden\ninline_default hidden\n"));
+  ProfileSwitch sw(&registry, /*session=*/nullptr);
+  sw.Bind("full", ProfileBinding());
+  sw.Bind("hidden", ProfileBinding());
+
+  ASSERT_TRUE(sw.Activate("hidden"));
+  EXPECT_EQ(sw.active_inline_composition(/*user_set=*/false,
+                                         InlineComposition::kFull),
+            InlineComposition::kHidden)
+      << "no choice of the user's, so the profile's default";
+  EXPECT_EQ(sw.active_inline_composition(/*user_set=*/true,
+                                         InlineComposition::kFull),
+            InlineComposition::kFull)
+      << "the user chose, so the user wins";
+
+  ASSERT_TRUE(sw.Activate("full"));
+  EXPECT_EQ(sw.active_inline_composition(/*user_set=*/false,
+                                         InlineComposition::kHidden),
+            InlineComposition::kFull);
+}
+
+TEST_F(ProfileSwitchTest, InlineCompositionWithoutAnActiveProfile) {
+  InputProfileRegistry registry;
+  ProfileSwitch sw(&registry, /*session=*/nullptr);
+  EXPECT_EQ(sw.active_inline_composition(/*user_set=*/false,
+                                         InlineComposition::kHidden),
+            InlineComposition::kFull);
+  EXPECT_EQ(sw.active_inline_composition(/*user_set=*/true,
+                                         InlineComposition::kHidden),
+            InlineComposition::kHidden);
+}
+
+// The shipped ZCode profile is the reason these exist; pin what it asks for.
+TEST_F(ProfileSwitchTest, TheShippedZCodeProfileGetsWhatItDeclares) {
+  InputProfileRegistry registry;
+  const std::filesystem::path dir =
+      std::filesystem::path(PAIZA_SOURCE_DIR) / "data" / "profiles";
+  ASSERT_GE(registry.LoadFromDirectory(dir.wstring()), 2);
+  StaticLexicon lexicon;
+  InputSession session(&engine_, &mappings_);
+  ProfileSwitch sw(&registry, &session);
+  ProfileBinding binding;
+  binding.static_lexicon = &lexicon;
+  sw.Bind("zcode", binding);
+  sw.Bind("unicode", binding);
+
+  ASSERT_TRUE(sw.Activate("zcode"));
+  EXPECT_FALSE(session.romanize_query());
+  EXPECT_FALSE(lexicon.skeleton_input());
+  EXPECT_EQ(sw.active_inline_composition(/*user_set=*/false,
+                                         InlineComposition::kFull),
+            InlineComposition::kHidden);
+
+  ASSERT_TRUE(sw.Activate("unicode"));
+  EXPECT_TRUE(session.romanize_query());
+  EXPECT_TRUE(lexicon.skeleton_input());
+  EXPECT_EQ(sw.active_inline_composition(/*user_set=*/false,
+                                         InlineComposition::kHidden),
+            InlineComposition::kFull);
 }
 
 }  // namespace

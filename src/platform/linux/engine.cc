@@ -249,6 +249,11 @@ void ApplyCurrentSettings(PaizaEngine* engine) {
   // Gate the candidate sources to the selected profile. An unknown id leaves
   // the previous selection in place rather than half-switching.
   SharedProfileSwitch()->Activate(settings.active_profile);
+  // The settings dialog is another process here, so it cannot ask the
+  // switch why an engine is missing. Leave the answer where it can read it,
+  // rewritten on every switch so it is never stale.
+  paiza::linux_ime::WriteEngineStatus(
+      SharedProfileSwitch()->active_engine_error());
   if (g_cloud_source != nullptr) {
     g_cloud_source->set_enabled(settings.cloud_source_enabled);
   }
@@ -319,7 +324,15 @@ void SyncState(PaizaEngine* engine) {
     // renders it in its own font. A placeholder keeps the preedit non-empty
     // so cursor-following clients still have something to anchor to.
     std::wstring inline_text = session->preedit();
-    switch (engine->state->settings.Get().inline_composition) {
+    // The user's choice when they made one, otherwise the active profile's
+    // default -- which for a form-code profile is "nothing", because the
+    // client renders the preedit in its own font and that font has no
+    // glyphs for form code.
+    const auto& settings = engine->state->settings.Get();
+    const paiza::InlineComposition inline_mode =
+        SharedProfileSwitch()->active_inline_composition(
+            settings.inline_composition_set, settings.inline_composition);
+    switch (inline_mode) {
       case paiza::InlineComposition::kHidden:
         inline_text.clear();
         break;
@@ -339,8 +352,12 @@ void SyncState(PaizaEngine* engine) {
                                     static_cast<guint>(length), TRUE);
 
     if (window != nullptr) {
+      // Per profile: form code is unreadable in a Unicode Mongolian font
+      // and the other way round, so the stored setting holds one value per
+      // profile and the profile's own declaration is the fallback.
       window->SetFont(paiza::WideToUtf8(
-          engine->state->settings.Get().candidate_font));
+          SharedProfileSwitch()->active_candidate_font(
+              settings.candidate_font, L"Noto Sans Mongolian")));
       window->UpdateFromSession(session);
       // cursor_area holds the caret rectangle in root coordinates,
       // refreshed by the client through set-cursor-location.

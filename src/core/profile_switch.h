@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "core/input_profile.h"
+#include "core/profile_settings.h"
 
 namespace paiza {
 
@@ -95,6 +96,34 @@ class ProfileSwitch {
   // pointer, or they would write into the previous profile's store.
   UserDictionary* active_user_dictionary() const;
   StaticLexicon* active_static_lexicon() const;
+
+  // How much of the composition to show inline, for the active profile.
+  //
+  // A profile supplies the *default* and the user's choice wins, which is
+  // why both have to be weighed in one place: `user_set` says whether the
+  // settings store actually held a value, as opposed to having handed back
+  // its own built-in default. Without that distinction a profile could
+  // never move the setting, because the store always has something to say.
+  //
+  // It matters most where it is not a preference at all: the ZCode profile
+  // declares `inline_default hidden` because the host application renders
+  // the composition in its own font, which has no glyphs for form code, so
+  // showing it inline produces visible nonsense rather than a different
+  // look.
+  InlineComposition active_inline_composition(
+      bool user_set, InlineComposition user_value) const;
+
+  // The candidate font for the active profile: the user's own choice for
+  // this profile when they made one, otherwise the font the profile
+  // declares, otherwise `fallback`.
+  //
+  // Per profile because it is not only taste. A ZCode profile's text is
+  // legible solely in a form-code font, and a Unicode Mongolian font
+  // renders the same code points as the Sibe and Manchu letters they are
+  // in Unicode -- different words. `packed_user_choice` is the one string
+  // the platform settings store keeps (core/profile_settings.h).
+  std::wstring active_candidate_font(std::wstring_view packed_user_choice,
+                                     std::wstring_view fallback) const;
 
   // Why the active profile's engine is not working, for the settings page to
   // show. Empty when the profile declares no engine, or when its engine is

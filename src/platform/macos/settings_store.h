@@ -50,6 +50,11 @@ struct Settings {
   // private-use profile is usually unreadable in the host's font, so it can
   // be hidden; see docs/input-profiles.md.
   InlineComposition inline_composition = InlineComposition::kFull;
+  // Whether the value above came from the store, as opposed to being this
+  // struct's own default. The active profile supplies the default when the
+  // user has not chosen (ProfileSwitch::active_inline_composition), and
+  // without this the profile could never move it.
+  bool inline_composition_set = false;
 };
 
 class SettingsStore {

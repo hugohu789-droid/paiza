@@ -10,5 +10,18 @@
 #import <Cocoa/Cocoa.h>
 #import <InputMethodKit/InputMethodKit.h>
 
+#include "core/profile_switch.h"
+
+namespace paiza::macos {
+
+// The one ProfileSwitch this process has, built on first use. Exposed
+// because the settings window lives in the same process and has to ask it
+// why the active profile's candidate engine is not working -- it is the
+// only thing that knows, and on this platform no file has to carry the
+// answer across a process boundary as it does on Linux.
+ProfileSwitch* SharedProfileSwitch();
+
+}  // namespace paiza::macos
+
 @interface PaizaInputController : IMKInputController
 @end

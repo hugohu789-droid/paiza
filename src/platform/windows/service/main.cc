@@ -66,6 +66,13 @@ void ApplySettings(const Settings& settings) {
   // the previous selection in place rather than half-switching.
   if (g_profile_switch != nullptr) {
     g_profile_switch->Activate(settings.active_profile);
+    // The text service is another process and knows nothing about
+    // profiles, so leave the active profile's inline-composition default
+    // where it can read it. It prefers the user's own setting.
+    PublishInlineCompositionDefault(g_profile_switch->active_inline_composition(
+        /*user_set=*/false, InlineComposition::kFull));
+    PublishCandidateFont(g_profile_switch->active_candidate_font(
+        settings.candidate_font, L"Noto Sans Mongolian"));
   }
   if (g_cloud_source != nullptr) {
     g_cloud_source->set_enabled(settings.cloud_source_enabled);

@@ -275,6 +275,20 @@ void SettingsWindow::BuildWidgets() {
   profile_button_ = AddWidget(std::move(profile_button));
   row_y += kRowHeight + 8;
 
+  // Why the active profile's engine is not working, when it is not. Hidden
+  // whenever it is, so this is not a status line that is always there: the
+  // case it exists for is a profile that silently produces no candidates
+  // because its engine never started, which is otherwise indistinguishable
+  // from the dictionary simply not knowing the word.
+  auto engine_problem = std::make_unique<ui::Label>();
+  engine_problem->style().font_family = L"Segoe UI";
+  engine_problem->style().font_size = 12.0f;
+  engine_problem->style().color = kColorError;
+  engine_problem->set_bounds(
+      {card1_x, row_y, controls_right - card1_x, kRowHeight});
+  engine_problem->set_visible(false);
+  engine_problem_ = AddWidget(std::move(engine_problem));
+
   // Row: how much of the composition the host shows inline.
   auto inline_label = std::make_unique<ui::Label>();
   inline_label->style().font_family = L"Segoe UI";
@@ -560,7 +574,7 @@ void SettingsWindow::RefreshLabels() {
   cloud_toggle_->SetCaption(settings_.cloud_source_enabled
                                 ? strings.toggle_on
                                 : strings.toggle_off);
-  font_button_->SetCaption(settings_.candidate_font + L"   ▾");
+  font_button_->SetCaption(EffectiveCandidateFont() + L"   ▾");
   {
     const InputProfileRegistry* registry =
         profiles_ != nullptr ? profiles_->registry() : nullptr;
@@ -572,6 +586,16 @@ void SettingsWindow::RefreshLabels() {
         active != nullptr ? active->display_name
                           : Utf8ToWide(settings_.active_profile);
     profile_button_->SetCaption(name + L"   ▾");
+
+    const std::string why =
+        profiles_ != nullptr ? profiles_->active_engine_error() : std::string();
+    if (why.empty()) {
+      engine_problem_->set_visible(false);
+    } else {
+      engine_problem_->set_visible(true);
+      engine_problem_->SetText(std::wstring(strings.engine_problem_label) +
+                               L": " + Utf8ToWide(why));
+    }
   }
   {
     const UiStrings& st = GetStrings(settings_.ui_language);
@@ -583,7 +607,7 @@ void SettingsWindow::RefreshLabels() {
     }
     inline_button_->SetCaption(std::wstring(caption) + L"   ▾");
   }
-  vertical_preview_->style().font_family = settings_.candidate_font;
+  vertical_preview_->style().font_family = EffectiveCandidateFont();
   equiv_ou_check_->SetChecked(settings_.equiv_ou);
   equiv_qv_check_->SetChecked(settings_.equiv_qv);
   equiv_hg_check_->SetChecked(settings_.equiv_hg);
@@ -617,7 +641,7 @@ void SettingsWindow::OpenFontPicker() {
     ui::DropdownItem item;
     item.text = font_families_[i].name;
     if (font_families_[i].supports_mongolian) item.badge = L"\x1820";
-    if (font_families_[i].name == settings_.candidate_font) selected = i;
+    if (font_families_[i].name == EffectiveCandidateFont()) selected = i;
     items.push_back(std::move(item));
   }
   font_popup_->SetItems(std::move(items), selected);
@@ -632,8 +656,23 @@ void SettingsWindow::OpenFontPicker() {
   font_popup_->ShowBelow(hwnd(), anchor);
 }
 
+std::wstring SettingsWindow::EffectiveCandidateFont() const {
+  const std::wstring chosen =
+      PerProfileValue(settings_.candidate_font, settings_.active_profile);
+  if (!chosen.empty()) return chosen;
+  const InputProfileRegistry* registry =
+      profiles_ != nullptr ? profiles_->registry() : nullptr;
+  const InputProfile* active =
+      registry != nullptr ? registry->Find(settings_.active_profile) : nullptr;
+  if (active != nullptr && !active->font.empty()) return active->font;
+  return L"Noto Sans Mongolian";
+}
+
 void SettingsWindow::ApplyCandidateFont(const std::wstring& font) {
-  settings_.candidate_font = font;
+  // Stored against the profile on display, so choosing a form-code face for
+  // ZCode does not also change what the Unicode profile uses.
+  settings_.candidate_font = SetPerProfileValue(
+      settings_.candidate_font, settings_.active_profile, font);
   RefreshLabels();
 }
 

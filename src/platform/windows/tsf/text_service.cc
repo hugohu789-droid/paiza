@@ -342,12 +342,34 @@ InlineComposition ReadInlineCompositionSetting() {
                      &size) == ERROR_SUCCESS) {
     return InlineCompositionFromValue(value);
   }
+  // No choice of the user's, so the active profile's default, which the
+  // service republishes on every profile switch. This process knows nothing
+  // about profiles and does not need to: it reads one more registry value.
+  size = sizeof(value);
+  if (::RegGetValueW(HKEY_CURRENT_USER, L"Software\\PaizaIME",
+                     L"InlineCompositionDefault", RRF_RT_REG_DWORD, nullptr,
+                     &value, &size) == ERROR_SUCCESS) {
+    return InlineCompositionFromValue(value);
+  }
   return InlineComposition::kFull;
 }
 
 std::wstring ReadCandidateFontSetting() {
   wchar_t buffer[256] = {};
   DWORD size = sizeof(buffer) - sizeof(wchar_t);
+  // What the service resolved for the active profile: the user's choice for
+  // that profile, or else the font the profile declares. Which font is
+  // right is a property of the profile's encoding — form code is
+  // unreadable in a Unicode Mongolian font — and the setting is now one
+  // value per profile, neither of which this process can unpack without
+  // knowing which profile is active. The service does, so it works it out.
+  if (::RegGetValueW(HKEY_CURRENT_USER, L"Software\\PaizaIME",
+                     L"CandidateFontEffective", RRF_RT_REG_SZ, nullptr,
+                     buffer, &size) == ERROR_SUCCESS &&
+      buffer[0] != L'\0') {
+    return buffer;
+  }
+  size = sizeof(buffer) - sizeof(wchar_t);
   if (::RegGetValueW(HKEY_CURRENT_USER, L"Software\\PaizaIME",
                      L"CandidateFont", RRF_RT_REG_SZ, nullptr, buffer,
                      &size) == ERROR_SUCCESS &&

@@ -89,6 +89,7 @@ add_library(paiza_core STATIC
   src/core/local_dictionary_source.cc
   src/core/localization.cc
   src/core/mapping_preview.cc
+  src/core/profile_settings.cc
   src/core/profile_switch.cc
   src/core/romanization.cc
   src/core/scorer.cc
@@ -464,6 +465,7 @@ if(PAIZA_BUILD_TESTS)
     tests/linux_settings_store_test.cc
     tests/local_dictionary_source_test.cc
     tests/localization_test.cc
+    tests/profile_settings_test.cc
     tests/profile_switch_test.cc
     tests/romanization_test.cc
     tests/scorer_test.cc

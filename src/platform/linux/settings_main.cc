@@ -24,6 +24,7 @@
 #include "core/key_mapping_store.h"
 #include "core/input_profile.h"
 #include "core/localization.h"
+#include "core/profile_settings.h"
 #include "core/mapping_preview.h"
 #include "core/user_dictionary.h"
 #include "settings_store.h"
@@ -58,6 +59,8 @@ struct Dialog {
   GtkWidget* font_button = nullptr;
   GtkWidget* profile_label = nullptr;
   GtkWidget* profile_combo = nullptr;
+  // Only shown when the active profile's engine is not working.
+  GtkWidget* engine_problem = nullptr;
   GtkWidget* inline_label = nullptr;
   GtkWidget* inline_combo = nullptr;
   // Input profiles offered by the dropdown (docs/input-profiles.md).
@@ -83,10 +86,23 @@ struct Dialog {
 // top-to-bottom column, stem-centred via fontstems.txt — the same
 // technique as the Windows/macOS candidate windows, and the exact
 // drawing the v2 Linux candidate window will use.
+// The font in force for the profile on display: that profile's own choice
+// if the user made one, else the font the profile declares, else the
+// built-in default. The setting holds one value per profile
+// (core/profile_settings.h), so it is never used raw.
+std::wstring EffectiveCandidateFont(const Dialog* dialog) {
+  const std::wstring chosen = paiza::PerProfileValue(
+      dialog->settings.candidate_font, dialog->settings.active_profile);
+  if (!chosen.empty()) return chosen;
+  const paiza::InputProfile* active =
+      dialog->profiles.Find(dialog->settings.active_profile);
+  if (active != nullptr && !active->font.empty()) return active->font;
+  return L"Noto Sans Mongolian";
+}
+
 gboolean DrawVerticalSample(GtkWidget* widget, cairo_t* cr, gpointer data) {
   Dialog* dialog = static_cast<Dialog*>(data);
-  const std::string family = paiza::WideToUtf8(
-      dialog->settings.candidate_font);
+  const std::string family = paiza::WideToUtf8(EffectiveCandidateFont(dialog));
   constexpr double kFontSize = 24.0;
 
   PangoLayout* layout = pango_cairo_create_layout(cr);
@@ -116,7 +132,7 @@ gboolean DrawVerticalSample(GtkWidget* widget, cairo_t* cr, gpointer data) {
   // origin's x and its bottom edge `height` to the left; stem-calibrated
   // fonts put the stem font_size*ratio right of the left (bottom) edge.
   const std::optional<float> ratio =
-      paiza::GetFontStemRatio(dialog->settings.candidate_font);
+      paiza::GetFontStemRatio(EffectiveCandidateFont(dialog));
   const double origin_x = ratio.has_value()
                               ? cx - kFontSize * *ratio + height
                               : cx + height / 2.0;
@@ -203,6 +219,21 @@ void ApplyStrings(Dialog* dialog) {
                      Utf8(s.candidate_font_label).c_str());
   gtk_label_set_text(GTK_LABEL(dialog->profile_label),
                      Utf8(s.profile_label).c_str());
+  {
+    const std::string why = paiza::linux_ime::ReadEngineStatus();
+    if (why.empty()) {
+      gtk_widget_hide(dialog->engine_problem);
+    } else {
+      const std::string text = Utf8(s.engine_problem_label) + ": " + why;
+      gchar* escaped = g_markup_escape_text(text.c_str(), -1);
+      gchar* markup =
+          g_strdup_printf("<span foreground='#c01c28'>%s</span>", escaped);
+      gtk_label_set_markup(GTK_LABEL(dialog->engine_problem), markup);
+      g_free(markup);
+      g_free(escaped);
+      gtk_widget_show(dialog->engine_problem);
+    }
+  }
   gtk_label_set_text(GTK_LABEL(dialog->inline_label),
                      Utf8(s.inline_composition_label).c_str());
   // Order matches the InlineComposition enum, so the index is the value.
@@ -290,7 +321,11 @@ void OnFontSet(GtkFontButton* button, gpointer data) {
       pango_font_description_from_string(font);
   const char* family = pango_font_description_get_family(description);
   if (family != nullptr && *family != '\0') {
-    dialog->settings.candidate_font = paiza::Utf8ToWide(family);
+    // Stored against the profile on display, so choosing a form-code face
+    // for ZCode does not also change what the Unicode profile uses.
+    dialog->settings.candidate_font = paiza::SetPerProfileValue(
+        dialog->settings.candidate_font, dialog->settings.active_profile,
+        paiza::Utf8ToWide(family));
   }
   pango_font_description_free(description);
   g_free(font);
@@ -521,17 +556,28 @@ void BuildDialog(Dialog* dialog) {
   gtk_grid_attach(GTK_GRID(general_grid), dialog->profile_label, 0, 5, 1, 1);
   gtk_grid_attach(GTK_GRID(general_grid), dialog->profile_combo, 1, 5, 1, 1);
 
+  // Why the active profile's engine is not working, when it is not. The
+  // ibus engine is another process, so it writes the reason down
+  // (EngineStatusFilePath) and this reads it. Hidden while the engine is
+  // fine -- the case it exists for is a profile that silently produces no
+  // candidates, which otherwise looks like the dictionary not knowing the
+  // word.
+  dialog->engine_problem = MakeLeftLabel();
+  gtk_label_set_line_wrap(GTK_LABEL(dialog->engine_problem), TRUE);
+  gtk_widget_set_no_show_all(dialog->engine_problem, TRUE);
+  gtk_grid_attach(GTK_GRID(general_grid), dialog->engine_problem, 0, 6, 2, 1);
+
   dialog->inline_label = MakeLeftLabel();
   dialog->inline_combo = gtk_combo_box_text_new();
-  gtk_grid_attach(GTK_GRID(general_grid), dialog->inline_label, 0, 6, 1, 1);
-  gtk_grid_attach(GTK_GRID(general_grid), dialog->inline_combo, 1, 6, 1, 1);
+  gtk_grid_attach(GTK_GRID(general_grid), dialog->inline_label, 0, 7, 1, 1);
+  gtk_grid_attach(GTK_GRID(general_grid), dialog->inline_combo, 1, 7, 1, 1);
 
   dialog->user_dict_label = MakeLeftLabel();
   dialog->user_dict_button = gtk_button_new_with_label("");
   gtk_widget_set_halign(dialog->user_dict_button, GTK_ALIGN_END);
-  gtk_grid_attach(GTK_GRID(general_grid), dialog->user_dict_label, 0, 7, 1,
+  gtk_grid_attach(GTK_GRID(general_grid), dialog->user_dict_label, 0, 8, 1,
                   1);
-  gtk_grid_attach(GTK_GRID(general_grid), dialog->user_dict_button, 1, 7, 1,
+  gtk_grid_attach(GTK_GRID(general_grid), dialog->user_dict_button, 1, 8, 1,
                   1);
 
   // ---- Card 2: Soft equivalence (per-pair recall toggles) --------------
@@ -637,7 +683,7 @@ void BuildDialog(Dialog* dialog) {
     gtk_combo_box_set_active(GTK_COMBO_BOX(dialog->profile_combo), selected);
   }
   const std::string font_spec =
-      paiza::WideToUtf8(dialog->settings.candidate_font) + " 16";
+      paiza::WideToUtf8(EffectiveCandidateFont(dialog)) + " 16";
   gtk_font_chooser_set_font(GTK_FONT_CHOOSER(dialog->font_button),
                             font_spec.c_str());
 

@@ -24,8 +24,12 @@ constexpr wchar_t kValueEquivTd[] = L"EquivTD";
 constexpr wchar_t kValueEquivEw[] = L"EquivEW";
 constexpr wchar_t kValueActiveProfile[] = L"ActiveProfile";
 constexpr wchar_t kValueInlineComposition[] = L"InlineComposition";
+constexpr wchar_t kValueInlineCompositionDefault[] =
+    L"InlineCompositionDefault";
+constexpr wchar_t kValueCandidateFontEffective[] = L"CandidateFontEffective";
 
-uint32_t ReadDword(HKEY key, const wchar_t* name, uint32_t fallback) {
+uint32_t ReadDword(HKEY key, const wchar_t* name, uint32_t fallback,
+                   bool* found = nullptr) {
   DWORD value = 0;
   DWORD size = sizeof(value);
   DWORD type = 0;
@@ -33,8 +37,10 @@ uint32_t ReadDword(HKEY key, const wchar_t* name, uint32_t fallback) {
                          reinterpret_cast<BYTE*>(&value),
                          &size) == ERROR_SUCCESS &&
       type == REG_DWORD) {
+    if (found != nullptr) *found = true;
     return value;
   }
+  if (found != nullptr) *found = false;
   return fallback;
 }
 
@@ -91,7 +97,8 @@ Settings SettingsStore::Load() {
         key, kValueActiveProfile, Utf8ToWide(settings.active_profile)));
     settings.inline_composition = InlineCompositionFromValue(ReadDword(
         key, kValueInlineComposition,
-        static_cast<uint32_t>(settings.inline_composition)));
+        static_cast<uint32_t>(settings.inline_composition),
+        &settings.inline_composition_set));
     ::RegCloseKey(key);
   }
   settings.candidates_per_page =
@@ -120,6 +127,30 @@ void SettingsStore::Save(const Settings& settings) {
                static_cast<uint32_t>(settings.inline_composition));
     ::RegCloseKey(key);
   }
+}
+
+void PublishCandidateFont(const std::wstring& family) {
+  HKEY key = nullptr;
+  if (family.empty() ||
+      ::RegCreateKeyExW(HKEY_CURRENT_USER, kRegistryPath, 0, nullptr, 0,
+                        KEY_SET_VALUE, nullptr, &key,
+                        nullptr) != ERROR_SUCCESS) {
+    return;
+  }
+  WriteString(key, kValueCandidateFontEffective, family);
+  ::RegCloseKey(key);
+}
+
+void PublishInlineCompositionDefault(InlineComposition value) {
+  HKEY key = nullptr;
+  if (::RegCreateKeyExW(HKEY_CURRENT_USER, kRegistryPath, 0, nullptr, 0,
+                        KEY_SET_VALUE, nullptr, &key,
+                        nullptr) != ERROR_SUCCESS) {
+    return;
+  }
+  WriteDword(key, kValueInlineCompositionDefault,
+             static_cast<uint32_t>(value));
+  ::RegCloseKey(key);
 }
 
 }  // namespace paiza::service

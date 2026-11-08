@@ -53,10 +53,28 @@ struct Settings {
   // private-use profile is usually unreadable in the host's font, so it can
   // be hidden; see docs/input-profiles.md.
   InlineComposition inline_composition = InlineComposition::kFull;
+  // Whether the value above came from the store, as opposed to being this
+  // struct's own default. The active profile supplies the default when the
+  // user has not chosen (ProfileSwitch::active_inline_composition), and
+  // without this the profile could never move it.
+  bool inline_composition_set = false;
 };
 
 // Full path of the settings file: <UserConfigDirectory>/settings.ini.
 std::wstring SettingsFilePath();
+
+// Where the ibus engine leaves the reason its candidate engine is not
+// working, for the settings dialog to show. The two are separate processes
+// here -- unlike Windows, where the dialog lives inside the service, and
+// macOS, where it lives inside the input controller -- so the one that
+// knows has to write it down for the one that displays it.
+//
+// Empty file, or no file, means the engine is fine. Rewritten on every
+// profile switch, so it never shows a stale reason for a profile that is
+// no longer active.
+std::wstring EngineStatusFilePath();
+void WriteEngineStatus(const std::string& reason);
+std::string ReadEngineStatus();
 
 class SettingsStore {
  public:
