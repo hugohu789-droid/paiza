@@ -1,5 +1,10 @@
 build/
 build-*/
+build32/
+# Installer staging and output (see installer/README.md).
+stage/
+stage-test/
+installer/Output/
 out/
 .vs/
 *.user

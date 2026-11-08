@@ -656,7 +656,17 @@ For the macOS (InputMethodKit) and Linux (IBus) builds and their
 on-device bring-up notes, see **docs/macos-port.md** and
 **docs/linux-port.md**.
 
-## Installing the IME (requires admin)
+## Installing the IME
+
+**From a release:** download the installer from
+[Releases](https://github.com/hugohu789-droid/paiza/releases) and run it.
+Setup offers *Unicode + ZCode* or *Unicode Mongolian only* — one installer,
+because the text encoding is a runtime profile you can switch afterwards in
+the settings dialog, not a build variant. It is built on GitHub by
+`.github/workflows/release-windows.yml`; `installer/README.md` says what
+goes where and why. It is **not code-signed yet**, so SmartScreen will warn.
+
+**From a build** (requires admin):
 
 ```powershell
 # from an elevated prompt; use Release binaries for daily use

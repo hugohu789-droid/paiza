@@ -1,0 +1,141 @@
+# Builds the Windows installer on GitHub and publishes it.
+#
+# Nothing here runs on a developer machine. Push a tag and the installer
+# appears on the Releases page as a normal download link; run it by hand
+# from the Actions tab and it appears as a workflow artifact instead
+# (artifacts need a GitHub login to download, release assets do not — which
+# is why a real release goes out as a release asset).
+#
+# Two architectures, because 32-bit host applications load the 32-bit text
+# service and the IME is simply absent in them otherwise. Only PaizaTsf.dll
+# is built for Win32; the service is reached over a named pipe and stays
+# 64-bit.
+#
+# The ZCode engine lives in another repository and is built here rather
+# than pulled from its releases, so the engine in an installer can never be
+# older than the protocol the host expects.
+
+name: Windows installer
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version for a manual build (e.g. 0.1.0-test)"
+        required: false
+        default: "0.0.0-dev"
+
+permissions:
+  contents: write        # needed only by the release step
+
+jobs:
+  package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: paiza
+
+      - name: Check out the ZCode engine
+        uses: actions/checkout@v4
+        with:
+          repository: hugohu789-droid/zcode-cpp
+          path: zcode-cpp
+
+      - name: Work out the version
+        id: version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $v = $env:GITHUB_REF -replace '^refs/tags/v', ''
+          } else {
+            $v = '${{ inputs.version }}'
+          }
+          # The installer version and the project's own must agree; a
+          # mismatch here is the kind of thing nobody notices until a user
+          # reports the wrong number in Add/Remove Programs.
+          $line = Select-String -Path paiza/CMakeLists.txt -Pattern 'project\(.*VERSION ([0-9.]+)'
+          $project = $line.Matches[0].Groups[1].Value
+          if ($env:GITHUB_REF -like 'refs/tags/v*' -and $v -ne $project) {
+            Write-Error "tag v$v does not match project(VERSION $project) in CMakeLists.txt"
+            exit 1
+          }
+          "value=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "building version $v"
+
+      - name: Build the engine (x64 Release)
+        working-directory: zcode-cpp
+        run: |
+          cmake -S . -B build -A x64 -DZCODE_BUILD_TESTS=OFF
+          cmake --build build --config Release --target zcode_stdio
+
+      - name: Build Paiza (x64 Release) and stage it
+        working-directory: paiza
+        run: |
+          cmake -S . -B build -A x64
+          cmake --build build --config Release
+          cmake --install build --config Release --prefix stage
+
+      - name: Build the 32-bit text service
+        working-directory: paiza
+        run: |
+          cmake -S . -B build32 -A Win32
+          cmake --build build32 --config Release --target PaizaTsf
+
+      - name: Assemble the staging tree
+        working-directory: paiza
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force stage\x86, stage\zcode | Out-Null
+          Copy-Item build32\bin\Release\PaizaTsf.dll stage\x86\
+          # Its own copy: PaizaTsf.dll reads this from the module's own
+          # directory, and the 32-bit module lives in x86\.
+          Copy-Item data\fixed_sequences.txt stage\x86\
+          Copy-Item ..\zcode-cpp\build\Release\zcode_stdio.exe stage\zcode\
+          Copy-Item data\profiles\zcode.txt stage\zcode\
+          Copy-Item ..\zcode-cpp\LICENSE stage\zcode\
+          Copy-Item ..\zcode-cpp\NOTICE.md stage\zcode\
+          Copy-Item ..\zcode-cpp\third_party\fonts\z52haratig.ttf stage\zcode\
+          Write-Host "--- staged:"
+          Get-ChildItem -Recurse stage | Select-Object -ExpandProperty FullName
+
+      - name: Build the installer
+        working-directory: paiza
+        run: |
+          choco install innosetup --no-progress -y
+          & "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe" `
+            /DAppVersion=${{ steps.version.outputs.value }} `
+            /DStageDir=..\stage `
+            installer\paiza.iss
+        shell: pwsh
+
+      - name: Upload the installer as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PaizaMongolianIME-${{ steps.version.outputs.value }}-win
+          path: paiza/installer/Output/*.exe
+          if-no-files-found: error
+
+      - name: Attach it to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: paiza/installer/Output/*.exe
+          generate_release_notes: true
+          body: |
+            Windows installer, built by GitHub Actions from this tag.
+
+            One installer for both text encodings: pick **Unicode + ZCode**
+            or **Unicode Mongolian only** during setup, and switch profiles
+            afterwards in the settings dialog. ZCode support is the
+            external engine
+            ([zcode-cpp](https://github.com/hugohu789-droid/zcode-cpp),
+            GPL-2.0-or-later, runs as its own process) plus the Z52 Hara
+            Tig font, which ZCode is unreadable without.
+
+            **The installer is not code-signed yet**, so Windows SmartScreen
+            will warn. "More info" → "Run anyway". Installing a text service
+            needs administrator rights: it registers for every application
+            on the machine, 64-bit and 32-bit.
