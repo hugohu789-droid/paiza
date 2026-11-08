@@ -28,7 +28,13 @@ preedit — the composition as typed:
 |---|---|
 | ![Paiza candidate panel on Linux, light palette](docs/images/candidates-linux-light.png) | ![Paiza candidate panel on Linux, dark palette](docs/images/candidates-linux-dark.png) |
 
-Both are reproducible without installing the IME. On Windows,
+**macOS** (Core Text) — *not captured yet.* The panel is built and its
+tests pass in CI on every change, but nobody has run the IME on a Mac, so
+there is no honest screenshot to put here rather than a borrowed one.
+`tools/macos/panel_preview.mm` is the harness that would produce it; see
+"What is verified, and where" in `CLAUDE.md`.
+
+All of these are reproducible without installing the IME. On Windows,
 `PaizaService.exe --preview-candidates` shows the real candidate window
 with sample data, no TSF registration and no host application needed. On
 Linux and macOS the panels have **offscreen** preview harnesses that draw
@@ -51,9 +57,9 @@ The same window, the same code, a different input profile: candidates here
 come from an **external engine process** and are ZCode form code, not
 Unicode Mongolian. Typing `bagsi`:
 
-| Windows | Linux |
-|---|---|
-| ![ZCode candidates on Windows: preedit "bagsi" and seven vertical form-code candidates](docs/images/zcode-candidates-windows.png) | ![The same list rendered by the Linux panel](docs/images/zcode-candidates-linux-light.png) |
+| Windows | Linux | macOS |
+|---|---|---|
+| ![ZCode candidates on Windows: preedit "bagsi" and seven vertical form-code candidates](docs/images/zcode-candidates-windows.png) | ![The same list rendered by the Linux panel](docs/images/zcode-candidates-linux-light.png) | *not captured yet* |
 
 These are only legible in a ZCode ("Z52") font — the profile names one.
 A Unicode Mongolian font would render the same code points as the Sibe and
@@ -86,6 +92,12 @@ PAIZA_PROFILES=data/profiles PAIZA_PROFILE=zcode PAIZA_INPUT=bagsi PAIZA_USER=/t
 The engine executable is resolved inside the profiles directory, so
 `zcode_stdio` (or `zcode_stdio.exe`) has to be sitting next to the profile
 files for either of these to find it.
+
+The macOS harness does not take a profile yet — it has `PAIZA_INPUT` and
+`PAIZA_DICT` but none of `PAIZA_PROFILES`, `PAIZA_PROFILE` or
+`PAIZA_USER`, which is why the column above is empty. Adding them, the way
+`tools/linux/candidate_preview.cc` has them, is what the third screenshot
+is waiting on.
 
 ## Architecture (Windows reference topology)
 
