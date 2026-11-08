@@ -81,7 +81,7 @@ jobs:
       - name: Build the 32-bit text service
         working-directory: paiza
         run: |
-          cmake -S . -B build32 -A Win32
+          cmake -S . -B build32 -A Win32 -DPAIZA_BUILD_TESTS=OFF
           cmake --build build32 --config Release --target PaizaTsf
 
       - name: Assemble the staging tree
@@ -105,7 +105,9 @@ jobs:
         working-directory: paiza
         run: |
           choco install innosetup --no-progress -y
-          & "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe" `
+          # Braced: $env:ProgramFiles(x86) does not parse, because the
+          # parentheses end the variable name.
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
             /DAppVersion=${{ steps.version.outputs.value }} `
             /DStageDir=..\stage `
             installer\paiza.iss
