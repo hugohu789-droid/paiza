@@ -126,6 +126,21 @@ class InputSession {
   // Optional compose-side suffix table: inserts the leading MVS and applies
   // vowel harmony to a recognised word-final suffix in the raw conversion
   // (GB/T fixed sequences). Must outlive the session.
+  // Whether a keystroke also queries on the romanization of the preedit,
+  // as well as on the raw latin keys. On by default, because for Unicode
+  // Mongolian the two keys find different things and merging them is the
+  // point: the romanized key is layout-independent, so a user who remapped
+  // the keyboard still reaches the same words.
+  //
+  // A profile whose preedit is not Unicode Mongolian turns it off
+  // (`romanize_query no`). There the second key is derived from the
+  // *Unicode* key mapping and means nothing, so its results are noise
+  // merged into the list: measured on the ZCode profile, `mongol` came back
+  // with 18 candidates where the engine answers 16, the two extra ranked
+  // 2nd and 4th, pushing real candidates down.
+  void set_romanize_query(bool enabled) { romanize_query_ = enabled; }
+  bool romanize_query() const { return romanize_query_; }
+
   void set_fixed_sequences(const FixedSequenceTable* table) {
     fixed_sequences_ = table;
   }
@@ -140,6 +155,7 @@ class InputSession {
   StaticLexicon* static_lexicon_ = nullptr;
   const FixedSequenceTable* fixed_sequences_ = nullptr;
   Config config_;
+  bool romanize_query_ = true;
 
   std::string latin_buffer_;
   std::wstring preedit_;

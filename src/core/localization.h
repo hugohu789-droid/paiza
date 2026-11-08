@@ -38,6 +38,12 @@ struct UiStrings {
   // Input profile selector (text encoding + candidate engine); see
   // docs/input-profiles.md. The profile's own display_name is the value.
   const wchar_t* profile_label;
+  // Shown under the profile selector when the active profile declares a
+  // candidate engine that is not working: the reason, prefixed by this.
+  // Empty whenever the engine is fine, so the row simply is not there --
+  // the point is that a profile silently producing no candidates should
+  // say why, not that there is a permanent status line.
+  const wchar_t* engine_problem_label;
   // Inline-composition selector: how much of the composition the host
   // application shows in its own document (docs/input-profiles.md).
   const wchar_t* inline_composition_label;

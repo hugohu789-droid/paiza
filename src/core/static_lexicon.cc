@@ -236,7 +236,8 @@ std::vector<Candidate> StaticLexicon::Query(const std::string& latin_input,
   // Consonant-skeleton input: match keys of which the input is a vowel-
   // skipping subsequence (abbreviated typing). Lowest-priority pass, only when
   // still thin, so it never crowds out exact/prefix/tolerant results.
-  if (out.size() < max_results && latin_input.size() >= 2 && dawg_.valid()) {
+  if (skeleton_input_.load() && out.size() < max_results &&
+      latin_input.size() >= 2 && dawg_.valid()) {
     SkeletonDfs(latin_input, dawg_.root(), 0, 0, 0, /*is_root=*/true,
                 bigram_row, seen_ids, out);
   }
@@ -305,6 +306,19 @@ void StaticLexicon::IntersectDfs(uint32_t node_index,
   }
 }
 
+void StaticLexicon::set_vowel_keys(std::string keys) {
+  is_vowel_key_.fill(false);
+  for (const char c : keys) {
+    is_vowel_key_[static_cast<unsigned char>(c)] = true;
+  }
+  custom_vowel_keys_ = !keys.empty();
+}
+
+bool StaticLexicon::IsVowelKey(char c) const {
+  if (!custom_vowel_keys_) return IsMongolianVowelKey(c);
+  return is_vowel_key_[static_cast<unsigned char>(c)];
+}
+
 void StaticLexicon::SkeletonDfs(const std::string& input, uint32_t node_index,
                                 size_t input_pos, uint32_t rank, int skipped,
                                 bool is_root,
@@ -325,7 +339,7 @@ void StaticLexicon::SkeletonDfs(const std::string& input, uint32_t node_index,
     const uint32_t last = first + node.trans_count;
     for (uint32_t t = first; t < last; ++t) {
       const DawgTrans& edge = dawg_.trans(t);
-      if (IsMongolianVowelKey(static_cast<char>(edge.label))) {
+      if (IsVowelKey(static_cast<char>(edge.label))) {
         SkeletonDfs(input, edge.target, input_pos, child_rank, skipped + 1,
                     false, bigram_row, seen_ids, out);
       }
@@ -346,7 +360,7 @@ void StaticLexicon::SkeletonDfs(const std::string& input, uint32_t node_index,
       // Consume the input character.
       SkeletonDfs(input, edge.target, input_pos + 1, child_rank, skipped, false,
                   bigram_row, seen_ids, out);
-    } else if (!is_root && IsMongolianVowelKey(c)) {
+    } else if (!is_root && IsVowelKey(c)) {
       // Omit a vowel (never at the first key character: a leading vowel must
       // be typed).
       SkeletonDfs(input, edge.target, input_pos, child_rank, skipped + 1, false,

@@ -89,8 +89,9 @@ void LoadProfiles() {
 }
 
 // Builds the profile switch once, binding the shared sources to the Unicode
-// profile. Safe to call repeatedly.
-paiza::ProfileSwitch* SharedProfileSwitch() {
+// profile. Safe to call repeatedly. Defined here and declared in the
+// header, because the settings window needs it too.
+paiza::ProfileSwitch* SharedProfileSwitchImpl() {
   if (g_profile_switch == nullptr) {
     LoadProfiles();
     g_profile_switch = std::make_unique<paiza::ProfileSwitch>(
@@ -214,7 +215,7 @@ void ApplySettings(const paiza::mac::Settings& settings) {
   SharedEngine();  // Ensure g_cloud_source / g_static_lexicon are created.
   // Gate the candidate sources to the selected profile. An unknown id leaves
   // the previous selection in place rather than half-switching.
-  SharedProfileSwitch()->Activate(settings.active_profile);
+  SharedProfileSwitchImpl()->Activate(settings.active_profile);
   if (g_cloud_source != nullptr) {
     g_cloud_source->set_enabled(settings.cloud_source_enabled);
   }
@@ -239,12 +240,16 @@ PaizaSettingsWindowController* SharedSettingsWindow() {
         initWithOnChanged:^(const paiza::mac::Settings& settings) {
           ApplySettings(settings);
         }
-           userDictionary:SharedProfileSwitch()->active_user_dictionary()];
+           userDictionary:SharedProfileSwitchImpl()->active_user_dictionary()];
   }();
   return controller;
 }
 
 }  // namespace
+
+namespace paiza::macos {
+ProfileSwitch* SharedProfileSwitch() { return SharedProfileSwitchImpl(); }
+}  // namespace paiza::macos
 
 @implementation PaizaInputController {
   std::unique_ptr<paiza::InputSession> _session;
@@ -263,7 +268,7 @@ PaizaSettingsWindowController* SharedSettingsWindow() {
     // set the static lexicon's bigram context for the next word.
     // The active profile decides which dictionary and lexicon this session
     // records into, and whether the GB/T fixed sequences apply.
-    SharedProfileSwitch()->ApplyTo(*_session);
+    SharedProfileSwitchImpl()->ApplyTo(*_session);
     _panel = [[PaizaCandidatePanel alloc] init];
 
     // Mouse interaction on the panel drives the same session the keyboard
@@ -348,7 +353,15 @@ PaizaSettingsWindowController* SharedSettingsWindow() {
     // font, which a private-use profile's glyphs are not in. A placeholder
     // keeps the marked range non-empty so the caret rect stays measurable.
     std::wstring inlineText = _session->preedit();
-    switch (CurrentSettings().inline_composition) {
+    // The user's choice when they made one, otherwise the active profile's
+    // default -- which for a form-code profile is "nothing", because the
+    // host renders the marked text in its own font and that font has no
+    // glyphs for form code.
+    const auto& settings = CurrentSettings();
+    const paiza::InlineComposition inlineMode =
+        SharedProfileSwitchImpl()->active_inline_composition(
+            settings.inline_composition_set, settings.inline_composition);
+    switch (inlineMode) {
       case paiza::InlineComposition::kHidden:
         inlineText.clear();
         break;

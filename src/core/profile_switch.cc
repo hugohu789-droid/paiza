@@ -94,6 +94,16 @@ bool ProfileSwitch::Activate(std::string_view profile_id) {
     }
   }
 
+  // Behaviour the active profile asks of its own sources. Applied after the
+  // gating loop so that it lands on the profile being activated, and only
+  // on that one: a source belonging to another profile keeps its own
+  // settings for when it comes back.
+  const ProfileBinding* binding = FindBinding(profile->id);
+  if (binding != nullptr && binding->static_lexicon != nullptr) {
+    binding->static_lexicon->set_skeleton_input(profile->skeleton_input);
+    binding->static_lexicon->set_vowel_keys(profile->vowel_keys);
+  }
+
   active_ = profile;
   active_id_ = profile->id;
 
@@ -111,6 +121,23 @@ StaticLexicon* ProfileSwitch::active_static_lexicon() const {
   if (active_ == nullptr) return nullptr;
   const ProfileBinding* binding = FindBinding(active_->id);
   return binding != nullptr ? binding->static_lexicon : nullptr;
+}
+
+InlineComposition ProfileSwitch::active_inline_composition(
+    bool user_set, InlineComposition user_value) const {
+  if (user_set) return user_value;
+  if (active_ == nullptr) return InlineComposition::kFull;
+  return active_->inline_default;
+}
+
+std::wstring ProfileSwitch::active_candidate_font(
+    std::wstring_view packed_user_choice, std::wstring_view fallback) const {
+  if (active_ == nullptr) return std::wstring(fallback);
+  const std::wstring chosen =
+      PerProfileValue(packed_user_choice, active_->id);
+  if (!chosen.empty()) return chosen;
+  if (!active_->font.empty()) return active_->font;
+  return std::wstring(fallback);
 }
 
 std::string ProfileSwitch::active_engine_error() const {
@@ -141,6 +168,9 @@ void ProfileSwitch::ApplyTo(InputSession& session) const {
   session.set_fixed_sequences(
       binding != nullptr && active_->fixed_sequences ? binding->fixed_sequences
                                                      : nullptr);
+  // The second, romanized query key is only meaningful where the preedit is
+  // Unicode Mongolian.
+  session.set_romanize_query(active_->romanize_query);
 }
 
 }  // namespace paiza

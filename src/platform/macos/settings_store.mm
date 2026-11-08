@@ -65,6 +65,7 @@ Settings SettingsStore::Load() {
   if (inlineMode != nil) {
     settings.inline_composition = paiza::InlineCompositionFromValue(
         static_cast<uint32_t>(inlineMode.intValue));
+    settings.inline_composition_set = true;
   }
   return settings;
 }

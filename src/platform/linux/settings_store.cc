@@ -48,6 +48,33 @@ std::wstring SettingsFilePath() {
   return (std::filesystem::path(dir) / L"settings.ini").wstring();
 }
 
+std::wstring EngineStatusFilePath() {
+  const std::wstring dir = UserConfigDirectory();
+  if (dir.empty()) return {};
+  return (std::filesystem::path(dir) / L"engine-status").wstring();
+}
+
+void WriteEngineStatus(const std::string& reason) {
+  const std::wstring path = EngineStatusFilePath();
+  if (path.empty()) return;
+  std::error_code ec;
+  std::filesystem::create_directories(
+      std::filesystem::path(path).parent_path(), ec);
+  std::ofstream file(std::filesystem::path(path),
+                     std::ios::binary | std::ios::trunc);
+  if (file.is_open()) file << reason;
+}
+
+std::string ReadEngineStatus() {
+  const std::wstring path = EngineStatusFilePath();
+  if (path.empty()) return {};
+  std::ifstream file(std::filesystem::path(path), std::ios::binary);
+  if (!file.is_open()) return {};
+  std::string reason;
+  std::getline(file, reason);
+  return reason;
+}
+
 Settings SettingsStore::Load() { return LoadFromFile(SettingsFilePath()); }
 
 Settings SettingsStore::LoadFromFile(const std::wstring& path) {
@@ -92,6 +119,7 @@ Settings SettingsStore::LoadFromFile(const std::wstring& path) {
     } else if (key == kKeyInlineComposition) {
       settings.inline_composition =
           paiza::ParseInlineComposition(value, settings.inline_composition);
+      settings.inline_composition_set = true;
     }
   }
   return settings;

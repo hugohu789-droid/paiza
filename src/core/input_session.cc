@@ -75,8 +75,11 @@ void InputSession::RefreshCandidates() {
   // keys) and the romanization of the preedit (matches the layout-independent
   // Mongolian-derived keys, and is the same key regardless of how the user
   // remapped the keyboard). They coincide for simple default-layout input.
+  // The second key is skipped entirely for a profile whose preedit is not
+  // Unicode Mongolian, where romanizing it produces a key that means
+  // nothing (set_romanize_query).
   candidates_ = engine_->Query(latin_buffer_, config_.max_candidates);
-  const std::string canonical = Romanize(preedit_);
+  const std::string canonical = romanize_query_ ? Romanize(preedit_) : std::string();
   if (!canonical.empty() && canonical != latin_buffer_) {
     const auto extra = engine_->Query(canonical, config_.max_candidates);
     for (const Candidate& c : extra) {

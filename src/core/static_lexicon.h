@@ -12,6 +12,7 @@
 #ifndef PAIZA_CORE_STATIC_LEXICON_H_
 #define PAIZA_CORE_STATIC_LEXICON_H_
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <string>
@@ -57,6 +58,20 @@ class StaticLexicon : public CandidateSource {
   // settings toggle it while the IPC workers query (docs/input-profiles.md).
   void set_enabled(bool enabled) { enabled_.store(enabled); }
   bool enabled() const { return enabled_.load(); }
+
+  // Consonant-skeleton input: match keys of which the typed text is a
+  // vowel-skipping subsequence, so `bgs` can reach `bagsi`. The lowest
+  // priority pass, and the one a profile may not want: it is an
+  // abbreviation convention of *this* orthography, not a property of
+  // lexicon lookup. Set from the active profile (`skeleton_input`).
+  void set_skeleton_input(bool enabled) { skeleton_input_.store(enabled); }
+  bool skeleton_input() const { return skeleton_input_.load(); }
+
+  // Which latin keys count as vowels for that pass. Empty means the
+  // built-in set derived from the default layout (romanization.h). A
+  // profile whose keys do not map to Mongolian vowels the usual way states
+  // its own (`vowel_keys`).
+  void set_vowel_keys(std::string keys);
 
   // Bigram context. Set the just-committed word so the next Query can reward
   // its likely successors; 0 clears the context. Atomic: on Windows the
@@ -150,7 +165,17 @@ class StaticLexicon : public CandidateSource {
   std::string fixed_sequences_;  // Raw GB/T rules blob (compose layer).
   FixedSequenceTable fixed_seq_table_;  // Parsed suffix forms.
   std::atomic<uint32_t> context_word_id_{0};
+  bool IsVowelKey(char c) const;
+
   std::atomic<bool> enabled_{true};
+  std::atomic<bool> skeleton_input_{true};
+  // Guarded by nothing: written at profile activation, read on the typing
+  // path. A 256-entry table of bytes, each written as a whole, so a read
+  // during a switch sees the old or the new value of one byte and never a
+  // torn one -- and the worst that can do is miss or allow one skipped
+  // vowel for one keystroke.
+  std::array<bool, 256> is_vowel_key_{};
+  bool custom_vowel_keys_ = false;
 };
 
 }  // namespace paiza
