@@ -1,0 +1,611 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
+//
+// ExternalEngineSource drives an engine in another process, so the paths that
+// matter most are the ones a healthy engine never takes: timeouts, death,
+// malformed answers and hostile candidates. A fake transport makes all of
+// them ordinary unit tests instead of things nobody ever runs.
+
+#include "core/external_engine_source.h"
+
+#include <gtest/gtest.h>
+
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "core/engine_transport.h"
+#include "core/input_profile.h"
+
+namespace paiza {
+namespace {
+
+// A scriptable stand-in for a pipe to an engine. Records what was sent and
+// replies from a queue; can be told to die, which is how a timeout, a crash
+// and an oversized response all look to the source.
+class FakeTransport : public EngineTransport {
+ public:
+  bool Exchange(std::string_view request, std::string* response) override {
+    sent.emplace_back(request);
+    if (!alive_) return false;
+    if (die_after_ >= 0 && static_cast<int>(sent.size()) > die_after_) {
+      alive_ = false;
+      return false;
+    }
+    if (replies.empty()) {
+      *response = default_reply;
+      return true;
+    }
+    *response = replies.front();
+    replies.erase(replies.begin());
+    return true;
+  }
+  bool alive() const override { return alive_; }
+
+  void DieAfter(int exchanges) { die_after_ = exchanges; }
+
+  std::vector<std::string> sent;
+  std::vector<std::string> replies;
+  std::string default_reply = "OK";
+
+ private:
+  bool alive_ = true;
+  int die_after_ = -1;
+};
+
+InputProfile EngineProfile() {
+  InputProfile profile;
+  profile.id = "zcode";
+  profile.engine = L"zcode_stdio";
+  profile.engine_protocol = "paiza-engine";
+  return profile;
+}
+
+// The handshake every healthy engine answers first.
+std::string Hello() { return "OK\tpaiza-engine\t1"; }
+
+// Builds a source whose transport is scripted; the raw pointer stays valid
+// for the source's lifetime.
+std::unique_ptr<ExternalEngineSource> MakeSource(FakeTransport** out,
+                                                 InputProfile profile) {
+  auto transport = std::make_unique<FakeTransport>();
+  *out = transport.get();
+  if (transport->replies.empty()) transport->replies.push_back(Hello());
+  return std::make_unique<ExternalEngineSource>(std::move(profile),
+                                                std::move(transport));
+}
+
+// Scripts the handshake plus the given replies.
+std::unique_ptr<ExternalEngineSource> MakeSourceWith(
+    FakeTransport** out, std::vector<std::string> replies,
+    InputProfile profile = EngineProfile()) {
+  auto transport = std::make_unique<FakeTransport>();
+  transport->replies.push_back(Hello());
+  for (std::string& reply : replies) {
+    transport->replies.push_back(std::move(reply));
+  }
+  *out = transport.get();
+  return std::make_unique<ExternalEngineSource>(std::move(profile),
+                                                std::move(transport));
+}
+
+// ---- handshake ---------------------------------------------------------
+
+TEST(ExternalEngineSourceTest, HandshakeIsTheFirstThingSent) {
+  FakeTransport* transport = nullptr;
+  auto source = MakeSource(&transport, EngineProfile());
+  ASSERT_FALSE(transport->sent.empty());
+  EXPECT_EQ(transport->sent[0], "HELLO");
+  EXPECT_TRUE(source->IsAvailable());
+  EXPECT_TRUE(source->failure().empty());
+}
+
+TEST(ExternalEngineSourceTest, WrongProtocolNameDisablesTheEngine) {
+  FakeTransport* transport = nullptr;
+  auto t = std::make_unique<FakeTransport>();
+  t->replies.push_back("OK\tsome-other-engine\t1");
+  transport = t.get();
+  ExternalEngineSource source(EngineProfile(), std::move(t));
+  EXPECT_FALSE(source.IsAvailable());
+  EXPECT_NE(source.failure().find("some-other-engine"), std::string::npos);
+  (void)transport;
+}
+
+TEST(ExternalEngineSourceTest, UnsupportedVersionDisablesTheEngine) {
+  auto t = std::make_unique<FakeTransport>();
+  t->replies.push_back("OK\tpaiza-engine\t99");
+  ExternalEngineSource source(EngineProfile(), std::move(t));
+  EXPECT_FALSE(source.IsAvailable());
+  EXPECT_NE(source.failure().find("99"), std::string::npos);
+}
+
+TEST(ExternalEngineSourceTest, TruncatedHandshakeDisablesTheEngine) {
+  auto t = std::make_unique<FakeTransport>();
+  t->replies.push_back("OK");  // No name, no version.
+  ExternalEngineSource source(EngineProfile(), std::move(t));
+  EXPECT_FALSE(source.IsAvailable());
+}
+
+TEST(ExternalEngineSourceTest, DeadTransportAtHandshakeDisablesTheEngine) {
+  auto t = std::make_unique<FakeTransport>();
+  t->DieAfter(0);  // Fails the very first exchange, like a timeout.
+  ExternalEngineSource source(EngineProfile(), std::move(t));
+  EXPECT_FALSE(source.IsAvailable());
+  EXPECT_FALSE(source.failure().empty());
+}
+
+TEST(ExternalEngineSourceTest, NullTransportIsHandled) {
+  ExternalEngineSource source(EngineProfile(), nullptr);
+  EXPECT_FALSE(source.IsAvailable());
+  EXPECT_TRUE(source.Query("sain", 9).empty());
+}
+
+// ---- incremental session ----------------------------------------------
+
+TEST(ExternalEngineSourceTest, TypingSendsOneTypePerNewKey) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSourceWith(&t, {"OK\tA", "OK\tAB", "OK\tABC"});
+  source->Query("s", 9);
+  source->Query("sa", 9);
+  source->Query("sai", 9);
+
+  // HELLO, then exactly one TYPE per keystroke.
+  ASSERT_EQ(t->sent.size(), 4u);
+  EXPECT_EQ(t->sent[1].substr(0, 9), "TYPE 0 s ");
+  EXPECT_EQ(t->sent[2].substr(0, 9), "TYPE 0 a ");
+  EXPECT_EQ(t->sent[3].substr(0, 9), "TYPE 0 i ");
+}
+
+TEST(ExternalEngineSourceTest, BackspaceSendsUntype) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSourceWith(&t, {"OK\tA", "OK\tAB", "OK\tA"});
+  source->Query("s", 9);
+  source->Query("sa", 9);
+  t->sent.clear();
+  source->Query("s", 9);
+  ASSERT_EQ(t->sent.size(), 1u);
+  EXPECT_EQ(t->sent[0].substr(0, 11), "UNTYPE 0 fu");
+}
+
+TEST(ExternalEngineSourceTest, DivergentInputRestartsTheSession) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSourceWith(&t, {"OK\tA", "OK\tAB", "OK", "OK\tM", "OK\tMO"});
+  source->Query("sa", 9);  // Two TYPEs.
+  t->sent.clear();
+  source->Query("mo", 9);  // Shares no prefix: CLEAR, then retype.
+  ASSERT_GE(t->sent.size(), 3u);
+  EXPECT_EQ(t->sent[0], "CLEAR 0");
+  EXPECT_EQ(t->sent[1].substr(0, 9), "TYPE 0 m ");
+  EXPECT_EQ(t->sent[2].substr(0, 9), "TYPE 0 o ");
+}
+
+TEST(ExternalEngineSourceTest, EmptyInputClearsTheSession) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSourceWith(&t, {"OK\tA", "OK"});
+  source->Query("s", 9);
+  t->sent.clear();
+  EXPECT_TRUE(source->Query("", 9).empty());
+  ASSERT_EQ(t->sent.size(), 1u);
+  EXPECT_EQ(t->sent[0], "CLEAR 0");
+}
+
+TEST(ExternalEngineSourceTest, CandidatesComeBackInEngineOrder) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSourceWith(&t, {"OK\tA\tB\tC"});
+  const std::vector<Candidate> candidates = source->Query("s", 9);
+  ASSERT_EQ(candidates.size(), 3u);
+  EXPECT_EQ(candidates[0].text, L"A");
+  EXPECT_EQ(candidates[1].text, L"B");
+  EXPECT_EQ(candidates[2].text, L"C");
+  EXPECT_GT(candidates[0].score, candidates[1].score);
+  EXPECT_GT(candidates[1].score, candidates[2].score);
+}
+
+// ---- failure handling --------------------------------------------------
+
+TEST(ExternalEngineSourceTest, EngineThatStopsAnsweringIsDroppedNotRetried) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSourceWith(&t, {"OK\tA"});
+  EXPECT_FALSE(source->Query("s", 9).empty());
+
+  t->DieAfter(static_cast<int>(t->sent.size()));  // Next exchange fails.
+  EXPECT_TRUE(source->Query("sa", 9).empty());
+  EXPECT_FALSE(source->IsAvailable());
+
+  // A dropped engine must not be poked again on the typing path.
+  const size_t after_failure = t->sent.size();
+  EXPECT_TRUE(source->Query("sai", 9).empty());
+  EXPECT_EQ(t->sent.size(), after_failure);
+}
+
+TEST(ExternalEngineSourceTest, ErrResponseDropsTheEngine) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSourceWith(&t, {"ERR\tunknown session"});
+  EXPECT_TRUE(source->Query("s", 9).empty());
+  EXPECT_FALSE(source->IsAvailable());
+  EXPECT_NE(source->failure().find("unknown session"), std::string::npos);
+}
+
+TEST(ExternalEngineSourceTest, MalformedResponseDropsTheEngine) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSourceWith(&t, {"gibberish"});
+  EXPECT_TRUE(source->Query("s", 9).empty());
+  EXPECT_FALSE(source->IsAvailable());
+}
+
+// A request carrying a control character would break the line framing, so it
+// is never sent; the engine stays alive because this is not its fault.
+TEST(ExternalEngineSourceTest, InputWithControlCharactersIsNotSent) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSourceWith(&t, {"OK\tA"});
+  t->sent.clear();
+  EXPECT_TRUE(source->Query(std::string("sa\nEVIL"), 9).empty());
+  EXPECT_TRUE(t->sent.empty());
+  EXPECT_TRUE(source->IsAvailable());
+}
+
+TEST(ExternalEngineSourceTest, DisabledSourceAsksTheEngineNothing) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSourceWith(&t, {"OK\tA"});
+  source->set_enabled(false);
+  t->sent.clear();
+  EXPECT_TRUE(source->Query("s", 9).empty());
+  EXPECT_TRUE(t->sent.empty());
+  EXPECT_FALSE(source->IsAvailable());
+}
+
+// ---- candidate validation ----------------------------------------------
+
+TEST(ExternalEngineSourceTest, CandidatesOutsideTheDeclaredRangeAreDropped) {
+  InputProfile profile = EngineProfile();
+  profile.engine_codepoints_set = true;
+  profile.engine_codepoint_low = 0x1865;
+  profile.engine_codepoint_high = 0x18AA;
+
+  FakeTransport* t = nullptr;
+  auto transport = std::make_unique<FakeTransport>();
+  transport->replies = {Hello(),
+                        // In range, then out of range, then in range again.
+                        "OK\t\xE1\xA1\xA5\tZ\t\xE1\xA2\xAA"};
+  t = transport.get();
+  ExternalEngineSource source(profile, std::move(transport));
+  const std::vector<Candidate> candidates = source.Query("s", 9);
+  ASSERT_EQ(candidates.size(), 2u);
+  EXPECT_EQ(candidates[0].text, std::wstring(1, static_cast<wchar_t>(0x1865)));
+  EXPECT_EQ(candidates[1].text, std::wstring(1, static_cast<wchar_t>(0x18AA)));
+  (void)t;
+}
+
+TEST(ExternalEngineSourceTest, SurplusCandidatesAreDiscarded) {
+  FakeTransport* t = nullptr;
+  std::string reply = "OK";
+  for (int i = 0; i < 200; ++i) reply += "\tA";
+  auto source = MakeSourceWith(&t, {reply});
+  EXPECT_LE(source->Query("s", 5).size(), 5u);
+}
+
+TEST(ExternalEngineSourceTest, CandidateValidationRejectsHostileText) {
+  InputProfile plain;  // No declared range: only the generic rules apply.
+  EXPECT_TRUE(IsAcceptableCandidate(L"ok", plain));
+  EXPECT_FALSE(IsAcceptableCandidate(L"", plain));
+  // A bidirectional override can make committed text misrepresent itself.
+  EXPECT_FALSE(IsAcceptableCandidate(std::wstring(1, 0x202E), plain));
+  EXPECT_FALSE(IsAcceptableCandidate(std::wstring(1, 0x2066), plain));
+  EXPECT_FALSE(IsAcceptableCandidate(std::wstring(1, 0x07), plain));
+  EXPECT_FALSE(IsAcceptableCandidate(std::wstring(1, 0x7F), plain));
+  EXPECT_FALSE(
+      IsAcceptableCandidate(std::wstring(kEngineMaxCandidateChars + 1, L'a'),
+                            plain));
+  EXPECT_TRUE(
+      IsAcceptableCandidate(std::wstring(kEngineMaxCandidateChars, L'a'),
+                            plain));
+}
+
+TEST(ExternalEngineSourceTest, PriorityDefaultsBelowTheLexicon) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSource(&t, EngineProfile());
+  EXPECT_EQ(source->priority(), 90);
+
+  InputProfile profile = EngineProfile();
+  profile.engine_priority = 150;
+  FakeTransport* other = nullptr;
+  auto custom = MakeSource(&other, profile);
+  EXPECT_EQ(custom->priority(), 150);
+}
+
+// ---- the mode the profile asks for -------------------------------------
+//
+// Which answer an engine gives is the profile's business, and the host is
+// deliberately ignorant of what a mode means: it passes the token through.
+
+TEST(ExternalEngineSourceTest, ModeDefaultsToTheOneEveryEngineImplements) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSourceWith(&t, {"OK\tA"});
+  source->Query("s", 9);
+  ASSERT_EQ(t->sent.size(), 2u);
+  EXPECT_EQ(t->sent[1], "TYPE 0 s fuzzy 9");
+}
+
+TEST(ExternalEngineSourceTest, ProfileModeIsSentVerbatim) {
+  InputProfile profile = EngineProfile();
+  profile.engine_mode = "score";
+  FakeTransport* t = nullptr;
+  auto source = MakeSourceWith(&t, {"OK\tA", "OK\tAB", "OK\tA"}, profile);
+  source->Query("s", 9);
+  source->Query("sa", 9);
+  source->Query("s", 9);
+  ASSERT_EQ(t->sent.size(), 4u);
+  EXPECT_EQ(t->sent[1], "TYPE 0 s score 9");
+  EXPECT_EQ(t->sent[2], "TYPE 0 a score 9");
+  EXPECT_EQ(t->sent[3], "UNTYPE 0 score 9");
+}
+
+TEST(ExternalEngineSourceTest, AModeTheHostDoesNotKnowIsStillSent) {
+  // The host must not hold a list of valid modes: an engine may define its
+  // own, and a profile is how one is selected.
+  InputProfile profile = EngineProfile();
+  profile.engine_mode = "handwriting";
+  FakeTransport* t = nullptr;
+  auto source = MakeSourceWith(&t, {"OK\tA"}, profile);
+  source->Query("s", 9);
+  ASSERT_EQ(t->sent.size(), 2u);
+  EXPECT_EQ(t->sent[1], "TYPE 0 s handwriting 9");
+}
+
+TEST(ExternalEngineSourceTest, CandModeMatchesTypeMode) {
+  InputProfile profile = EngineProfile();
+  profile.engine_mode = "score";
+  FakeTransport* t = nullptr;
+  auto source = MakeSourceWith(&t, {"OK\tA", "OK\tA"}, profile);
+  source->Query("s", 9);
+  t->sent.clear();
+  source->Query("s", 9);  // Same input again: a bare CAND.
+  ASSERT_EQ(t->sent.size(), 1u);
+  EXPECT_EQ(t->sent[0], "CAND 0 score 9");
+}
+
+// ---- scored items ------------------------------------------------------
+
+TEST(ExternalEngineSourceTest, ScoredItemSplitsAtTheFirstComma) {
+  const ScoredItem item = ParseScoredItem(
+      "abc,frequency:110487,frequencyScore:1.0,levenshteinD:0,"
+      "levenshteinScore:0.8181818,jaroWinklerScore:3.0,score:0.9616858");
+  EXPECT_EQ(item.text, "abc");
+  EXPECT_TRUE(item.scored);
+  EXPECT_NEAR(item.score, 0.9616858, 1e-9);
+}
+
+TEST(ExternalEngineSourceTest, AnItemWithoutMetricsIsAllText) {
+  const ScoredItem item = ParseScoredItem("abc");
+  EXPECT_EQ(item.text, "abc");
+  EXPECT_FALSE(item.scored);
+}
+
+TEST(ExternalEngineSourceTest, AMalformedScoreLeavesTheItemUnscored) {
+  const ScoredItem item = ParseScoredItem("abc,frequency:7,score:not-a-number");
+  EXPECT_EQ(item.text, "abc");
+  EXPECT_FALSE(item.scored);
+}
+
+// Java writes small floats in scientific notation ("5.61152E-4") and the
+// ZCode port reproduces that formatting exactly, so the host has to read it.
+TEST(ExternalEngineSourceTest, ScientificNotationIsRead) {
+  const ScoredItem item = ParseScoredItem("abc,frequency:62,score:5.61152E-4");
+  EXPECT_TRUE(item.scored);
+  EXPECT_NEAR(item.score, 0.000561152, 1e-12);
+}
+
+TEST(ExternalEngineSourceTest, ScoredModeStripsTheMetricsFromTheCandidate) {
+  InputProfile profile = EngineProfile();
+  profile.engine_mode = "score";
+  profile.engine_scored = true;
+  FakeTransport* t = nullptr;
+  auto source = MakeSourceWith(
+      &t, {"OK\tabc,frequency:7,score:0.25\tdef,frequency:9,score:0.75"},
+      profile);
+  const std::vector<Candidate> candidates = source->Query("s", 9);
+  ASSERT_EQ(candidates.size(), 2u);
+  // What gets committed is the word alone; the metrics are not part of it.
+  EXPECT_EQ(candidates[0].text, L"abc");
+  EXPECT_EQ(candidates[1].text, L"def");
+  // And the engine's own score is what ranks them, so the merge puts "def"
+  // first even though the engine listed it second.
+  EXPECT_GT(candidates[1].score, candidates[0].score);
+}
+
+// Without the declaration the metrics would be part of the text, which is why
+// the two settings have to agree.
+// The score came from the engine, which is untrusted: a value no int32_t can
+// hold must clamp, not overflow.
+TEST(ExternalEngineSourceTest, AnAbsurdScoreIsClampedNotOverflowed) {
+  InputProfile profile = EngineProfile();
+  profile.engine_mode = "score";
+  profile.engine_scored = true;
+  FakeTransport* t = nullptr;
+  auto source = MakeSourceWith(
+      &t, {"OK\tabc,score:1e300\tdef,score:-1e300"}, profile);
+  const std::vector<Candidate> candidates = source->Query("s", 9);
+  ASSERT_EQ(candidates.size(), 2u);
+  EXPECT_GT(candidates[0].score, candidates[1].score);
+}
+
+TEST(ExternalEngineSourceTest, AnUndeclaredScoredModeKeepsTheWholeItem) {
+  InputProfile profile = EngineProfile();
+  profile.engine_mode = "score";
+  profile.engine_scored = false;
+  FakeTransport* t = nullptr;
+  auto source =
+      MakeSourceWith(&t, {"OK\tabc,frequency:7,score:0.25"}, profile);
+  const std::vector<Candidate> candidates = source->Query("s", 9);
+  ASSERT_EQ(candidates.size(), 1u);
+  EXPECT_EQ(candidates[0].text, L"abc,frequency:7,score:0.25");
+}
+
+// The code-point range is checked against the parsed text, not the raw item:
+// a scored item is full of ASCII, so checking the raw item would reject every
+// candidate from a profile that declares a range.
+TEST(ExternalEngineSourceTest, ScoredTextIsWhatTheCodePointRangeSees) {
+  InputProfile profile = EngineProfile();
+  profile.engine_mode = "score";
+  profile.engine_scored = true;
+  profile.engine_codepoints_set = true;
+  profile.engine_codepoint_low = 0x1865;
+  profile.engine_codepoint_high = 0x18AA;
+  FakeTransport* t = nullptr;
+  // U+1873 U+186A in UTF-8, then the metrics.
+  auto source = MakeSourceWith(
+      &t, {"OK\t\xE1\xA1\xB3\xE1\xA1\xAA,frequency:7,score:0.5"}, profile);
+  const std::vector<Candidate> candidates = source->Query("s", 9);
+  ASSERT_EQ(candidates.size(), 1u);
+  EXPECT_EQ(candidates[0].text, L"ᡳᡪ");
+}
+
+// ---- the user's own words ----------------------------------------------
+
+InputProfile UserWordProfile() {
+  InputProfile profile = EngineProfile();
+  profile.engine_mode = "full";
+  profile.engine_scored = true;
+  profile.engine_user_words = true;
+  return profile;
+}
+
+std::vector<UserWordUse> OneUse(const std::wstring& word, uint32_t count,
+                                int64_t when) {
+  UserWordUse use;
+  use.word = word;
+  use.count = count;
+  use.last_used = when;
+  return {use};
+}
+
+TEST(ExternalEngineSourceTest, UserWordsAreNotSentUnlessTheProfileAsks) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSource(&t, EngineProfile());  // engine_user_words false
+  source->ReplayUserWords(OneUse(L"abc", 3, 1'000'000));
+  source->LearnCommitted(L"abc", 1'000'000);
+  ASSERT_EQ(t->sent.size(), 1u);
+  EXPECT_EQ(t->sent[0], "HELLO") << "nothing beyond the handshake";
+  EXPECT_FALSE(source->user_words_enabled());
+}
+
+// Unix seconds in, whole days out: the engine's habit half-life is in
+// ticks, and a day is the unit that makes "used a month ago" mean that.
+TEST(ExternalEngineSourceTest, TimesGoOutAsDays) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSource(&t, UserWordProfile());
+  source->ReplayUserWords(OneUse(L"abc", 4, 86400 * 730 + 500));
+  ASSERT_EQ(t->sent.size(), 4u);
+  EXPECT_EQ(t->sent[2], "USER clear");
+  EXPECT_EQ(t->sent[3], "USER restore 4 730 abc");
+
+  t->sent.clear();
+  source->LearnCommitted(L"abc", 86400 * 931 + 1);
+  ASSERT_EQ(t->sent.size(), 1u);
+  EXPECT_EQ(t->sent[0], "USER learn 931 abc");
+}
+
+// The three habit settings travel as a set, before anything is ranked with
+// them, and in a form no locale can reinterpret.
+TEST(ExternalEngineSourceTest, HabitSettingsGoOutFirst) {
+  InputProfile profile = UserWordProfile();
+  profile.engine_habit_weight = 0.5F;
+  profile.engine_habit_half_life = 2.5F;
+  profile.engine_habit_saturation = 4.0F;
+  FakeTransport* t = nullptr;
+  auto source = MakeSource(&t, profile);
+  source->ReplayUserWords({});
+  ASSERT_EQ(t->sent.size(), 3u);
+  EXPECT_EQ(t->sent[1], "USER options 0.5 2.5 4.0");
+  EXPECT_EQ(t->sent[2], "USER clear") << "settings before the words";
+}
+
+TEST(ExternalEngineSourceTest, TheDefaultSettingsAreSentToo) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSource(&t, UserWordProfile());
+  source->ReplayUserWords({});
+  ASSERT_GE(t->sent.size(), 2u);
+  EXPECT_EQ(t->sent[1], "USER options 1.0 10.0 2.0");
+}
+
+// An engine may take the words and not the settings; its own are the same
+// numbers, so that is not worth giving up the words over.
+TEST(ExternalEngineSourceTest, RefusingOnlyTheSettingsKeepsTheWords) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSourceWith(&t, {"ERR\tunknown request"}, UserWordProfile());
+  source->ReplayUserWords(OneUse(L"abc", 3, 86400));
+  EXPECT_TRUE(source->user_words_enabled());
+  ASSERT_EQ(t->sent.size(), 4u);
+  EXPECT_EQ(t->sent[2], "USER clear");
+  EXPECT_EQ(t->sent[3], "USER restore 3 1 abc");
+}
+
+TEST(ExternalEngineSourceTest, ATimeBeforeTheEpochIsClampedNotWrapped) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSource(&t, UserWordProfile());
+  source->LearnCommitted(L"abc", -5);
+  ASSERT_EQ(t->sent.size(), 2u);
+  EXPECT_EQ(t->sent[1], "USER learn 0 abc");
+}
+
+TEST(ExternalEngineSourceTest, ReplayClearsFirstSoARestartIsNotMoreUse) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSource(&t, UserWordProfile());
+  std::vector<UserWordUse> words = OneUse(L"abc", 2, 86400);
+  UserWordUse second;
+  second.word = L"def";
+  second.count = 1;
+  second.last_used = 86400 * 3;
+  words.push_back(second);
+  source->ReplayUserWords(words);
+  ASSERT_EQ(t->sent.size(), 5u);
+  EXPECT_EQ(t->sent[2], "USER clear");
+  EXPECT_EQ(t->sent[3], "USER restore 2 1 abc");
+  EXPECT_EQ(t->sent[4], "USER restore 1 3 def");
+}
+
+// An engine is only obliged to implement four requests. One that refuses
+// these must keep working for everything else.
+TEST(ExternalEngineSourceTest, AnEngineThatRefusesUserWordsIsNotBroken) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSource(&t, UserWordProfile());
+  t->default_reply = "ERR\tunknown command";  // refuses everything after HELLO
+  source->ReplayUserWords(OneUse(L"abc", 3, 86400));
+  EXPECT_TRUE(source->IsAvailable()) << "a refusal is an answer, not a fault";
+  EXPECT_TRUE(source->failure().empty());
+  EXPECT_FALSE(source->user_words_enabled());
+
+  // And nothing further is sent.
+  t->sent.clear();
+  source->LearnCommitted(L"abc", 86400);
+  EXPECT_TRUE(t->sent.empty());
+
+  // The engine still answers ordinary queries.
+  t->default_reply = "OK\tabc";
+  EXPECT_FALSE(source->Query("s", 9).empty());
+}
+
+TEST(ExternalEngineSourceTest, AnEngineThatStopsAnsweringIsStillAFailure) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSource(&t, UserWordProfile());
+  t->DieAfter(1);  // HELLO goes through, the next request does not
+  source->ReplayUserWords(OneUse(L"abc", 3, 86400));
+  EXPECT_FALSE(source->IsAvailable());
+  EXPECT_FALSE(source->failure().empty());
+}
+
+TEST(ExternalEngineSourceTest, EmptyAndZeroCountEntriesAreSkipped) {
+  FakeTransport* t = nullptr;
+  auto source = MakeSource(&t, UserWordProfile());
+  std::vector<UserWordUse> words = OneUse(L"", 3, 86400);
+  UserWordUse never_used;
+  never_used.word = L"def";
+  never_used.count = 0;
+  words.push_back(never_used);
+  source->ReplayUserWords(words);
+  ASSERT_EQ(t->sent.size(), 3u);
+  EXPECT_EQ(t->sent[2], "USER clear");
+}
+
+}  // namespace
+}  // namespace paiza

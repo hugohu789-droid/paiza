@@ -73,8 +73,12 @@ add_library(paiza_core STATIC
   src/core/cloud_candidate_source.cc
   src/core/dawg.cc
   src/core/engine_c_api.cc
+  src/core/engine_path.cc
+  src/core/engine_transport.cc
   src/core/equivalence_table.cc
+  src/core/external_engine_source.cc
   src/core/fixed_sequences.cc
+  src/core/input_profile.cc
   src/core/input_session.cc
   src/core/font_stem_config.cc
   src/core/key_mapping.cc
@@ -85,12 +89,20 @@ add_library(paiza_core STATIC
   src/core/local_dictionary_source.cc
   src/core/localization.cc
   src/core/mapping_preview.cc
+  src/core/profile_switch.cc
   src/core/romanization.cc
   src/core/scorer.cc
   src/core/static_lexicon.cc
   src/core/transliterator.cc
   src/core/user_dictionary.cc
 )
+# SpawnEngineTransport has one implementation per platform, chosen here rather
+# than with an #ifdef, so each file is platform-pure and no call site branches.
+if(WIN32)
+  target_sources(paiza_core PRIVATE src/core/engine_transport_win.cc)
+else()
+  target_sources(paiza_core PRIVATE src/core/engine_transport_posix.cc)
+endif()
 target_link_libraries(paiza_core PUBLIC paiza_common)
 target_link_libraries(paiza_core PRIVATE paiza_sqlite)
 
@@ -223,6 +235,11 @@ if(WIN32)
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/data/fixed_sequences.txt
             $<TARGET_FILE_DIR:PaizaService>/fixed_sequences.txt
+    # Input profiles (docs/input-profiles.md). A missing directory is not
+    # fatal: the engine falls back to BuiltInUnicodeProfile().
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/data/profiles
+            $<TARGET_FILE_DIR:PaizaService>/profiles
   )
 endif()
 
@@ -246,6 +263,7 @@ if(APPLE)
     ${PAIZA_MAC}/resources/MenuIcon.tiff
     ${PAIZA_MAC}/en.lproj/InfoPlist.strings
     ${PAIZA_MAC}/zh-Hans.lproj/InfoPlist.strings
+    data/profiles/unicode.txt
   )
   add_dependencies(PaizaIMK paiza_lexicon)
   set_target_properties(PaizaIMK PROPERTIES
@@ -261,6 +279,9 @@ if(APPLE)
   )
   set_source_files_properties(${PAIZA_LEXICON_BIN}
     PROPERTIES GENERATED TRUE MACOSX_PACKAGE_LOCATION Resources)
+  # Input profiles live in their own folder so the registry can scan it.
+  set_source_files_properties(data/profiles/unicode.txt
+    PROPERTIES MACOSX_PACKAGE_LOCATION Resources/profiles)
   set_source_files_properties(${PAIZA_MAC}/en.lproj/InfoPlist.strings
     PROPERTIES MACOSX_PACKAGE_LOCATION Resources/en.lproj)
   set_source_files_properties(${PAIZA_MAC}/zh-Hans.lproj/InfoPlist.strings
@@ -338,6 +359,10 @@ if(UNIX AND NOT APPLE)
       ${PAIZA_LINUX}/settings_store.cc
     )
     target_include_directories(paiza-ime-settings PRIVATE ${PAIZA_LINUX})
+    # The settings dialog reads the installed input profiles, so it needs the
+    # same data directory the engine target gets.
+    target_compile_definitions(paiza-ime-settings PRIVATE
+      PAIZA_DATA_DIR="${PAIZA_INSTALL_DATA_DIR}")
     target_link_libraries(paiza-ime-settings PRIVATE
       paiza_core PkgConfig::GTK3)
 
@@ -371,6 +396,7 @@ if(UNIX AND NOT APPLE)
                   ${PAIZA_LEXICON_BIN}
                   ${PAIZA_LINUX}/resources/paiza-mn.png
             DESTINATION share/ibus-paiza)
+    install(DIRECTORY data/profiles DESTINATION share/ibus-paiza)
     # GNOME Shell extension: vertical Mongolian in the shell's IBus
     # candidate popup (the Wayland rendering path). <prefix>/share is on
     # XDG_DATA_DIRS, so the shell finds it after the next login; per-user
@@ -425,14 +451,20 @@ if(PAIZA_BUILD_TESTS)
     tests/candidate_engine_test.cc
     tests/dawg_test.cc
     tests/engine_c_api_test.cc
+    tests/engine_path_test.cc
+    tests/engine_transport_test.cc
+    tests/engine_transport_live_test.cc
     tests/equivalence_table_test.cc
+    tests/external_engine_source_test.cc
     tests/fixed_sequences_test.cc
+    tests/input_profile_test.cc
     tests/input_session_test.cc
     tests/key_mapping_test.cc
     tests/levenshtein_automaton_test.cc
     tests/linux_settings_store_test.cc
     tests/local_dictionary_source_test.cc
     tests/localization_test.cc
+    tests/profile_switch_test.cc
     tests/romanization_test.cc
     tests/scorer_test.cc
     tests/static_lexicon_test.cc
@@ -450,8 +482,20 @@ if(PAIZA_BUILD_TESTS)
     )
   endif()
 
+  # A stub engine for the transport tests to spawn. The interesting half of a
+  # transport is what it does when the engine misbehaves, which takes a real
+  # process on the other end. Freestanding on purpose: no Paiza headers, so it
+  # doubles as the smallest worked example of a conforming engine.
+  add_executable(paiza_test_engine tools/test_engine/main.cc)
+
   add_executable(paiza_tests ${PAIZA_TEST_SOURCES})
+  add_dependencies(paiza_tests paiza_test_engine)
   target_include_directories(paiza_tests PRIVATE src/platform/linux)
+  # Lets a test read the repository's shipped data files (data/profiles/), and
+  # find the stub engine without guessing at the build layout.
+  target_compile_definitions(paiza_tests PRIVATE
+    PAIZA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    PAIZA_TEST_ENGINE=L"$<TARGET_FILE:paiza_test_engine>")
   target_link_libraries(paiza_tests PRIVATE paiza_core gtest gtest_main)
   if(WIN32)
     target_include_directories(paiza_tests PRIVATE src/platform/windows)

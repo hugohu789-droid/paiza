@@ -12,7 +12,10 @@
 #include "common/string_utils.h"
 #include "core/candidate_engine.h"
 #include "core/cloud_candidate_source.h"
+#include "core/external_engine_source.h"
+#include "core/input_profile.h"
 #include "core/input_session.h"
+#include "core/profile_switch.h"
 #include "core/key_mapping_store.h"
 #include "core/local_dictionary_source.h"
 #include "core/localization.h"
@@ -31,10 +34,70 @@ using paiza::linux_ime::SettingsWatcher;
 paiza::CloudCandidateSource* g_cloud_source = nullptr;
 // Dynamic user lexicon (dual-track overlay, spec §3.2); persisted to
 // ~/.config/paiza-ime/user.db asynchronously.
-paiza::UserDictionary* g_user_dictionary = nullptr;
 // Static lexicon (compiled lexicon.bin, mmap): prefix + fault-tolerant
 // search + bigram context; ranked below the user overlay, above cloud.
 paiza::StaticLexicon* g_static_lexicon = nullptr;
+// Plain-text dictionary fallback. Gated per profile like the others:
+// its entries are Unicode Mongolian words.
+paiza::LocalDictionarySource* g_local_dictionary = nullptr;
+
+// Input profiles (docs/input-profiles.md). The switch is global because the
+// candidate sources are; each engine instance has its own session, so it is
+// wired through ApplyTo when the engine is initialised.
+paiza::InputProfileRegistry g_profiles;
+std::unique_ptr<paiza::ProfileSwitch> g_profile_switch;
+// One user dictionary per profile, in registry order.
+std::vector<std::pair<std::string, paiza::UserDictionary*>>
+    g_profile_dictionaries;
+// External engine processes, for the profiles that declare one. Only those
+// profiles appear here, so this is usually empty.
+std::vector<std::pair<std::string, paiza::ExternalEngineSource*>>
+    g_profile_engines;
+// Why a declared engine could not be built, kept so the settings dialog can
+// say so rather than leaving the user with a profile that quietly has no
+// candidates.
+std::vector<std::pair<std::string, std::string>> g_profile_engine_errors;
+
+// Loads the installed profiles once; a missing directory falls back to the
+// built-in Unicode profile.
+void LoadProfiles() {
+  if (g_profiles.empty()) {
+    g_profiles.LoadFromDirectory(
+        paiza::Utf8ToWide(std::string(PAIZA_DATA_DIR) + "/profiles"));
+    g_profiles.EnsureDefault();
+  }
+}
+
+// Builds the profile switch once, binding the shared sources to the Unicode
+// profile. Safe to call repeatedly.
+paiza::ProfileSwitch* SharedProfileSwitch() {
+  if (g_profile_switch == nullptr) {
+    LoadProfiles();
+    g_profile_switch = std::make_unique<paiza::ProfileSwitch>(
+        &g_profiles, /*session=*/nullptr);
+    for (const auto& [profile_id, dictionary] : g_profile_dictionaries) {
+      paiza::ProfileBinding binding;
+      binding.user_dictionary = dictionary;
+      // One compiled lexicon today; per-profile lexicons arrive with the
+      // second profile.
+      if (profile_id == paiza::kDefaultProfileId &&
+          g_static_lexicon != nullptr) {
+        binding.static_lexicon = g_static_lexicon;
+        binding.fixed_sequences = &g_static_lexicon->fixed_sequence_table();
+        // Unicode Mongolian words, so the Unicode profile only.
+        binding.local_dictionary = g_local_dictionary;
+      }
+      for (const auto& [engine_profile_id, source] : g_profile_engines) {
+        if (engine_profile_id == profile_id) binding.engine_source = source;
+      }
+      for (const auto& [engine_profile_id, error] : g_profile_engine_errors) {
+        if (engine_profile_id == profile_id) binding.engine_error = error;
+      }
+      g_profile_switch->Bind(profile_id, binding);
+    }
+  }
+  return g_profile_switch.get();
+}
 
 // Directory of the running executable (build-tree fallback lookups).
 std::string ExecutableDirectory() {
@@ -52,11 +115,50 @@ std::string ExecutableDirectory() {
 paiza::CandidateEngine* SharedEngine() {
   static paiza::CandidateEngine* engine = [] {
     auto* built = new paiza::CandidateEngine();
-    auto user = std::make_unique<paiza::UserDictionary>(
-        (std::filesystem::path(paiza::UserConfigDirectory()) / L"user.db")
-            .wstring());
-    g_user_dictionary = user.get();
-    built->AddSource(std::move(user));
+    // One user lexicon per profile: entries learned under one text encoding
+    // are meaningless under another, and ProfileSwitch keeps all but the
+    // active one unavailable (docs/input-profiles.md).
+    LoadProfiles();
+    for (const paiza::InputProfile& profile : g_profiles.All()) {
+      const std::wstring file =
+          profile.user_db.empty() ? L"user.db" : profile.user_db;
+      auto user = std::make_unique<paiza::UserDictionary>(
+          (std::filesystem::path(paiza::UserConfigDirectory()) / file)
+              .wstring());
+      g_profile_dictionaries.emplace_back(profile.id, user.get());
+      built->AddSource(std::move(user));
+    }
+    // External engine processes, for the profiles that declare one
+    // (docs/engine-contract.md). Started here rather than on first use so a
+    // missing or mismatched engine is reported now instead of silently
+    // producing no candidates on a keystroke. Installed location first, then
+    // the build tree, as for the lexicon and the dictionary.
+    for (const paiza::InputProfile& profile : g_profiles.All()) {
+      if (!profile.has_engine()) continue;
+      std::string reason;
+      auto source = paiza::MakeEngineSource(
+          profile, paiza::Utf8ToWide(PAIZA_DATA_DIR), &reason);
+      if (source == nullptr) {
+        // Keep the installed location's reason: it is the one a user wants to
+        // read, and the build-tree attempt would otherwise overwrite it with
+        // something about a directory that only exists for developers.
+        std::string ignored;
+        source = paiza::MakeEngineSource(
+            profile, paiza::Utf8ToWide(ExecutableDirectory()), &ignored);
+      }
+      if (source == nullptr) {
+        PAIZA_LOG_ERROR(L"profile '" + paiza::Utf8ToWide(profile.id) +
+                        L"': engine unavailable: " +
+                        paiza::Utf8ToWide(reason));
+        g_profile_engine_errors.emplace_back(profile.id, reason);
+        continue;
+      }
+      PAIZA_LOG_INFO(L"profile '" + paiza::Utf8ToWide(profile.id) +
+                     L"': engine started");
+      g_profile_engines.emplace_back(profile.id, source.get());
+      built->AddSource(std::move(source));
+    }
+
     // Compiled static lexicon: installed location first, then build tree.
     auto lexicon = std::make_unique<paiza::StaticLexicon>();
     const std::string lexicon_installed =
@@ -78,6 +180,7 @@ paiza::CandidateEngine* SharedEngine() {
       dictionary->LoadFromFile(
           paiza::Utf8ToWide(ExecutableDirectory() + "/dictionary.txt"));
     }
+    g_local_dictionary = dictionary.get();
     built->AddSource(std::move(dictionary));
     auto cloud = std::make_unique<paiza::CloudCandidateSource>(L"");
     g_cloud_source = cloud.get();
@@ -143,6 +246,9 @@ void ApplyCurrentSettings(PaizaEngine* engine) {
   const Settings& settings = engine->state->settings.Get();
   engine->state->session->set_page_size(settings.candidates_per_page);
   SharedEngine();
+  // Gate the candidate sources to the selected profile. An unknown id leaves
+  // the previous selection in place rather than half-switching.
+  SharedProfileSwitch()->Activate(settings.active_profile);
   if (g_cloud_source != nullptr) {
     g_cloud_source->set_enabled(settings.cloud_source_enabled);
   }
@@ -209,7 +315,21 @@ void SyncState(PaizaEngine* engine) {
   paiza::linux_ime::CandidateWindow* window = CustomWindow(engine);
 
   if (session->composing()) {
-    const std::string preedit = paiza::WideToUtf8(session->preedit());
+    // How much goes inline is a setting (docs/input-profiles.md): the client
+    // renders it in its own font. A placeholder keeps the preedit non-empty
+    // so cursor-following clients still have something to anchor to.
+    std::wstring inline_text = session->preedit();
+    switch (engine->state->settings.Get().inline_composition) {
+      case paiza::InlineComposition::kHidden:
+        inline_text.clear();
+        break;
+      case paiza::InlineComposition::kPlaceholder:
+        inline_text = L" ";
+        break;
+      case paiza::InlineComposition::kFull:
+        break;
+    }
+    const std::string preedit = paiza::WideToUtf8(inline_text);
     const glong length = g_utf8_strlen(preedit.c_str(), -1);
     IBusText* text = ibus_text_new_from_string(preedit.c_str());
     ibus_text_append_attribute(text, IBUS_ATTR_TYPE_UNDERLINE,
@@ -293,12 +413,9 @@ static void paiza_engine_init(PaizaEngine* engine) {
       SharedEngine(), SharedMappings());
   // Commits feed the dynamic user lexicon (frequency + coined words) and
   // set the static lexicon's bigram context for the next word.
-  engine->state->session->set_user_dictionary(g_user_dictionary);
-  engine->state->session->set_static_lexicon(g_static_lexicon);
-  if (g_static_lexicon != nullptr) {
-    engine->state->session->set_fixed_sequences(
-        &g_static_lexicon->fixed_sequence_table());
-  }
+  // The active profile decides which dictionary and lexicon this session
+  // records into, and whether the GB/T fixed sequences apply.
+  SharedProfileSwitch()->ApplyTo(*engine->state->session);
 
   IBusLookupTable* table = ibus_lookup_table_new(
       /*page_size=*/7, /*cursor_pos=*/0, /*cursor_visible=*/TRUE,

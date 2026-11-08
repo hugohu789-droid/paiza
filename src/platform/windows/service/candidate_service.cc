@@ -13,12 +13,10 @@ using ipc::Message;
 using ipc::MessageType;
 
 CandidateService::CandidateService(std::shared_ptr<CandidateEngine> engine,
-                                   UserDictionary* user_dictionary,
-                                   StaticLexicon* static_lexicon,
+                                   ProfileSwitch* profiles,
                                    std::function<void()> show_settings)
     : engine_(std::move(engine)),
-      user_dictionary_(user_dictionary),
-      static_lexicon_(static_lexicon),
+      profiles_(profiles),
       show_settings_(std::move(show_settings)) {}
 
 Message CandidateService::HandleMessage(const Message& request) {
@@ -44,13 +42,19 @@ Message CandidateService::HandleMessage(const Message& request) {
     case MessageType::kCommitCandidate: {
       const auto notice = ipc::DecodeCommitNotice(request);
       if (notice.has_value()) {
-        if (user_dictionary_ != nullptr) {
-          user_dictionary_->RecordCommit(notice->latin_input, notice->word);
+        UserDictionary* user_dictionary =
+            profiles_ != nullptr ? profiles_->active_user_dictionary()
+                                 : nullptr;
+        if (user_dictionary != nullptr) {
+          user_dictionary->RecordCommit(notice->latin_input, notice->word);
         }
         // Set the bigram context so the next query favours likely successors.
-        if (static_lexicon_ != nullptr) {
-          static_lexicon_->SetContextWord(
-              static_lexicon_->WordIdOf(notice->latin_input, notice->word));
+        StaticLexicon* static_lexicon =
+            profiles_ != nullptr ? profiles_->active_static_lexicon()
+                                 : nullptr;
+        if (static_lexicon != nullptr) {
+          static_lexicon->SetContextWord(
+              static_lexicon->WordIdOf(notice->latin_input, notice->word));
         }
       }
       return {MessageType::kAck, {}};

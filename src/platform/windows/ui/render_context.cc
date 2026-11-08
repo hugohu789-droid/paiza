@@ -19,6 +19,10 @@ ComPtr<ID2D1Factory> g_d2d_factory;
 ComPtr<IDWriteFactory> g_dwrite_factory;
 ComPtr<IWICImagingFactory> g_wic_factory;
 std::once_flag g_factories_once;
+// A font collection holding only process-private font files, or null when
+// none was loaded. Null means "use the system collection", which is what
+// every normal run does.
+ComPtr<IDWriteFontCollection> g_private_fonts;
 
 void CreateFactories() {
   ::D2D1CreateFactory(D2D1_FACTORY_TYPE_MULTI_THREADED,
@@ -32,6 +36,56 @@ void CreateFactories() {
 }
 
 }  // namespace
+
+bool RenderContext::SetPrivateFontFile(const std::wstring& path) {
+  if (path.empty()) {
+    g_private_fonts.Reset();
+    return true;
+  }
+  // IDWriteFactory3 is the first version that can build a collection straight
+  // from a file; before it this needed a custom loader object.
+  ComPtr<IDWriteFactory3> factory3;
+  if (FAILED(dwrite_factory()->QueryInterface(IID_PPV_ARGS(&factory3)))) {
+    PAIZA_LOG_ERROR(L"private fonts need IDWriteFactory3");
+    return false;
+  }
+  ComPtr<IDWriteFontFile> file;
+  if (FAILED(factory3->CreateFontFileReference(path.c_str(), nullptr, &file))) {
+    PAIZA_LOG_ERROR(L"cannot read font file: " + path);
+    return false;
+  }
+  ComPtr<IDWriteFontSetBuilder> builder;
+  if (FAILED(factory3->CreateFontSetBuilder(&builder))) return false;
+  // AddFontFile is on the "1" interface and takes every face in the file;
+  // the base interface can only add one face at a time, which is enough for
+  // a plain .ttf. Both fail on a file DirectWrite cannot parse, which is the
+  // useful place to find out rather than silently falling back to another
+  // font and producing a screenshot that proves nothing.
+  ComPtr<IDWriteFontSetBuilder1> builder1;
+  if (SUCCEEDED(builder->QueryInterface(IID_PPV_ARGS(&builder1)))) {
+    if (FAILED(builder1->AddFontFile(file.Get()))) {
+      PAIZA_LOG_ERROR(L"not a usable font file: " + path);
+      return false;
+    }
+  } else {
+    ComPtr<IDWriteFontFaceReference> face;
+    if (FAILED(factory3->CreateFontFaceReference(
+            path.c_str(), nullptr, 0, DWRITE_FONT_SIMULATIONS_NONE, &face))) {
+      PAIZA_LOG_ERROR(L"not a usable font file: " + path);
+      return false;
+    }
+    if (FAILED(builder->AddFontFaceReference(face.Get()))) return false;
+  }
+  ComPtr<IDWriteFontSet> set;
+  if (FAILED(builder->CreateFontSet(&set))) return false;
+  ComPtr<IDWriteFontCollection1> collection;
+  if (FAILED(factory3->CreateFontCollectionFromFontSet(set.Get(),
+                                                       &collection))) {
+    return false;
+  }
+  g_private_fonts = collection;
+  return true;
+}
 
 ID2D1Factory* RenderContext::d2d_factory() {
   std::call_once(g_factories_once, CreateFactories);
@@ -174,7 +228,7 @@ ComPtr<IDWriteTextFormat> RenderContext::CreateFormatStatic(
   if (factory == nullptr) return nullptr;
   ComPtr<IDWriteTextFormat> format;
   const HRESULT hr = factory->CreateTextFormat(
-      style.font_family.c_str(), nullptr,
+      style.font_family.c_str(), g_private_fonts.Get(),
       style.bold ? DWRITE_FONT_WEIGHT_SEMI_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
       DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, style.font_size,
       L"", format.GetAddressOf());
@@ -253,7 +307,7 @@ ComPtr<IDWriteTextFormat> CreateVerticalLeadingFormat(
     bool bold) {
   ComPtr<IDWriteTextFormat> format;
   if (FAILED(factory->CreateTextFormat(
-          family.c_str(), nullptr,
+          family.c_str(), g_private_fonts.Get(),
           bold ? DWRITE_FONT_WEIGHT_SEMI_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
           DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, size, L"",
           format.GetAddressOf()))) {

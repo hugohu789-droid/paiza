@@ -1,0 +1,181 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
+//
+// Input profiles: the bundle of settings that distinguishes one Mongolian text
+// encoding (and its candidate engine) from another, so that several can live in
+// one build and be selected at runtime. See docs/input-profiles.md.
+//
+// A profile is data, not code: one plain text file per profile under
+// data/profiles/, in the same "key value, '#' comments" style as
+// equivalences.txt and fixed_sequences.txt. Adding an engine should be adding a
+// file, not editing core code.
+//
+// Profiles are referenced by their string `id` (what the settings store keeps),
+// never by an enum, so a new profile needs no change to any platform's settings
+// schema.
+
+#ifndef PAIZA_CORE_INPUT_PROFILE_H_
+#define PAIZA_CORE_INPUT_PROFILE_H_
+
+#include <cstdint>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace paiza {
+
+// How much of the composition the host application shows inline. Profiles only
+// supply the default; the user setting wins. See docs/input-profiles.md §5.
+enum class InlineComposition {
+  kFull = 0,     // Inline shows the converted text (Unicode default).
+  kPlaceholder,  // Inline shows one placeholder character, keeping the
+                 // composition range measurable for caret positioning.
+  kHidden,       // Inline shows nothing.
+};
+
+// Parses "full" / "placeholder" / "hidden"; anything else yields `fallback`.
+InlineComposition ParseInlineComposition(std::string_view text,
+                                         InlineComposition fallback);
+// Inverse of ParseInlineComposition.
+std::string InlineCompositionName(InlineComposition value);
+// Numeric round-trip for settings stores that keep an integer (Windows
+// registry DWORD, NSUserDefaults). Out-of-range values yield kFull.
+InlineComposition InlineCompositionFromValue(uint32_t value);
+
+// Profile id used when settings carry none. Also the id of the built-in
+// fallback below.
+inline constexpr char kDefaultProfileId[] = "unicode";
+
+// The <mode> the host sends when a profile names none. "fuzzy" is the only
+// mode docs/engine-contract.md requires of every engine, so an engine that
+// implements the documented minimum still works with a profile that is silent
+// about modes. A profile that wants more says so (data/profiles/zcode.txt).
+inline constexpr char kDefaultEngineMode[] = "fuzzy";
+
+// True when `mode` is usable in the protocol's <mode> field: one token, no
+// space, no control character, and short. The set of *meanings* belongs to
+// the engine, so this checks the shape of the word and nothing else.
+bool IsAcceptableEngineMode(std::string_view mode);
+
+struct InputProfile {
+  // Stable key stored in settings and used by ProfileSwitch. Required.
+  std::string id;
+  // Shown in the settings dropdown. Defaults to `id` when the file omits it.
+  std::wstring display_name;
+
+  // File names, resolved by the caller against the deployment directory (they
+  // are names rather than paths so a profile file stays machine-independent).
+  std::wstring keymap;
+  std::wstring lexicon;
+  std::wstring user_db;
+  // Candidate-window font family.
+  std::wstring font;
+
+  // Orthography and query behaviour. The defaults describe the Unicode
+  // profile, so an omitted key keeps today's behaviour.
+  bool fixed_sequences = true;  // GB/T D.2 MVS insertion + vowel harmony.
+  bool romanize_query = true;   // The romanized second leg of the dual query.
+  bool skeleton_input = true;   // Consonant-skeleton (vowel-optional) matching.
+  // Latin keys treated as vowels by skeleton input; empty = use the built-in
+  // default derived from the default layout.
+  std::string vowel_keys;
+
+  InlineComposition inline_default = InlineComposition::kFull;
+
+  // External candidate engine (docs/engine-contract.md). Empty `engine` means
+  // the profile uses only the built-in sources, which is how every profile
+  // shipped so far behaves.
+  //
+  // `engine` is an executable *name*, never a path: the host resolves it
+  // inside the install directory only, because a profile file that could name
+  // an arbitrary path would be arbitrary code execution.
+  std::wstring engine;
+  std::wstring engine_args;
+  // The name HELLO must report. A mismatch disables the profile rather than
+  // letting a wrong binary answer queries.
+  std::string engine_protocol;
+  // "stdio" or "pipe"; empty means the platform default.
+  std::string engine_transport;
+  // What the host puts in the protocol's <mode> field, which is what decides
+  // the *kind* of answer an engine gives: for the ZCode engine, letter shapes
+  // or dictionary words, with or without the metrics behind the ranking.
+  //
+  // Deliberately opaque to the host: it is passed through unchanged, so an
+  // engine may define modes this build has never heard of, and adding one
+  // stays a data change. Empty means `kDefaultEngineMode`, the one mode every
+  // conforming engine must implement (docs/engine-contract.md).
+  std::string engine_mode;
+  // True when the items the chosen mode returns carry metrics after the text,
+  // as "text,key:value,key:value...". The host then takes the text up to the
+  // first comma and ranks by the `score:` field instead of by list position.
+  // Off unless the profile says otherwise, because a mode that returns plain
+  // text must not have its candidates truncated at a comma.
+  bool engine_scored = false;
+  // True when the host may hand this engine the user's own words, so that
+  // the engine ranks them. Off unless the profile says otherwise: an engine
+  // need only implement the four requests the contract requires, and one
+  // that has never heard of user words should not be sent any.
+  bool engine_user_words = false;
+  // How the engine should weigh what the user has typed before. Only
+  // meaningful with `engine_user_words`, and sent as a set because they only
+  // mean anything together (docs/engine-contract.md):
+  //
+  //   bonus = weight * count/(count + saturation) * 0.5^(days since / half_life)
+  //
+  // added to a score the engine normalises to at most 1. The defaults match
+  // the reference engine's, so a profile that states none gets the same
+  // behaviour as one that states these.
+  float engine_habit_weight = 1.0F;
+  float engine_habit_half_life = 10.0F;
+  float engine_habit_saturation = 2.0F;
+  // Where the engine sits among candidate sources; 0 means the host default.
+  int engine_priority = 0;
+  // Optional inclusive code-point range a candidate must stay within.
+  // engine_codepoints_set is false when the profile did not declare one.
+  bool engine_codepoints_set = false;
+  char32_t engine_codepoint_low = 0;
+  char32_t engine_codepoint_high = 0;
+
+  // True when this profile drives an external engine.
+  bool has_engine() const { return !engine.empty(); }
+};
+
+// The built-in Unicode profile, identical to data/profiles/unicode.txt. Used
+// when the profiles directory is missing or unreadable so the engine still
+// runs with today's behaviour -- the same idea as KeyMapping::CreateDefault
+// standing in for a missing keymap.txt. A test pins the two to each other.
+InputProfile BuiltInUnicodeProfile();
+
+class InputProfileRegistry {
+ public:
+  InputProfileRegistry() = default;
+
+  // Parses one profile from `content` and appends it. A profile without an `id`
+  // is rejected. Re-using an existing id replaces that profile. Returns true
+  // when a profile was added or replaced.
+  bool LoadFromString(const std::string& content);
+
+  // Loads every *.txt in `dir`, sorted by file name so the dropdown order is
+  // stable. Missing or unreadable directory leaves the registry untouched.
+  // Returns the number of profiles successfully loaded.
+  int LoadFromDirectory(const std::wstring& dir);
+
+  // Null when no profile carries that id.
+  const InputProfile* Find(std::string_view id) const;
+
+  // Adds BuiltInUnicodeProfile() when the registry is empty, so callers always
+  // have something to activate. No-op otherwise.
+  void EnsureDefault();
+
+  const std::vector<InputProfile>& All() const { return profiles_; }
+  bool empty() const { return profiles_.empty(); }
+  size_t size() const { return profiles_.size(); }
+  void Clear() { profiles_.clear(); }
+
+ private:
+  std::vector<InputProfile> profiles_;
+};
+
+}  // namespace paiza
+
+#endif  // PAIZA_CORE_INPUT_PROFILE_H_

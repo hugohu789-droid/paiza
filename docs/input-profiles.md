@@ -1,0 +1,557 @@
+# Input profiles — supporting multiple script encodings and engines
+
+Design record for making Paiza support more than one Mongolian text encoding and
+more than one candidate engine inside a **single codebase**, selected at runtime.
+
+Status: design agreed; increments 1 to 5 and 6a-6b implemented (see "Rollout" at the end).
+
+---
+
+## 1. Motivation
+
+Paiza is built around Unicode Mongolian: codepoints U+1820..U+18AA, FVS/MVS/NNBSP
+format characters, and the GB/T appendix D fixed sequences. That assumption is
+baked into several places (`Romanize`, `FixedSequenceTable`, the compiled lexicon,
+the corpus tools).
+
+We now need to support additional, non-standard input engines whose text is **not**
+standard Unicode Mongolian. The first is **ZCode**, the internal encoding of the
+`east-mod/ime` engine: form codes (形码) where each code point is one glyph
+component (tooth, belly, tail), assembled into letters by a splicing engine and
+rendered with a matching form-code font. A third engine is anticipated.
+
+**ZCode does not use the Private Use Area.** It borrows *assigned* code points
+from the Unicode Mongolian block, **U+1865..U+18AA** (U+1865..U+1878 and
+U+1887..U+18AA, skipping the combining marks), which Unicode assigns to Sibe,
+Manchu and Ali Gali letters. `titem` is U+1865 = MONGOLIAN LETTER SIBE HA;
+`galig_r_malgai` is U+18AA = MANCHU ALI GALI LHA. An earlier draft of this
+document claimed the Private Use Area; the port's Phase 0 analysis established
+otherwise.
+
+Because ZCode values are ordinary BMP scalar values, a ZCode string is still an
+ordinary `std::wstring`, so
+the TSF / InputMethodKit / IBus commit paths, the candidate window, the key policy
+and the platform adapters all carry it unchanged. The problem is therefore
+configuration and wiring, not a rewrite.
+
+### Why not a branch
+
+A long-lived branch that changes the core encoding would, in practice, become a
+second IME: every fix and every platform feature done twice, a doubled CI matrix,
+and eventual unmergeability. Paiza is maintained by one person across three
+platforms plus the toolchain. One codebase with a runtime switch is the cheaper
+and safer structure.
+
+### Why not an enum
+
+A two-valued `enum { kUnicode, kZCode }` looks tempting, but the thing that varies
+between engines is not one flag: it is a **bundle** of about eight settings. With
+an enum, every one of them becomes an N-way branch repeated in all three platform
+`ApplySettings` functions. Adding a third engine would mean editing the enum, three
+settings stores, three `ApplySettings`, and three settings dialogs.
+
+With three concrete cases on the table, generalising is justified. The chosen
+design follows the convention already established in this repository: **rules are
+data, not code** (`equivalences.txt`, `fixed_sequences.txt`, `keymap.txt`).
+
+---
+
+## 2. The InputProfile concept
+
+An **input profile** is a named bundle of everything that distinguishes one
+encoding/engine from another. Profiles are plain text files under `data/profiles/`.
+
+Adding a fourth engine should be *adding a data file*, not editing core code.
+
+### 2.1 What varies between profiles
+
+| Aspect | Unicode | ZCode |
+|---|---|---|
+| key mapping file | `keymap.txt` (→ U+1820..) | n/a — see §2.5 |
+| candidate-window font | Noto Sans Mongolian | the shape-code font |
+| compiled lexicon | `lexicon.bin` | `lexicon-zcode.bin` |
+| user dictionary | `user.db` | `user-zcode.db` |
+| GB/T fixed sequences (MVS insertion + harmony) | yes | no — MVS/FVS do not exist in ZCode |
+| romanized second query leg | yes | no — the engine owns the mapping |
+| consonant-skeleton input | yes | no initially (needs a ZCode vowel set) |
+| vowel key set (for skeleton) | `aeioquvE` | n/a |
+| default inline composition | full | hidden (see §5) |
+
+### 2.2 What does *not* change
+
+Worth stating explicitly, because it is most of the system:
+
+- `KeyMapping` is already encoding-agnostic: it maps a key string to an arbitrary
+  codepoint sequence. A different `keymap.txt` is all a profile needs.
+- `lexicon.bin`'s binary format stores UTF-8 strings and is encoding-agnostic; a
+  profile just points at a different file.
+- `EquivalenceTable` operates on **Latin keys** (`Equivalent(char, char)`), not on
+  Mongolian codepoints, so soft equivalence keeps working in every profile.
+- `CandidateSource` / `CandidateEngine`, the candidate window, the settings
+  framework, the key policy in `InputSession`, and all three platform adapters are
+  untouched.
+- The commit path (`ITfRange::SetText`, `insertText:`, `commit_text`) accepts any
+  valid Unicode text, and ZCode is ordinary BMP text.
+
+### 1.1 What borrowing assigned code points costs
+
+Worth stating plainly, because it is worse than the Private Use Area would
+have been:
+
+- Text committed in a ZCode profile is **valid Mongolian text that means
+  something else**. Pasted into an application without the form-code font it
+  renders as Sibe/Manchu/Ali Gali letters, not as obvious tofu, so the damage
+  is silent rather than visible.
+- It is **indistinguishable from genuine Sibe/Manchu text**, so nothing can
+  detect or repair it after the fact, and the corpus tools cannot tell the two
+  apart. `build_dictionary`'s `IsMongolianLetter` already spans
+  U+1820..U+1878 and U+1880..U+18AA, which wholly contains the ZCode range.
+
+This is a deliberate trade for compatibility with an existing form-code
+ecosystem, not an oversight. It is the reason the ZCode profile defaults to
+`inline_default hidden` (§5): the host application's font will render the
+composition as the wrong letters rather than as nothing.
+
+### 2.3 Declaring an external engine
+
+A profile may name an external candidate engine. The engine runs in its own
+process and speaks a documented line protocol, so **any** conforming engine can
+be added as a data change; nothing about the host is specific to one engine.
+The contract is [engine-contract.md](engine-contract.md).
+
+```
+engine             zcode_stdio      # executable, resolved in the install dir
+engine_args        --quiet          # optional
+engine_protocol    paiza-engine     # what HELLO must report
+engine_transport   stdio            # optional: stdio | pipe
+engine_priority    90               # optional
+engine_codepoints  1865-18AA        # optional: reject candidates outside
+engine_mode        full             # optional: what to ask the engine for
+engine_scored      yes              # optional: that mode's items carry metrics
+engine_user_words  yes              # optional: hand it the user's own words
+engine_habit_weight     1.0         # optional: how much a habit may add
+engine_habit_half_life  10.0        # optional: days until it halves
+engine_habit_saturation 2.0         # optional: uses for half strength
+```
+
+A profile with no `engine` uses only the built-in sources, which is how every
+profile shipped so far behaves.
+
+`engine_mode` is the one profile field the host does not interpret: it goes
+into the protocol's `<mode>` field unchanged, so the set of modes belongs to
+the engine and adding one stays a data change. The host checks only that it is
+a single short token, because it is spliced into a space-separated request
+line. A profile that names none gets `fuzzy`, the only mode the contract
+requires of every engine.
+
+Choosing one is not only a matter of taste: **a mode that can answer with
+nothing cannot be an input method's only source.** The ZCode engine's `word`
+and `score` answer with dictionary words alone, so a word outside its
+vocabulary leaves the candidate window empty and the user with nothing to
+commit; `full` is the same list with the engine's own reading of what was
+typed appended, and that is what the shipped profile asks for.
+
+`engine_scored` is the one thing the host does need to know about the chosen
+mode: whether its items are `text,key:value,key:value...` rather than bare
+text. When they are, the host takes the text up to the first comma and ranks
+the candidates by the item's `score:` field instead of by their position in
+the list — which is what lets engine candidates be merged with the host's own
+(a user word, a learned habit) rather than merely appended to them. The two
+fields have to agree: declaring a plain mode scored would cut candidates at a
+comma, and leaving a scored mode undeclared would offer the metrics as part of
+the text.
+
+`engine_user_words` hands the engine what the user has committed, so that
+the engine ranks it. The store stays the host's -- `user_db`, one per
+profile, as it already was -- and `ProfileSwitch::Bind` is what joins the two:
+it replays the dictionary into the engine and subscribes the engine to later
+commits. Done there rather than in each front-end because there are three of
+them, and the one that forgot would be a profile whose habits silently did
+not stick. Off by default, and an engine that refuses the requests keeps
+working without them.
+
+The three `engine_habit_*` fields say how the engine should weigh what was
+typed before:
+
+```
+bonus = weight x count/(count + saturation) x 0.5^(days since / half_life)
+```
+
+added to a score the engine normalises to at most 1, so `weight` is how much
+a settled habit may be worth against a perfect dictionary match, `half_life`
+is how fast an unused word fades, and `saturation` is how many uses it takes
+to be taken seriously. The half-life is 10 days and not 30 because of how
+far one use reaches: a single commit is worth 0.333, and a word the
+dictionary scored 0.938 needs only 0.062 to lead, so at 30 one stray choice
+would stay first for about 73 days -- at 10, about 24. The defaults match
+the reference engine's, so stating none behaves like stating these.
+
+The protocol *version* is deliberately not a profile field: the host knows
+which versions it implements, so the profile only declares which protocol the
+engine must speak. Timeouts and size caps are host constants for the same
+reason a profile cannot raise them — a profile that could would reintroduce
+the UI hang the timeout exists to prevent.
+
+### 2.4 File format
+
+Same conventions as the other data files: one `key value` pair per line, `#`
+starts a comment, blank lines ignored.
+
+```
+# data/profiles/unicode.txt
+id               unicode
+display_name     Unicode (GB/T)
+keymap           keymap.txt
+font             Noto Sans Mongolian
+lexicon          lexicon.bin
+user_db          user.db
+fixed_sequences  yes
+romanize_query   yes
+skeleton_input   yes
+vowel_keys       aeioquvE
+inline_default   full
+```
+
+```
+# data/profiles/zcode.txt  (added in a later increment)
+id               zcode
+display_name     ZCode (shape codes)
+# No keymap: the engine decomposes the Latin input itself (§2.5).
+font             <shape-code font family>
+lexicon          lexicon-zcode.bin
+user_db          user-zcode.db
+fixed_sequences  no
+romanize_query   no
+skeleton_input   no
+inline_default   hidden
+```
+
+### 2.5 A key mapping cannot model ZCode
+
+`KeyMapping` maps a key to a **fixed** code point sequence. That is enough for
+Unicode Mongolian, where a letter has one code point and the shaping engine in
+the font picks its positional form.
+
+It does not work for ZCode. A ZCode code point is one *glyph component*, and
+which components a letter becomes depends on its position in the word and on
+its neighbours; the engine decides that by splicing. There is no key-to-code-point
+table to write, so a ZCode profile has **no keymap file**: the engine decomposes
+the Latin input and produces the shaped candidates itself.
+
+The consequence for the preedit is that it cannot come from
+`KeyMapping::Convert`. It has to come from the engine (its best candidate for
+the keys typed so far). That is wiring work in the candidate-source increment,
+not a data file, which is why adding the ZCode profile is **not** purely
+additive the way adding a second Unicode-style profile would be.
+
+### 2.6 Core types
+
+```cpp
+struct InputProfile {
+  std::string  id;             // Stable key stored in settings.
+  std::wstring display_name;   // Shown in the settings dropdown.
+  std::wstring keymap, font, lexicon, user_db;   // File names / family name.
+  bool fixed_sequences = true;
+  bool romanize_query  = true;
+  bool skeleton_input  = true;
+  std::string  vowel_keys;
+  InlineComposition inline_default = InlineComposition::kFull;
+};
+
+class InputProfileRegistry {
+ public:
+  int  LoadFromString(const std::string& content);   // One profile.
+  int  LoadFromDirectory(const std::wstring& dir);   // All *.txt; returns count.
+  const InputProfile* Find(std::string_view id) const;   // nullptr if absent.
+  const std::vector<InputProfile>& All() const;          // For the dropdown.
+};
+```
+
+Settings store the **string id**, not an enum. A new profile therefore requires no
+change to any platform's settings schema.
+
+---
+
+## 3. Switching profiles at runtime
+
+`CandidateEngine::AddSource` is startup-only and not thread-safe against `Query`,
+so sources cannot be swapped while running. Instead, **register every profile's
+sources at startup and enable only the active one**, reusing the mechanism
+`CloudCandidateSource` already has:
+
+```cpp
+void set_enabled(bool e) { enabled_ = e; }
+bool IsAvailable() const override { return enabled_ && /* existing condition */; }
+```
+
+`CandidateEngine::Query` already skips unavailable sources, so a disabled
+profile's entries can never leak into the candidate list.
+
+To avoid repeating the N-way switch in three platform files, the logic lives in one
+platform-neutral component:
+
+```cpp
+class ProfileSwitch {
+ public:
+  void Register(const std::string& profile_id, CandidateSource* source);
+  void Activate(const std::string& profile_id);   // enable/disable + repoint
+};
+```
+
+Each platform's `ApplySettings` then collapses to one line:
+
+```cpp
+profile_switch.Activate(settings.active_profile);
+```
+
+Being platform-neutral, `ProfileSwitch` is testable headlessly with GoogleTest,
+consistent with this project's preference for mechanically checkable verification
+over manual testing on three operating systems.
+
+> `CandidateSource` deliberately does **not** gain a `profile_id()` method. Profile
+> membership is a wiring concern; the interface stays at
+> `name / priority / IsAvailable / Query`.
+
+### 3.1 Non-owning pointers must be repointed together
+
+`InputSession` holds non-owning pointers for commit recording and bigram context.
+On activation, both must be updated or commits will be recorded into the wrong
+store:
+
+```cpp
+session.set_user_dictionary(active_user_dict);
+session.set_static_lexicon(active_lexicon);
+session.set_fixed_sequences(profile.fixed_sequences ? &table : nullptr);
+```
+
+Note `set_fixed_sequences(nullptr)` already means "no MVS insertion" — disabling
+GB/T processing for a profile needs no new code path.
+
+---
+
+## 4. Per-profile user dictionaries
+
+A `user.db` stores `(latin_key, mongolian_word)` pairs. Entries learned under one
+encoding are meaningless under another, so **each profile gets its own database
+file**; otherwise the candidate list mixes in unreadable codepoints.
+
+Implementation is the `set_enabled` pattern above: register one `UserDictionary`
+per profile at startup, enable the active one, and repoint
+`InputSession::set_user_dictionary`.
+
+**Known cost at larger N**: each `UserDictionary` owns a SQLite connection and a
+writer thread. That is fine for two or three profiles. If the count grows, switch
+to lazy opening (create on first activation) or give `UserDictionary` a
+`Reopen(path)` so a single instance is re-pointed. Recorded as a TODO rather than
+built now.
+
+The same applies to `fontstems.txt` stem calibration, which is per font family and
+therefore effectively per profile.
+
+---
+
+## 5. Inline composition toggle
+
+Paiza writes the converted text **inline into the host application's document**,
+which the application renders with its own font. In a PUA profile the host's font
+will usually lack the shape-code glyphs, so the inline composition shows tofu
+boxes. A setting controls this, independently of the profile (profiles only supply
+the default):
+
+| Value | Behaviour |
+|---|---|
+| `full` | Inline shows the converted text (current behaviour, Unicode default) |
+| `placeholder` | Inline shows a single placeholder character; the candidate window's preedit strip carries the real content |
+| `hidden` | Inline shows nothing |
+
+Applied in the platform adapters, core untouched. On Windows:
+
+```cpp
+UpdateComposition(settings.inline_composition == InlineComposition::kFull
+                      ? ConvertBuffer() : L"");
+```
+
+The commit path is separate (`composition_controller.cc` writes the committed text
+through its own `SetText`) and is unaffected.
+
+**Caveat to verify on device**: with an empty composition range,
+`ITfContextView::GetTextExt` may return a degenerate rectangle, so candidate-window
+positioning falls back to the mouse position. If that proves bad in practice, the
+`placeholder` value exists precisely to keep the range measurable while showing
+nothing meaningful. (This is the same reasoning behind the placeholder design in
+other PUA-era IMEs.)
+
+When inline composition is off, the candidate window's preedit strip is the only
+place the user can see what they typed, so it must always be populated —
+`SetPreedit` is already called unconditionally.
+
+---
+
+## 6. Costs to keep in view
+
+Each additional engine multiplies, not adds:
+
+- **Licensing**: every engine needs its own compatibility analysis. The ZCode
+  engine is a GPL-2.0-or-later port and must therefore run as a **separate process
+  over IPC**, never linked into Paiza's AGPL-3.0 core, so that the core remains
+  dual-licensable. A third engine must be analysed on its own terms, not assumed
+  to match.
+- **Test data**: each engine needs its own golden corpus.
+- **CI**: the matrix is three platforms times N profiles. At minimum each profile
+  should get a `paiza_query` smoke run in CI.
+
+---
+
+## 7. Rollout
+
+| # | Increment | Depends on |
+|---|---|---|
+| 1 | `InputProfile` + `InputProfileRegistry` + `data/profiles/unicode.txt`. Pure addition: one profile, nothing wired, zero behaviour change. | — |
+| 2 | `ProfileSwitch` + unit tests; the three `ApplySettings` collapse to one line. | 1 |
+| 3a | `active_profile` in all three settings stores, `data/profiles/` deployed and installed, and a built-in fallback profile so a missing directory is survivable. | 2 |
+| 3b | Construct a `ProfileSwitch` in each of the three front-ends and activate from settings (a behaviour-neutral refactor of the existing direct wiring). | 3a |
+| 3c | Settings-page profile dropdown built from the registry, on all three platforms. | 3b |
+| 4 | `inline_composition` setting (full / placeholder / hidden) on all three platforms. | — |
+| 5 | `UserDictionary::set_enabled` plus per-profile registration. | 2 |
+| 6a | The engine contract's host side: executable resolution, the two transports, `ExternalEngineSource`. | external port |
+| 6b | Construct the engine source per profile in all three front-ends and gate it through `ProfileSwitch`. | 6a |
+| 6c | Source the preedit from the engine rather than a key mapping (§2.5). Touches `InputSession`, so it is split out. | 6b |
+| 7a | Add `data/profiles/zcode.txt`; make `paiza_query` drive a profile and its engine, and verify end to end against the real engine. | 6b |
+| 7b | Honour the fields a non-Unicode profile needs: `romanize_query`, `skeleton_input`, `vowel_keys`, `inline_default`. All four are parsed and none is consumed. Touches `InputSession`, so it belongs with 6c. | 6c |
+| 7c | Per-profile candidate font in the three settings stores, and show `active_engine_error()` in the three dialogs. | 7a |
+
+Increment 3 is split because it is the first one with a behaviour change and it
+touches all three platforms: 3a is verifiable locally end to end, 3b is a
+refactor whose effect the existing suite already pins, and only 3c adds UI that
+cannot be compiled outside its own platform.
+
+Increments 6 and 7 were swapped once the port landed: adding the profile data
+file cannot come first, because a ZCode profile has no keymap and its preedit
+must come from the engine (§2.5). The engine has to be wired in before the
+profile is worth selecting.
+
+Increment 6 is split for the same reason increment 3 was: 6a is platform
+neutral and verifiable locally, 6b is wiring whose shape the existing suite
+already pins, and 6c is the only part that touches `InputSession` -- the
+cross-platform key-policy contract -- so it is kept on its own, where a
+regression in it cannot be confused with a wiring mistake.
+
+An engine source is built at **startup** for every profile that declares one,
+not on first use, and then gated like the other sources. Two reasons: a
+missing or mismatched engine is found at startup, where the reason can be
+reported, instead of silently producing no candidates on a keystroke; and
+`CandidateEngine::AddSource` is startup-only in any case (§ "Sources cannot be
+added after startup", `profile_switch.h`). The cost is that an inactive
+profile's engine process stays alive while idle; with at most one engine
+profile in practice that is cheaper than a handshake on every profile switch.
+
+Because that reason is produced once at startup, it is **kept** rather than
+logged and dropped: a source that never started cannot be asked why, and on
+Windows the log goes to the debugger, which a user never sees. Each front-end
+records it in the profile's binding, and
+`ProfileSwitch::active_engine_error()` answers the settings page's question --
+"why is this profile's engine not working" -- for both ways it can fail, one
+that never started and one that died while running. Being gated off because
+another profile is active is **not** a failure and is never reported, so a
+non-empty result is always worth showing.
+
+Showing it in the three settings dialogs is still to do (7c); the value is
+available and tested, but no dialog reads it yet.
+
+### What end-to-end verification found
+
+Driving the real engine through `paiza_query --profiles DIR --profile zcode`
+produced correct ZCode candidates, every one inside the declared range. It
+also exposed two things no unit test could, because both live above the
+engine layer:
+
+1. **`InputSession` queries twice per keystroke** -- once on the raw Latin
+   keys and once on `Romanize(preedit_)` -- and merges. For a profile with an
+   external engine that is two round trips instead of one, and the second
+   query sends a string derived from the *Unicode* key mapping, which has no
+   meaning in ZCode. Its results are then merged into the candidate list.
+   The effect is visible in the output: a word where the two keys coincide
+   (`san`) comes back with consecutive scores, while one where they differ
+   (`bagsi`, `mongol`) comes back with ties and gaps from the merge.
+   `romanize_query no` exists to switch the second query off, and nothing
+   reads it.
+
+   Measured against the Java original (`zcode-cpp/tools/golden_lookup.py`),
+   for `mongol`: the engine alone answers 16 distinct candidates, which is
+   exactly the Java list. Through `InputSession` the list is 18 -- the same
+   16 plus **two extra ranked 2nd and 4th**, pushing real candidates down.
+   Nothing is lost, so this is purely added noise, and it only appears when
+   the two query keys differ: `bagsi` matches the Java list exactly, 32 for
+   32, because there the raw keys and the romanization coincide.
+
+2. **The plain-text dictionary was not gated by profile at all.**
+   `UserDictionary`, `StaticLexicon` and the engine source each had
+   `set_enabled`; `LocalDictionarySource` did not, and no front-end bound it,
+   so `dictionary.txt` answered for every profile. A form-code profile's
+   candidate list was therefore a mixture of ZCode and Unicode Mongolian --
+   and since a form-code font has no glyphs for Unicode Mongolian code
+   points, the host fell back per character, so part of the list rendered in
+   a different font. That reads as "the font was not applied" rather than as
+   "the wrong source answered", which is what made it hard to place. Fixed:
+   it is gated like the other three and bound to the Unicode profile.
+
+3. **Four profile fields are parsed and never consumed**:
+   `romanize_query`, `skeleton_input`, `vowel_keys` and `inline_default`. A
+   profile can therefore declare them correctly, as `zcode.txt` does, with no
+   effect. Each is read by `InputSession`'s logic rather than by the engine
+   layer, which is why they were not noticed earlier.
+
+Both are 7b, kept with 6c because they are changes to the cross-platform
+key-policy contract rather than to the engine wiring.
+
+The ZCode engine is `GPL-2.0-or-later`, so it runs as a **separate process**
+and is never linked into this AGPL-3.0 codebase, keeping the core
+dual-licensable. The existing named-pipe service on Windows is the model.
+
+Increments 1 to 5 do not depend on the external engine port and can land first.
+Every increment must keep the full test suite green and the three-platform CI
+passing.
+
+
+## 8. Where it got to
+
+Increments 1–7a are in. The ZCode profile runs end to end against the real
+engine on Windows and Linux, and the candidate window renders it:
+
+| Windows | Linux |
+|---|---|
+| ![ZCode candidates on Windows](images/zcode-candidates-windows.png) | ![the same list on Linux](images/zcode-candidates-linux-light.png) |
+
+Both are reproducible without installing anything — the engine executable
+has to sit next to the profile files, because that is where the host
+resolves it:
+
+```
+PaizaService.exe --preview-candidates --profiles DIR --profile zcode --query bagsi [--user DB]
+```
+
+```bash
+PAIZA_PROFILES=DIR PAIZA_PROFILE=zcode PAIZA_INPUT=bagsi [PAIZA_USER=DB] OUT_DIR=/tmp ./build/bin/paiza_candidate_preview
+```
+
+Three things were added to the profile after the first rollout, each because
+end-to-end use showed the need:
+
+* **`engine_mode`** (§2.3). The mode was a constant, so a profile could
+  choose *which* engine to run but not *what to ask it for*. It is now the
+  one field the host does not interpret. The ZCode profile asks for `full`:
+  `score` on its own answers with nothing for a word outside the engine's
+  38,743, which is a blank candidate window and nothing to commit.
+* **`engine_scored`**. Items in that mode carry the metrics behind the
+  ranking, so engine candidates can be merged with the host's own instead of
+  merely appended to them.
+* **`engine_user_words`** and the three `engine_habit_*` numbers (§4). The
+  host stores, the engine ranks. `ProfileSwitch::Bind` joins them — one
+  place, not three front-ends — and for such a profile the user dictionary
+  stops answering queries itself, because a source above the engine would
+  pin every committed word to the top for ever and the decay would never
+  show.
+
+Still open: `romanize_query`, `skeleton_input`, `vowel_keys` and
+`inline_default` are parsed and not consumed (7b), and no settings dialog
+shows `active_engine_error()` (7c).

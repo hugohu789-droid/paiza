@@ -1,0 +1,498 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 hugohu789-droid
+//
+// Input profile parsing. The shipped data/profiles/unicode.txt must describe
+// today's behaviour exactly, so a profile-driven build is a no-op change.
+
+#include "core/input_profile.h"
+
+#include "core/engine_path.h"
+
+#include <gtest/gtest.h>
+
+#include <filesystem>
+#include <fstream>
+
+#include "common/string_utils.h"
+
+namespace paiza {
+namespace {
+
+// Writes `content` to `dir/name` and returns the path.
+void WriteFile(const std::filesystem::path& path, const std::string& content) {
+  std::ofstream out(path, std::ios::binary | std::ios::trunc);
+  out << content;
+}
+
+std::filesystem::path MakeTempDir(const char* tag) {
+  const std::filesystem::path dir =
+      std::filesystem::temp_directory_path() /
+      (std::string("paiza_profile_test_") + tag);
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir, ec);
+  return dir;
+}
+
+TEST(InputProfileTest, ParsesAllKeys) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString(
+      "id               zcode\n"
+      "display_name     ZCode (shape codes)\n"
+      "keymap           keymap-zcode.txt\n"
+      "lexicon          lexicon-zcode.bin\n"
+      "user_db          user-zcode.db\n"
+      "font             Menksoft Qagan\n"
+      "fixed_sequences  no\n"
+      "romanize_query   no\n"
+      "skeleton_input   no\n"
+      "vowel_keys       aeiou\n"
+      "inline_default   hidden\n"));
+
+  const InputProfile* profile = registry.Find("zcode");
+  ASSERT_NE(profile, nullptr);
+  EXPECT_EQ(profile->id, "zcode");
+  EXPECT_EQ(profile->display_name, L"ZCode (shape codes)");
+  EXPECT_EQ(profile->keymap, L"keymap-zcode.txt");
+  EXPECT_EQ(profile->lexicon, L"lexicon-zcode.bin");
+  EXPECT_EQ(profile->user_db, L"user-zcode.db");
+  EXPECT_FALSE(profile->fixed_sequences);
+  EXPECT_FALSE(profile->romanize_query);
+  EXPECT_FALSE(profile->skeleton_input);
+  EXPECT_EQ(profile->vowel_keys, "aeiou");
+  EXPECT_EQ(profile->inline_default, InlineComposition::kHidden);
+}
+
+// A font family keeps its spaces: the value is the rest of the line, not just
+// the next token.
+TEST(InputProfileTest, FontFamilyKeepsSpaces) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString("id x\nfont Noto Sans Mongolian\n"));
+  EXPECT_EQ(registry.Find("x")->font, L"Noto Sans Mongolian");
+}
+
+// Omitted keys must keep the Unicode behaviour, so an older build loading a
+// sparse profile does not silently change how the engine behaves.
+TEST(InputProfileTest, OmittedKeysDefaultToUnicodeBehaviour) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString("id minimal\n"));
+  const InputProfile* profile = registry.Find("minimal");
+  ASSERT_NE(profile, nullptr);
+  EXPECT_TRUE(profile->fixed_sequences);
+  EXPECT_TRUE(profile->romanize_query);
+  EXPECT_TRUE(profile->skeleton_input);
+  EXPECT_EQ(profile->inline_default, InlineComposition::kFull);
+  // display_name falls back to the id so the dropdown is never blank.
+  EXPECT_EQ(profile->display_name, L"minimal");
+}
+
+TEST(InputProfileTest, RejectsProfileWithoutId) {
+  InputProfileRegistry registry;
+  EXPECT_FALSE(registry.LoadFromString("display_name No Id\nfont Something\n"));
+  EXPECT_TRUE(registry.empty());
+}
+
+TEST(InputProfileTest, CommentsAndBlankLinesIgnored) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString(
+      "# leading comment\n"
+      "\n"
+      "   \n"
+      "id commented\n"
+      "   # indented comment\n"
+      "font A Font\n"));
+  ASSERT_NE(registry.Find("commented"), nullptr);
+  EXPECT_EQ(registry.Find("commented")->font, L"A Font");
+}
+
+TEST(InputProfileTest, UnknownKeysIgnored) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(
+      registry.LoadFromString("id future\nsome_future_key whatever\n"));
+  EXPECT_NE(registry.Find("future"), nullptr);
+}
+
+// An unrecognised boolean keeps the default rather than silently flipping it.
+TEST(InputProfileTest, UnrecognisedBooleanKeepsDefault) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString("id b\nfixed_sequences maybe\n"));
+  EXPECT_TRUE(registry.Find("b")->fixed_sequences);
+}
+
+TEST(InputProfileTest, SameIdReplacesEarlierProfile) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString("id dup\nfont First\n"));
+  ASSERT_TRUE(registry.LoadFromString("id dup\nfont Second\n"));
+  EXPECT_EQ(registry.size(), 1u);
+  EXPECT_EQ(registry.Find("dup")->font, L"Second");
+}
+
+TEST(InputProfileTest, FindReturnsNullForUnknownId) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString("id known\n"));
+  EXPECT_EQ(registry.Find("unknown"), nullptr);
+}
+
+TEST(InputProfileTest, CrLfFilesParse) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString("id crlf\r\nfont Some Font\r\n"));
+  EXPECT_EQ(registry.Find("crlf")->font, L"Some Font");
+}
+
+TEST(InputProfileTest, LoadsDirectorySortedByFileName) {
+  const std::filesystem::path dir = MakeTempDir("dir");
+  WriteFile(dir / "b_second.txt", "id second\n");
+  WriteFile(dir / "a_first.txt", "id first\n");
+  WriteFile(dir / "ignored.conf", "id ignored\n");
+
+  InputProfileRegistry registry;
+  EXPECT_EQ(registry.LoadFromDirectory(dir.wstring()), 2);
+  ASSERT_EQ(registry.size(), 2u);
+  EXPECT_EQ(registry.All()[0].id, "first");  // a_first.txt sorts first.
+  EXPECT_EQ(registry.All()[1].id, "second");
+  EXPECT_EQ(registry.Find("ignored"), nullptr);  // Not a .txt file.
+
+  std::error_code ec;
+  std::filesystem::remove_all(dir, ec);
+}
+
+TEST(InputProfileTest, MissingDirectoryIsHarmless) {
+  InputProfileRegistry registry;
+  EXPECT_EQ(registry.LoadFromDirectory(L"no_such_directory_here"), 0);
+  EXPECT_TRUE(registry.empty());
+}
+
+TEST(InputProfileTest, InlineCompositionNumericRoundTrips) {
+  EXPECT_EQ(InlineCompositionFromValue(0), InlineComposition::kFull);
+  EXPECT_EQ(InlineCompositionFromValue(1), InlineComposition::kPlaceholder);
+  EXPECT_EQ(InlineCompositionFromValue(2), InlineComposition::kHidden);
+  // Out of range must not silently change behaviour.
+  EXPECT_EQ(InlineCompositionFromValue(99), InlineComposition::kFull);
+}
+
+TEST(InputProfileTest, InlineCompositionRoundTrips) {
+  for (InlineComposition value :
+       {InlineComposition::kFull, InlineComposition::kPlaceholder,
+        InlineComposition::kHidden}) {
+    EXPECT_EQ(ParseInlineComposition(InlineCompositionName(value),
+                                     InlineComposition::kFull),
+              value);
+  }
+  EXPECT_EQ(ParseInlineComposition("nonsense", InlineComposition::kHidden),
+            InlineComposition::kHidden);
+}
+
+// The shipped profile must describe the engine's current behaviour, otherwise
+// switching the engine to be profile-driven would not be a no-op.
+TEST(InputProfileTest, ShippedUnicodeProfileMatchesCurrentBehaviour) {
+  const std::filesystem::path path =
+      std::filesystem::path(PAIZA_SOURCE_DIR) / "data" / "profiles" /
+      "unicode.txt";
+  ASSERT_TRUE(std::filesystem::exists(path)) << path.string();
+
+  InputProfileRegistry registry;
+  // Every shipped profile loads; this test is about the Unicode one.
+  ASSERT_GE(registry.LoadFromDirectory(path.parent_path().wstring()), 1);
+
+  const InputProfile* profile = registry.Find("unicode");
+  ASSERT_NE(profile, nullptr);
+  EXPECT_EQ(profile->keymap, L"keymap.txt");
+  EXPECT_EQ(profile->lexicon, L"lexicon.bin");
+  EXPECT_EQ(profile->user_db, L"user.db");
+  EXPECT_EQ(profile->font, L"Noto Sans Mongolian");
+  EXPECT_TRUE(profile->fixed_sequences);
+  EXPECT_TRUE(profile->romanize_query);
+  EXPECT_TRUE(profile->skeleton_input);
+  EXPECT_EQ(profile->vowel_keys, "aeioquvE");
+  EXPECT_EQ(profile->inline_default, InlineComposition::kFull);
+}
+
+// The built-in fallback stands in for a missing data/profiles directory, so
+// it must stay identical to the shipped file or the two would silently drift.
+TEST(InputProfileTest, BuiltInProfileMatchesShippedFile) {
+  const std::filesystem::path dir =
+      std::filesystem::path(PAIZA_SOURCE_DIR) / "data" / "profiles";
+  InputProfileRegistry registry;
+  ASSERT_GE(registry.LoadFromDirectory(dir.wstring()), 1);
+  const InputProfile* shipped = registry.Find(kDefaultProfileId);
+  ASSERT_NE(shipped, nullptr);
+
+  const InputProfile built_in = BuiltInUnicodeProfile();
+  EXPECT_EQ(built_in.id, shipped->id);
+  EXPECT_EQ(built_in.display_name, shipped->display_name);
+  EXPECT_EQ(built_in.keymap, shipped->keymap);
+  EXPECT_EQ(built_in.lexicon, shipped->lexicon);
+  EXPECT_EQ(built_in.user_db, shipped->user_db);
+  EXPECT_EQ(built_in.font, shipped->font);
+  EXPECT_EQ(built_in.fixed_sequences, shipped->fixed_sequences);
+  EXPECT_EQ(built_in.romanize_query, shipped->romanize_query);
+  EXPECT_EQ(built_in.skeleton_input, shipped->skeleton_input);
+  EXPECT_EQ(built_in.vowel_keys, shipped->vowel_keys);
+  EXPECT_EQ(built_in.inline_default, shipped->inline_default);
+}
+
+// The ZCode profile is the first shipped profile that is not Unicode, so it
+// is also the first exercise of every field that exists to describe "not
+// Unicode". Each assertion below is a property the profile must have for the
+// engine to be driven correctly, not a transcription of the file.
+TEST(InputProfileTest, ShippedZCodeProfileDescribesAnExternalEngine) {
+  const std::filesystem::path dir =
+      std::filesystem::path(PAIZA_SOURCE_DIR) / "data" / "profiles";
+  InputProfileRegistry registry;
+  ASSERT_GE(registry.LoadFromDirectory(dir.wstring()), 2);
+
+  const InputProfile* profile = registry.Find("zcode");
+  ASSERT_NE(profile, nullptr);
+
+  // The engine is declared, and named portably: no extension, because the
+  // host appends the platform's, and no path, because the name is resolved
+  // inside the install directory.
+  ASSERT_TRUE(profile->has_engine());
+  EXPECT_EQ(profile->engine, L"zcode_stdio");
+  EXPECT_EQ(profile->engine.find(L'.'), std::wstring::npos);
+  std::string why;
+  EXPECT_TRUE(IsAcceptableEngineName(profile->engine, &why)) << why;
+  EXPECT_EQ(profile->engine_protocol, "paiza-engine");
+
+  // The mode the shipped profile asks for. Scored, because that is the only
+  // kind that says why a word ranks where it does, and `full` rather than
+  // `score` because `score` answers with nothing for a word the dictionary
+  // does not hold -- an empty candidate window. Pinned because changing it
+  // changes what every candidate window shows.
+  EXPECT_EQ(profile->engine_mode, "full");
+  EXPECT_TRUE(IsAcceptableEngineMode(profile->engine_mode));
+  // ...and it must be declared scored, or the metrics would be read as text.
+  EXPECT_TRUE(profile->engine_scored);
+  // The user's own words go to this engine: it is the only thing that can
+  // place them in its own ranking.
+  EXPECT_TRUE(profile->engine_user_words);
+  // Pinned: the half-life decides how long one stray choice stays in front
+  // of words the user uses more often -- about 24 days at 10, 73 at 30.
+  EXPECT_FLOAT_EQ(profile->engine_habit_weight, 1.0F);
+  EXPECT_FLOAT_EQ(profile->engine_habit_half_life, 10.0F);
+  EXPECT_FLOAT_EQ(profile->engine_habit_saturation, 2.0F);
+
+  // The borrowed range. Getting this wrong would either reject every real
+  // candidate or accept arbitrary text from the engine.
+  EXPECT_TRUE(profile->engine_codepoints_set);
+  EXPECT_EQ(profile->engine_codepoint_low, 0x1865u);
+  EXPECT_EQ(profile->engine_codepoint_high, 0x18AAu);
+
+  // A separate user dictionary: a run of glyph components learned here would
+  // be meaningless as Unicode Mongolian.
+  EXPECT_FALSE(profile->user_db.empty());
+  EXPECT_NE(profile->user_db, registry.Find("unicode")->user_db);
+
+  // Its own font, because these code points are Sibe/Manchu letters in a
+  // Unicode Mongolian font -- wrong text, not a different look.
+  EXPECT_FALSE(profile->font.empty());
+  EXPECT_NE(profile->font, registry.Find("unicode")->font);
+
+  // No keymap and no lexicon: ZCode cannot be modelled as key -> code points
+  // (a component's identity depends on position and neighbours), and the
+  // compiled lexicon holds Unicode words.
+  EXPECT_TRUE(profile->keymap.empty());
+  EXPECT_TRUE(profile->lexicon.empty());
+
+  // Unicode-only behaviours are off.
+  EXPECT_FALSE(profile->fixed_sequences);
+  EXPECT_FALSE(profile->romanize_query);
+  EXPECT_FALSE(profile->skeleton_input);
+
+  // Nothing inline until the preedit is sourced from the engine.
+  EXPECT_EQ(profile->inline_default, InlineComposition::kHidden);
+}
+
+TEST(InputProfileTest, EnsureDefaultSeedsOnlyWhenEmpty) {
+  InputProfileRegistry registry;
+  registry.EnsureDefault();
+  ASSERT_EQ(registry.size(), 1u);
+  EXPECT_NE(registry.Find(kDefaultProfileId), nullptr);
+
+  // Already populated: EnsureDefault must not add or replace anything.
+  InputProfileRegistry other;
+  ASSERT_TRUE(other.LoadFromString("id custom\n"));
+  other.EnsureDefault();
+  EXPECT_EQ(other.size(), 1u);
+  EXPECT_EQ(other.Find(kDefaultProfileId), nullptr);
+}
+
+// An engine is declared by data, so a conforming engine can be added without
+// touching the host (docs/engine-contract.md).
+TEST(InputProfileTest, ParsesEngineDeclaration) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString(
+      "id eng\n"
+      "engine zcode_stdio\n"
+      "engine_args --quiet --fast\n"
+      "engine_protocol paiza-engine\n"
+      "engine_transport stdio\n"
+      "engine_priority 90\n"
+      "engine_codepoints 1865-18AA\n"));
+
+  const InputProfile* p = registry.Find("eng");
+  ASSERT_NE(p, nullptr);
+  EXPECT_TRUE(p->has_engine());
+  EXPECT_EQ(p->engine, L"zcode_stdio");
+  EXPECT_EQ(p->engine_args, L"--quiet --fast");
+  EXPECT_EQ(p->engine_protocol, "paiza-engine");
+  EXPECT_EQ(p->engine_transport, "stdio");
+  EXPECT_EQ(p->engine_priority, 90);
+  EXPECT_TRUE(p->engine_codepoints_set);
+  EXPECT_EQ(p->engine_codepoint_low, 0x1865u);
+  EXPECT_EQ(p->engine_codepoint_high, 0x18AAu);
+}
+
+// Every shipped profile so far has no engine; that must stay the default.
+TEST(InputProfileTest, ProfileWithoutEngineDeclaresNone) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString("id plain\n"));
+  const InputProfile* p = registry.Find("plain");
+  ASSERT_NE(p, nullptr);
+  EXPECT_FALSE(p->has_engine());
+  EXPECT_TRUE(p->engine_protocol.empty());
+  EXPECT_FALSE(p->engine_codepoints_set);
+  EXPECT_EQ(p->engine_priority, 0);
+}
+
+// A malformed range must leave validation off rather than on and wrong, which
+// would reject every candidate the engine produced.
+TEST(InputProfileTest, MalformedCodepointRangeLeavesValidationOff) {
+  for (const char* value : {"nonsense", "1865", "18AA-1865", "-18AA",
+                            "1865-", "XYZ-18AA", "1865-ZZZ"}) {
+    InputProfileRegistry registry;
+    ASSERT_TRUE(registry.LoadFromString(std::string("id r\nengine_codepoints ") +
+                                        value + "\n"))
+        << value;
+    EXPECT_FALSE(registry.Find("r")->engine_codepoints_set) << value;
+  }
+}
+
+TEST(InputProfileTest, SingleCodepointRangeIsAccepted) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(
+      registry.LoadFromString("id one\nengine_codepoints 1865-1865\n"));
+  const InputProfile* p = registry.Find("one");
+  EXPECT_TRUE(p->engine_codepoints_set);
+  EXPECT_EQ(p->engine_codepoint_low, p->engine_codepoint_high);
+}
+
+// A profile is a writable text file, so a hostile engine name must not even
+// reach the code that launches one. It is dropped at load time, leaving the
+// profile with no engine rather than a dangerous one.
+TEST(InputProfileTest, UnacceptableEngineNameLeavesNoEngine) {
+  for (const char* value : {"/bin/sh", "../../bin/sh", "C:cmd.exe", "-c",
+                            "NUL", "bin/engine", "engine.exe:payload"}) {
+    InputProfileRegistry registry;
+    ASSERT_TRUE(registry.LoadFromString(std::string("id r\nengine ") + value +
+                                        "\n"))
+        << value;
+    EXPECT_FALSE(registry.Find("r")->has_engine()) << value;
+  }
+}
+
+TEST(InputProfileTest, AcceptableEngineNameIsKept) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString("id r\nengine zcode-stdio\n"));
+  EXPECT_TRUE(registry.Find("r")->has_engine());
+  EXPECT_EQ(registry.Find("r")->engine, L"zcode-stdio");
+}
+
+// ---- engine_mode -------------------------------------------------------
+
+TEST(InputProfileTest, ParsesEngineModeAndScoredFlag) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString(
+      "id r\nengine zcode_stdio\nengine_mode score\nengine_scored yes\n"));
+  const InputProfile* p = registry.Find("r");
+  ASSERT_NE(p, nullptr);
+  EXPECT_EQ(p->engine_mode, "score");
+  EXPECT_TRUE(p->engine_scored);
+}
+
+TEST(InputProfileTest, ProfileWithoutAModeLeavesItToTheHostDefault) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString("id r\nengine zcode_stdio\n"));
+  const InputProfile* p = registry.Find("r");
+  ASSERT_NE(p, nullptr);
+  // Empty, not "fuzzy": the profile said nothing, and what to send instead is
+  // the engine source's decision (kDefaultEngineMode).
+  EXPECT_TRUE(p->engine_mode.empty());
+  EXPECT_FALSE(p->engine_scored);
+}
+
+// A mode is spliced into a space-separated request line, so one that is not a
+// single token would shift every field after it. Checked when the profile is
+// read, as the engine name is.
+TEST(InputProfileTest, UnusableEngineModeLeavesNone) {
+  const char* bad[] = {"two words", "with\ttab", "", "x x",
+                       "sixteen-plus-characters-long"};
+  for (const char* value : bad) {
+    InputProfileRegistry registry;
+    ASSERT_TRUE(registry.LoadFromString(std::string("id r\nengine_mode ") +
+                                        value + "\n"));
+    EXPECT_TRUE(registry.Find("r")->engine_mode.empty()) << '[' << value << ']';
+  }
+}
+
+TEST(InputProfileTest, UserWordsAreOffUnlessAProfileAsks) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString("id r\nengine zcode_stdio\n"));
+  EXPECT_FALSE(registry.Find("r")->engine_user_words);
+  ASSERT_TRUE(registry.LoadFromString(
+      "id s\nengine zcode_stdio\nengine_user_words yes\n"));
+  EXPECT_TRUE(registry.Find("s")->engine_user_words);
+}
+
+TEST(InputProfileTest, ParsesTheHabitSettings) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString(
+      "id r\nengine_habit_weight 0.5\nengine_habit_half_life 2.5\n"
+      "engine_habit_saturation 4\n"));
+  const InputProfile* p = registry.Find("r");
+  ASSERT_NE(p, nullptr);
+  EXPECT_FLOAT_EQ(p->engine_habit_weight, 0.5F);
+  EXPECT_FLOAT_EQ(p->engine_habit_half_life, 2.5F);
+  EXPECT_FLOAT_EQ(p->engine_habit_saturation, 4.0F);
+}
+
+// The defaults are the engine's, so a profile that states nothing behaves
+// exactly like one that states them.
+TEST(InputProfileTest, HabitSettingsDefaultToTheEngines) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString("id r\n"));
+  const InputProfile* p = registry.Find("r");
+  EXPECT_FLOAT_EQ(p->engine_habit_weight, 1.0F);
+  EXPECT_FLOAT_EQ(p->engine_habit_half_life, 10.0F);
+  EXPECT_FLOAT_EQ(p->engine_habit_saturation, 2.0F);
+}
+
+// A profile file is machine-independent, so a decimal comma is a mistake to
+// reject rather than a number to truncate. A bad value keeps the default,
+// like every other malformed field here.
+TEST(InputProfileTest, AMalformedHabitSettingKeepsTheDefault) {
+  for (const char* value : {"1,5", "abc", "-1", "1.2.3", "1e3", " "}) {
+    InputProfileRegistry registry;
+    ASSERT_TRUE(registry.LoadFromString(
+        std::string("id r\nengine_habit_weight ") + value + "\n"));
+    EXPECT_FLOAT_EQ(registry.Find("r")->engine_habit_weight, 1.0F) << value;
+  }
+  // Zero would be a division by zero in the decay.
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString("id r\nengine_habit_half_life 0\n"));
+  EXPECT_FLOAT_EQ(registry.Find("r")->engine_habit_half_life, 10.0F);
+  // But zero weight is meaningful: the habit off, the words still offered.
+  ASSERT_TRUE(registry.LoadFromString("id s\nengine_habit_weight 0\n"));
+  EXPECT_FLOAT_EQ(registry.Find("s")->engine_habit_weight, 0.0F);
+}
+
+TEST(InputProfileTest, EngineModeIsNotValidatedAgainstAKnownList) {
+  // The host does not know what modes exist; that belongs to the engine.
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString("id r\nengine_mode handwriting\n"));
+  EXPECT_EQ(registry.Find("r")->engine_mode, "handwriting");
+  EXPECT_TRUE(IsAcceptableEngineMode("handwriting"));
+}
+
+}  // namespace
+}  // namespace paiza

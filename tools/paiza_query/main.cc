@@ -9,7 +9,19 @@
 //
 // Usage:
 //   paiza_query [--lexicon lexicon.bin] [--dict dictionary.txt]
-//               [--keymap keymap.txt] [--user user.db] [seq ...]
+//               [--keymap keymap.txt] [--user user.db]
+//               [--profiles DIR] [--profile ID] [--max N] [seq ...]
+//
+// --max raises the per-keystroke candidate limit (default 27, the same
+// number the IME asks for). An external engine is capped separately at
+// kEngineMaxCandidates, so that is the real ceiling for an engine profile.
+//
+// With --profiles and --profile it loads an input profile and, when that
+// profile declares an external engine, starts it and gates the sources
+// through ProfileSwitch exactly as the three front-ends do. That makes
+// profile switching and an external engine verifiable end to end from a
+// shell, which is otherwise only observable by typing into a real
+// application on three operating systems.
 //
 // With trailing sequences it prints their results and exits (scriptable).
 // With none it reads sequences from stdin, one per line. REPL commands:
@@ -20,6 +32,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -31,9 +44,12 @@
 
 #include "common/string_utils.h"
 #include "core/candidate_engine.h"
+#include "core/external_engine_source.h"
+#include "core/input_profile.h"
 #include "core/input_session.h"
 #include "core/key_mapping_store.h"
 #include "core/local_dictionary_source.h"
+#include "core/profile_switch.h"
 #include "core/static_lexicon.h"
 #include "core/user_dictionary.h"
 
@@ -67,6 +83,9 @@ int main(int argc, char** argv) {
   std::wstring dict_path = L"dictionary.txt";
   std::wstring keymap_path;   // Empty => built-in default mapping.
   std::wstring user_path;     // Empty => in-memory user dictionary.
+  std::wstring profiles_dir;  // Empty => no profile; today's behaviour.
+  std::string profile_id;
+  size_t max_candidates = 0;  // 0 => the session default.
   std::vector<std::string> sequences;
 
   for (int i = 1; i < argc; ++i) {
@@ -75,6 +94,10 @@ int main(int argc, char** argv) {
     else if (arg == "--dict" && i + 1 < argc) dict_path = Widen(argv[++i]);
     else if (arg == "--keymap" && i + 1 < argc) keymap_path = Widen(argv[++i]);
     else if (arg == "--user" && i + 1 < argc) user_path = Widen(argv[++i]);
+    else if (arg == "--profiles" && i + 1 < argc) profiles_dir = Widen(argv[++i]);
+    else if (arg == "--profile" && i + 1 < argc) profile_id = argv[++i];
+    else if (arg == "--max" && i + 1 < argc)
+      max_candidates = static_cast<size_t>(std::atoi(argv[++i]));
     else if (arg.rfind("--", 0) == 0) {
       std::fprintf(stderr, "Unknown flag: %s\n", arg.c_str());
       return 2;
@@ -103,14 +126,82 @@ int main(int argc, char** argv) {
   }
 
   auto dict = std::make_unique<paiza::LocalDictionarySource>();
-  if (dict->LoadFromFile(dict_path) > 0) engine.AddSource(std::move(dict));
+  paiza::LocalDictionarySource* dict_ptr = nullptr;
+  if (dict->LoadFromFile(dict_path) > 0) {
+    dict_ptr = dict.get();
+    engine.AddSource(std::move(dict));
+  }
+
+  // Input profiles, and the external engine a profile may declare. Built
+  // before the session so the session can be repointed by ProfileSwitch, in
+  // the same order the real front-ends do it.
+  paiza::InputProfileRegistry profiles;
+  std::vector<std::pair<std::string, paiza::ExternalEngineSource*>> engines;
+  std::vector<std::pair<std::string, std::string>> engine_errors;
+  if (!profiles_dir.empty()) {
+    const size_t loaded = profiles.LoadFromDirectory(profiles_dir);
+    std::fprintf(stderr, "[loaded %zu profile(s)]\n", loaded);
+    for (const paiza::InputProfile& profile : profiles.All()) {
+      if (!profile.has_engine()) continue;
+      std::string reason;
+      // The engine is resolved inside the profiles' own directory here. In a
+      // real install that is the directory holding the binaries; for this
+      // tool it is wherever the caller put both.
+      auto source = paiza::MakeEngineSource(profile, profiles_dir, &reason);
+      if (source == nullptr) {
+        std::fprintf(stderr, "[profile %s: engine unavailable: %s]\n",
+                     profile.id.c_str(), reason.c_str());
+        engine_errors.emplace_back(profile.id, reason);
+        continue;
+      }
+      std::fprintf(stderr, "[profile %s: engine started]\n",
+                   profile.id.c_str());
+      engines.emplace_back(profile.id, source.get());
+      engine.AddSource(std::move(source));
+    }
+  }
 
   paiza::KeyMappingStore mappings(keymap_path);
-  paiza::InputSession session(&engine, &mappings);
+  paiza::InputSession::Config config;
+  if (max_candidates > 0) config.max_candidates = max_candidates;
+  paiza::InputSession session(&engine, &mappings, config);
   session.set_user_dictionary(user_ptr);
   session.set_static_lexicon(lexicon_ptr);
   if (lexicon_ptr != nullptr) {
     session.set_fixed_sequences(&lexicon_ptr->fixed_sequence_table());
+  }
+
+  paiza::ProfileSwitch profile_switch(&profiles, &session);
+  if (!profiles_dir.empty()) {
+    for (const paiza::InputProfile& profile : profiles.All()) {
+      paiza::ProfileBinding binding;
+      binding.user_dictionary = user_ptr;
+      if (profile.id == paiza::kDefaultProfileId) {
+        binding.static_lexicon = lexicon_ptr;
+        binding.local_dictionary = dict_ptr;
+        if (lexicon_ptr != nullptr) {
+          binding.fixed_sequences = &lexicon_ptr->fixed_sequence_table();
+        }
+      }
+      for (const auto& [id, source] : engines) {
+        if (id == profile.id) binding.engine_source = source;
+      }
+      for (const auto& [id, error] : engine_errors) {
+        if (id == profile.id) binding.engine_error = error;
+      }
+      profile_switch.Bind(profile.id, binding);
+    }
+    if (!profile_id.empty()) {
+      if (!profile_switch.Activate(profile_id)) {
+        std::fprintf(stderr, "No such profile: %s\n", profile_id.c_str());
+        return 2;
+      }
+      std::fprintf(stderr, "[active profile: %s]\n", profile_id.c_str());
+      const std::string engine_error = profile_switch.active_engine_error();
+      if (!engine_error.empty()) {
+        std::fprintf(stderr, "[engine problem: %s]\n", engine_error.c_str());
+      }
+    }
   }
 
   auto run = [&](const std::string& seq) {

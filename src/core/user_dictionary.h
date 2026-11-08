@@ -24,7 +24,9 @@
 #ifndef PAIZA_CORE_USER_DICTIONARY_H_
 #define PAIZA_CORE_USER_DICTIONARY_H_
 
+#include <atomic>
 #include <condition_variable>
+#include <functional>
 #include <cstdint>
 #include <map>
 #include <mutex>
@@ -38,6 +40,15 @@
 struct sqlite3;
 
 namespace paiza {
+
+// One word the user has committed, and the habit behind it. Keyed by the
+// word rather than by what was typed to reach it: an external engine ranks
+// words, and the same word reached through two spellings is one habit.
+struct UserWordUse {
+  std::wstring word;
+  uint32_t count = 0;
+  int64_t last_used = 0;  // Unix seconds.
+};
 
 struct ImportResult {
   bool opened = false;  // File could not be opened when false.
@@ -76,7 +87,41 @@ class UserDictionary : public CandidateSource {
   // Blocks until every pending change reached SQLite (tests; shutdown).
   void Flush();
 
+  // Profile gating: a disabled dictionary reports itself unavailable, so
+  // CandidateEngine skips it and another profile's entries can never reach
+  // the candidate list. Atomic because settings toggle it while the IPC
+  // workers query. See docs/input-profiles.md.
+  void set_enabled(bool enabled) { enabled_.store(enabled); }
+  bool enabled() const { return enabled_.load(); }
+
+  // Whether this dictionary answers queries itself, as opposed to only
+  // storing. Turned off for a profile whose engine takes the user's words
+  // (`engine_user_words`): there the engine ranks them, and a source
+  // sitting above the engine would put every committed word first for ever,
+  // which is the opposite of a habit that decays. Storing, persistence and
+  // the commit listener all carry on regardless. Separate from
+  // `set_enabled`, which is profile gating and means something else.
+  void set_answers_queries(bool answers) { answers_queries_.store(answers); }
+  bool answers_queries() const { return answers_queries_.load(); }
+
   size_t entry_count() const;
+
+  // Every committed word with its habit, strongest first. Several latin
+  // keys can reach the same word, so these are merged: the counts add up and
+  // the latest use wins. For a host handing the user's habits to an external
+  // engine, which ranks words and knows nothing about what was typed to
+  // reach them.
+  std::vector<UserWordUse> WordsByUse() const;
+
+  // Called after every RecordCommit, outside this class's lock, with the
+  // word and when it was committed. One listener; setting a new one replaces
+  // it, and an empty function detaches. Exists so that an external engine
+  // learns the same commits this dictionary does without every front-end
+  // having to remember to tell it -- there are three of them, and the one
+  // that forgot would be a profile whose habits silently did not stick.
+  using CommitListener =
+      std::function<void(const std::wstring& word, int64_t unix_seconds)>;
+  void set_commit_listener(CommitListener listener);
 
  private:
   struct UserWord {
@@ -111,6 +156,11 @@ class UserDictionary : public CandidateSource {
   bool flush_requested_ = false;  // Skips the batching delay.
 
   std::thread writer_;
+  std::atomic<bool> enabled_{true};
+  std::atomic<bool> answers_queries_{true};
+
+  mutable std::mutex listener_mutex_;
+  CommitListener commit_listener_;
 };
 
 }  // namespace paiza

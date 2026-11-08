@@ -11,6 +11,7 @@
 #include <sstream>
 
 #include "common/logging.h"
+#include "core/input_profile.h"
 #include "core/romanization.h"
 #include "tsf/guids.h"
 #include "tsf/module.h"
@@ -330,6 +331,20 @@ namespace {
 // dialog, see service/settings_store.cc). Read per refresh so a saved
 // change applies on the next keystroke; falls back to the default when the
 // value is missing or unreadable (e.g. AppContainer hosts).
+// How much of the composition to place inline. The host renders it with its
+// own font, which a private-use profile's glyphs will not be in, so the user
+// can reduce it to a placeholder or nothing (docs/input-profiles.md).
+InlineComposition ReadInlineCompositionSetting() {
+  DWORD value = 0;
+  DWORD size = sizeof(value);
+  if (::RegGetValueW(HKEY_CURRENT_USER, L"Software\\PaizaIME",
+                     L"InlineComposition", RRF_RT_REG_DWORD, nullptr, &value,
+                     &size) == ERROR_SUCCESS) {
+    return InlineCompositionFromValue(value);
+  }
+  return InlineComposition::kFull;
+}
+
 std::wstring ReadCandidateFontSetting() {
   wchar_t buffer[256] = {};
   DWORD size = sizeof(buffer) - sizeof(wchar_t);
@@ -357,6 +372,20 @@ ui::CandidateWindow* TextService::EnsureCandidateWindow() {
 std::wstring TextService::ConvertBuffer() {
   return fixed_sequences_.InsertSuffixMvs(
       mapping_store_.Get().Convert(latin_buffer_));
+}
+
+std::wstring TextService::InlineCompositionText() {
+  switch (ReadInlineCompositionSetting()) {
+    case InlineComposition::kHidden:
+      return std::wstring();
+    case InlineComposition::kPlaceholder:
+      // One space keeps the composition range non-degenerate so
+      // ITfContextView::GetTextExt can still place the candidate window.
+      return L" ";
+    case InlineComposition::kFull:
+      break;
+  }
+  return ConvertBuffer();
 }
 
 void TextService::RefreshCandidates() {

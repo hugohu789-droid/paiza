@@ -10,23 +10,30 @@
 
 #include <windows.h>
 
+#include <shellapi.h>  // CommandLineToArgvW
+
 #include <filesystem>
 #include <memory>
 #include <string>
 
 #include "common/logging.h"
 #include "common/paths.h"
+#include "common/string_utils.h"
 #include "core/candidate_engine.h"
 #include "core/cloud_candidate_source.h"
+#include "core/external_engine_source.h"
 #include "core/local_dictionary_source.h"
 #include "core/static_lexicon.h"
 #include "core/user_dictionary.h"
 #include "ipc/ime_client.h"
 #include "ipc/named_pipe_server.h"
 #include "service/candidate_service.h"
+#include "core/input_profile.h"
+#include "core/profile_switch.h"
 #include "service/settings_store.h"
 #include "service/settings_window.h"
 #include "ui/candidate_window.h"
+#include "ui/render_context.h"
 #include "ui/font_stem_config.h"
 
 namespace paiza::service {
@@ -40,6 +47,11 @@ constexpr int kHotkeyId = 1;
 SettingsWindow* g_settings_window = nullptr;
 CloudCandidateSource* g_cloud_source = nullptr;
 StaticLexicon* g_static_lexicon = nullptr;
+// Input profiles (docs/input-profiles.md). The service process owns the
+// candidate sources, so this is where profile gating happens; the key policy
+// lives in the TSF module, so there is no InputSession to repoint here.
+InputProfileRegistry g_profiles;
+std::unique_ptr<ProfileSwitch> g_profile_switch;
 
 std::wstring ExecutableDirectory() {
   wchar_t path[MAX_PATH] = {};
@@ -50,6 +62,11 @@ std::wstring ExecutableDirectory() {
 }
 
 void ApplySettings(const Settings& settings) {
+  // Gate the candidate sources to the selected profile. An unknown id leaves
+  // the previous selection in place rather than half-switching.
+  if (g_profile_switch != nullptr) {
+    g_profile_switch->Activate(settings.active_profile);
+  }
   if (g_cloud_source != nullptr) {
     g_cloud_source->set_enabled(settings.cloud_source_enabled);
   }
@@ -96,13 +113,133 @@ HWND CreateMessageWindow() {
                            HWND_MESSAGE, nullptr, wc.hInstance, nullptr);
 }
 
-// Developer aid ("--preview-candidates"): shows the candidate window with
-// sample data (including long words) so its layout can be checked without
-// registering the TSF DLL and typing in a host application.
-int RunCandidatePreview() {
+// Reads "--flag value" out of a raw command line. Returns an empty string
+// when the flag is absent or has no value.
+std::wstring FlagValue(const std::wstring& command_line, const wchar_t* flag) {
+  int count = 0;
+  wchar_t** argv = ::CommandLineToArgvW(command_line.c_str(), &count);
+  if (argv == nullptr) return std::wstring();
+  std::wstring value;
+  for (int i = 0; i + 1 < count; ++i) {
+    if (std::wstring(argv[i]) == flag) {
+      value = argv[i + 1];
+      break;
+    }
+  }
+  ::LocalFree(argv);
+  return value;
+}
+
+// Developer aid ("--preview-candidates"): shows the candidate window so its
+// layout can be checked without registering the TSF DLL and typing in a host
+// application. By default it shows hardcoded Unicode samples.
+//
+// Given "--profiles DIR --profile ID --query LATIN" it instead shows what
+// that profile's external engine answers, in the font the profile names, so a
+// non-Unicode profile can actually be looked at. "--font-file PATH" loads a
+// font into this process alone, because a ZCode profile's candidates are only
+// legible in a Z52 font and installing one machine-wide just to check a
+// screenshot would be a change to the developer's system.
+//
+// The candidate list is assembled the way the running service assembles it:
+// every source added to one CandidateEngine and gated by ProfileSwitch. That
+// matters, because a source that is not gated shows up here exactly as it
+// would for a user -- which is how the ungated plain-text dictionary was
+// found. InputSession is not involved, so the second, Unicode-derived query
+// it currently also makes is not reflected (docs/input-profiles.md, 7b).
+int RunCandidatePreview(const std::wstring& command_line) {
+  const std::wstring font_file = FlagValue(command_line, L"--font-file");
+  if (!font_file.empty() && !ui::RenderContext::SetPrivateFontFile(font_file)) {
+    PAIZA_LOG_ERROR(L"could not load font file: " + font_file);
+    return 1;
+  }
+
   ui::CandidateWindow window;
   if (!window.EnsureCreated()) return 1;
   window.SetFontFamily(SettingsStore::Load().candidate_font);
+
+  const std::wstring profiles_dir = FlagValue(command_line, L"--profiles");
+  const std::wstring profile_id = FlagValue(command_line, L"--profile");
+  const std::wstring query = FlagValue(command_line, L"--query");
+  // A user dictionary makes the preview show what a user who has typed
+  // before actually sees: for a profile whose engine takes the user's words,
+  // that is the only way the habit ranking is visible at all.
+  const std::wstring user_db = FlagValue(command_line, L"--user");
+  if (!profiles_dir.empty() && !profile_id.empty()) {
+    InputProfileRegistry profiles;
+    profiles.LoadFromDirectory(profiles_dir);
+    const InputProfile* profile = profiles.Find(WideToUtf8(profile_id));
+    if (profile == nullptr) {
+      PAIZA_LOG_ERROR(L"no such profile: " + profile_id);
+      return 1;
+    }
+    if (!profile->font.empty()) window.SetFontFamily(profile->font);
+
+    CandidateEngine preview_engine;
+    // The same sources the service registers, in the same order, so that a
+    // source answering when it should not is visible here too.
+    auto dictionary = std::make_unique<LocalDictionarySource>();
+    dictionary->LoadFromFile(ExecutableDirectory() + L"\\dictionary.txt");
+    LocalDictionarySource* dictionary_ptr = dictionary.get();
+    preview_engine.AddSource(std::move(dictionary));
+
+    std::unique_ptr<UserDictionary> user;
+    UserDictionary* user_ptr = nullptr;
+    if (!user_db.empty()) {
+      user = std::make_unique<UserDictionary>(user_db);
+      user_ptr = user.get();
+      preview_engine.AddSource(std::move(user));
+    }
+
+    auto lexicon = std::make_unique<StaticLexicon>();
+    StaticLexicon* lexicon_ptr =
+        lexicon->Load(ExecutableDirectory() + L"\\lexicon.bin")
+            ? lexicon.get()
+            : nullptr;
+    if (lexicon_ptr != nullptr) preview_engine.AddSource(std::move(lexicon));
+
+    // A null source with no reason just means this profile declares no
+    // engine, which is the normal case and must still preview.
+    std::string reason;
+    auto source = MakeEngineSource(*profile, profiles_dir, &reason);
+    if (source == nullptr && !reason.empty()) {
+      PAIZA_LOG_ERROR(L"engine unavailable: " + Utf8ToWide(reason));
+      return 1;
+    }
+    ExternalEngineSource* source_ptr = source.get();
+    if (source != nullptr) preview_engine.AddSource(std::move(source));
+
+    ProfileSwitch preview_switch(&profiles, /*session=*/nullptr);
+    for (const InputProfile& candidate_profile : profiles.All()) {
+      ProfileBinding binding;
+      if (candidate_profile.id == kDefaultProfileId) {
+        binding.static_lexicon = lexicon_ptr;
+        binding.local_dictionary = dictionary_ptr;
+      }
+      if (candidate_profile.id == profile->id) {
+        binding.engine_source = source_ptr;
+        // Bound to this profile only, and bound at all only because
+        // ProfileSwitch is what joins a user dictionary to an engine --
+        // replaying the stored words into it and subscribing it to later
+        // commits. Previewing without that would show a ranking no user
+        // ever sees.
+        binding.user_dictionary = user_ptr;
+      }
+      preview_switch.Bind(candidate_profile.id, binding);
+    }
+    preview_switch.Activate(profile->id);
+
+    window.SetPreedit(query);  // the Latin keys as typed
+    window.SetCandidates(preview_engine.Query(WideToUtf8(query), 9));
+    const RECT caret = {320, 240, 324, 264};
+    window.MoveNearCaret(caret);
+    MSG msg = {};
+    while (::GetMessageW(&msg, nullptr, 0, 0) > 0) {
+      ::TranslateMessage(&msg);
+      ::DispatchMessageW(&msg);
+    }
+    return 0;
+  }
 
   std::vector<Candidate> samples;
   const wchar_t* words[] = {
@@ -141,12 +278,49 @@ int Run(bool show_settings_on_start) {
   // source type (AI, speech, handwriting) is one AddSource call here.
   auto engine = std::make_shared<CandidateEngine>();
 
-  // Dynamic user lexicon (dual-track overlay, spec §3.2): highest
-  // priority, persisted asynchronously to SQLite in the user profile.
-  auto user_dictionary = std::make_unique<UserDictionary>(
-      (std::filesystem::path(UserConfigDirectory()) / L"user.db").wstring());
-  UserDictionary* user_dictionary_ptr = user_dictionary.get();
-  engine->AddSource(std::move(user_dictionary));
+  // Input profiles decide which stores are live (docs/input-profiles.md).
+  // Load them before the sources so one user lexicon per profile can be
+  // created; a missing directory falls back to the built-in profile.
+  g_profiles.LoadFromDirectory(ExecutableDirectory() + L"\\profiles");
+  g_profiles.EnsureDefault();
+
+  // Dynamic user lexicon (dual-track overlay, spec §3.2): highest priority,
+  // persisted asynchronously to SQLite in the user profile. One per profile,
+  // because entries learned under one text encoding are meaningless under
+  // another; ProfileSwitch keeps all but the active one unavailable.
+  std::vector<std::pair<std::string, UserDictionary*>> user_dictionaries;
+  for (const InputProfile& profile : g_profiles.All()) {
+    const std::wstring file =
+        profile.user_db.empty() ? L"user.db" : profile.user_db;
+    auto dictionary = std::make_unique<UserDictionary>(
+        (std::filesystem::path(UserConfigDirectory()) / file).wstring());
+    user_dictionaries.emplace_back(profile.id, dictionary.get());
+    engine->AddSource(std::move(dictionary));
+  }
+
+  // External engine processes, for the profiles that declare one
+  // (docs/engine-contract.md). Started here rather than on first use so that a
+  // missing or mismatched engine is reported now, in the log and the settings
+  // page, instead of silently producing no candidates on a keystroke.
+  std::vector<std::pair<std::string, ExternalEngineSource*>> engine_sources;
+  // Kept so the settings page can say why, not just the log: on Windows the
+  // log goes to the debugger, which a user never sees.
+  std::vector<std::pair<std::string, std::string>> engine_errors;
+  for (const InputProfile& profile : g_profiles.All()) {
+    if (!profile.has_engine()) continue;
+    std::string reason;
+    auto source = MakeEngineSource(profile, ExecutableDirectory(), &reason);
+    if (source == nullptr) {
+      PAIZA_LOG_ERROR(L"profile '" + Utf8ToWide(profile.id) +
+                      L"': engine unavailable: " + Utf8ToWide(reason));
+      engine_errors.emplace_back(profile.id, reason);
+      continue;
+    }
+    PAIZA_LOG_INFO(L"profile '" + Utf8ToWide(profile.id) +
+                   L"': engine started");
+    engine_sources.emplace_back(profile.id, source.get());
+    engine->AddSource(std::move(source));
+  }
 
   // Compiled static lexicon (mmap): prefix + fault-tolerant search + bigram
   // context. Falls back silently to the plain-text dictionary if absent.
@@ -164,22 +338,45 @@ int Run(bool show_settings_on_start) {
 
   auto dictionary = std::make_unique<LocalDictionarySource>();
   dictionary->LoadFromFile(ExecutableDirectory() + L"\\dictionary.txt");
+  LocalDictionarySource* dictionary_ptr = dictionary.get();
   engine->AddSource(std::move(dictionary));
 
   auto cloud = std::make_unique<CloudCandidateSource>(L"");
   g_cloud_source = cloud.get();
   engine->AddSource(std::move(cloud));
 
+  g_profile_switch =
+      std::make_unique<ProfileSwitch>(&g_profiles, /*session=*/nullptr);
+  for (const auto& [profile_id, dictionary] : user_dictionaries) {
+    ProfileBinding binding;
+    binding.user_dictionary = dictionary;
+    // One compiled lexicon today; per-profile lexicons arrive with the
+    // second profile.
+    if (profile_id == kDefaultProfileId) {
+      binding.static_lexicon = static_lexicon_ptr;
+      // The plain-text dictionary holds Unicode Mongolian words, so it
+      // belongs to the Unicode profile only.
+      binding.local_dictionary = dictionary_ptr;
+    }
+    for (const auto& [engine_profile_id, source] : engine_sources) {
+      if (engine_profile_id == profile_id) binding.engine_source = source;
+    }
+    for (const auto& [engine_profile_id, error] : engine_errors) {
+      if (engine_profile_id == profile_id) binding.engine_error = error;
+    }
+    g_profile_switch->Bind(profile_id, binding);
+  }
+
   ApplySettings(SettingsStore::Load());
 
   HWND message_window = CreateMessageWindow();
   if (message_window == nullptr) return 1;
 
-  SettingsWindow settings_window(ApplySettings, user_dictionary_ptr);
+  SettingsWindow settings_window(ApplySettings, g_profile_switch.get());
   g_settings_window = &settings_window;
 
   // IPC callbacks arrive on worker threads; hop to the UI thread.
-  CandidateService service(engine, user_dictionary_ptr, static_lexicon_ptr,
+  CandidateService service(engine, g_profile_switch.get(),
                            [message_window] {
                              ::PostMessageW(message_window, kMsgShowSettings, 0,
                                             0);
@@ -211,6 +408,7 @@ int Run(bool show_settings_on_start) {
   server.Stop();
   g_settings_window = nullptr;
   g_cloud_source = nullptr;
+  g_profile_switch.reset();
   return 0;
 }
 
@@ -229,7 +427,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR command_line, int) {
   const std::wstring args =
       command_line != nullptr ? std::wstring(command_line) : std::wstring();
   if (args.find(L"--preview-candidates") != std::wstring::npos) {
-    return paiza::service::RunCandidatePreview();
+    return paiza::service::RunCandidatePreview(args);
   }
   const bool wants_settings =
       args.find(L"--settings") != std::wstring::npos;

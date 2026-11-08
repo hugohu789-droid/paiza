@@ -35,6 +35,15 @@ struct UiStrings {
   const wchar_t* toggle_off;
   const wchar_t* language_label;
   const wchar_t* candidate_font_label;
+  // Input profile selector (text encoding + candidate engine); see
+  // docs/input-profiles.md. The profile's own display_name is the value.
+  const wchar_t* profile_label;
+  // Inline-composition selector: how much of the composition the host
+  // application shows in its own document (docs/input-profiles.md).
+  const wchar_t* inline_composition_label;
+  const wchar_t* inline_full;
+  const wchar_t* inline_placeholder;
+  const wchar_t* inline_hidden;
   // User dictionary import (settings page): row label, button caption,
   // result message ("%d" imported entries / "%d" skipped lines) and the
   // open-failure message.
