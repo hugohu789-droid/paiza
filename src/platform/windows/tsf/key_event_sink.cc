@@ -165,12 +165,15 @@ HRESULT TextService::HandleKeyDown(ITfContext* context, WPARAM wparam,
         const Candidate* selected =
             has_candidates ? candidate_window_->selected_candidate()
                            : nullptr;
-        CommitText(selected != nullptr ? selected->text : ConvertBuffer());
+        CommitBufferOrCancel(selected != nullptr ? selected->text
+                                                 : BufferCommitText());
       }
       return S_OK;
     case VK_RETURN:
       *eaten = TRUE;
-      if (apply) CommitText(ConvertBuffer());
+      // "Commit what is composed", which under an engine profile is the
+      // engine's text and not this process's reading of the keys.
+      if (apply) CommitBufferOrCancel(BufferCommitText());
       return S_OK;
     case VK_ESCAPE:
       *eaten = TRUE;
@@ -209,7 +212,7 @@ HRESULT TextService::HandleKeyDown(ITfContext* context, WPARAM wparam,
     default:
       // Any other key: finish the composition with the current buffer and
       // let the key reach the application afterwards.
-      if (apply) CommitText(ConvertBuffer());
+      if (apply) CommitBufferOrCancel(BufferCommitText());
       return S_OK;
   }
 }

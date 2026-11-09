@@ -429,6 +429,17 @@ std::wstring TextService::InlineCompositionText() {
   // this, a user who sets "Full" on a form-code profile would have
   // Unicode Mongolian inserted into their document as the composition
   // while the candidates beside it are form code.
+  return BufferCommitText();
+}
+
+std::wstring TextService::BufferCommitText() {
+  // Enter (and any key that ends the composition without choosing) commits
+  // "what was typed". Under an engine profile ConvertBuffer() is the
+  // Unicode key mapping's reading of the keys, which is the wrong script
+  // entirely -- committing it put Unicode Mongolian into the document from
+  // a form-code session, where the candidate window and the composition
+  // both show form code. The engine's best candidate is what the user sees
+  // as the composition, so that is what Enter commits.
   if (ReadPreeditFromEngineSetting()) {
     return candidates_.empty() ? std::wstring() : candidates_.front().text;
   }
@@ -459,15 +470,29 @@ void TextService::RefreshCandidates() {
     if (candidates_.size() > 27) candidates_.resize(27);
   }
   const bool from_engine = ReadPreeditFromEngineSetting();
-  if (candidates_.empty() && !converted.empty() && !from_engine) {
-    // Fallback so typing keeps working with the service down (mirrors
-    // EngineProxy's own fallback, applied after the merge). Not for an
-    // engine profile: there `converted` is the Unicode key mapping's idea
-    // of the keys, which is the wrong script entirely, and offering it
-    // would let the user commit it.
-    Candidate fallback;
-    fallback.text = converted;
-    candidates_.push_back(std::move(fallback));
+  if (!converted.empty() && !from_engine) {
+    // The key mapping's own reading of what was typed always leads the
+    // list. It is the one candidate the user can predict from the keys
+    // alone -- the dictionary's best guess for a prefix is often a longer
+    // word -- and without it there is no way to enter a word the lexicon
+    // does not have, because the first candidate is what Space and Enter
+    // commit. Also the fallback that keeps typing working with the service
+    // down (mirrors EngineProxy's own, applied after the merge).
+    //
+    // Not for an engine profile: there `converted` is the Unicode key
+    // mapping's idea of the keys, which is the wrong script entirely, and
+    // offering it would let the user commit it.
+    const auto same = std::find_if(
+        candidates_.begin(), candidates_.end(),
+        [&converted](const Candidate& c) { return c.text == converted; });
+    if (same != candidates_.end()) {
+      std::rotate(candidates_.begin(), same, same + 1);
+    } else {
+      Candidate literal;
+      literal.text = converted;
+      candidates_.insert(candidates_.begin(), std::move(literal));
+      if (candidates_.size() > 27) candidates_.resize(27);
+    }
   }
   ui::CandidateWindow* window = EnsureCandidateWindow();
   window->SetFontFamily(ReadCandidateFontSetting());

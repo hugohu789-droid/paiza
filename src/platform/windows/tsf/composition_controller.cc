@@ -127,6 +127,15 @@ HRESULT TextService::CommitText(const std::wstring& text) {
   return hr;
 }
 
+HRESULT TextService::CommitBufferOrCancel(const std::wstring& text) {
+  // An engine profile has nothing to commit until the engine has answered
+  // (BufferCommitText), and committing an empty string would leave the
+  // composition open with the candidate window still up, which looks to the
+  // user exactly like the key did nothing. End the session instead.
+  if (text.empty()) return CancelComposition();
+  return CommitText(text);
+}
+
 HRESULT TextService::CancelComposition() {
   if (!IsComposing() || active_context_ == nullptr) {
     ResetCompositionState();
