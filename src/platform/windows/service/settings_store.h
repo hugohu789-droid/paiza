@@ -75,6 +75,16 @@ void PublishInlineCompositionDefault(InlineComposition value);
 // declares, neither of which that process knows.
 void PublishCandidateFont(const std::wstring& family);
 
+// Publishes whether the active profile's text comes from an external
+// engine. When it does, the host cannot form the composition itself: a
+// form-code letter's shape depends on its position and its neighbours, so
+// one key can expand to as many as twelve shapes and only the engine knows
+// which. The text service then takes the composition from the engine's
+// best candidate instead of converting the keys with a key mapping, which
+// would produce Unicode Mongolian -- a different script from the
+// candidates beside it.
+void PublishPreeditFromEngine(bool from_engine);
+
 }  // namespace paiza::service
 
 #endif  // PAIZA_SERVICE_SETTINGS_STORE_H_

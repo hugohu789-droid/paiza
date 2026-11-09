@@ -27,6 +27,7 @@ constexpr wchar_t kValueInlineComposition[] = L"InlineComposition";
 constexpr wchar_t kValueInlineCompositionDefault[] =
     L"InlineCompositionDefault";
 constexpr wchar_t kValueCandidateFontEffective[] = L"CandidateFontEffective";
+constexpr wchar_t kValuePreeditFromEngine[] = L"PreeditFromEngine";
 
 uint32_t ReadDword(HKEY key, const wchar_t* name, uint32_t fallback,
                    bool* found = nullptr) {
@@ -127,6 +128,17 @@ void SettingsStore::Save(const Settings& settings) {
                static_cast<uint32_t>(settings.inline_composition));
     ::RegCloseKey(key);
   }
+}
+
+void PublishPreeditFromEngine(bool from_engine) {
+  HKEY key = nullptr;
+  if (::RegCreateKeyExW(HKEY_CURRENT_USER, kRegistryPath, 0, nullptr, 0,
+                        KEY_SET_VALUE, nullptr, &key,
+                        nullptr) != ERROR_SUCCESS) {
+    return;
+  }
+  WriteDword(key, kValuePreeditFromEngine, from_engine ? 1u : 0u);
+  ::RegCloseKey(key);
 }
 
 void PublishCandidateFont(const std::wstring& family) {

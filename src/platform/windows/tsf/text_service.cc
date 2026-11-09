@@ -354,6 +354,23 @@ InlineComposition ReadInlineCompositionSetting() {
   return InlineComposition::kFull;
 }
 
+// Whether the active profile's text comes from an external engine, as the
+// service published it. This process knows nothing about profiles, and the
+// answer decides where the composition comes from: a form-code letter's
+// shape depends on its position and its neighbours — one key can expand to
+// twelve shapes — so only the engine can form it, and converting the keys
+// here instead would put Unicode Mongolian next to form-code candidates.
+bool ReadPreeditFromEngineSetting() {
+  DWORD value = 0;
+  DWORD size = sizeof(value);
+  if (::RegGetValueW(HKEY_CURRENT_USER, L"Software\\PaizaIME",
+                     L"PreeditFromEngine", RRF_RT_REG_DWORD, nullptr, &value,
+                     &size) == ERROR_SUCCESS) {
+    return value != 0;
+  }
+  return false;
+}
+
 std::wstring ReadCandidateFontSetting() {
   wchar_t buffer[256] = {};
   DWORD size = sizeof(buffer) - sizeof(wchar_t);
@@ -407,6 +424,14 @@ std::wstring TextService::InlineCompositionText() {
     case InlineComposition::kFull:
       break;
   }
+  // Same rule as the candidate window's strip: with an engine profile the
+  // host cannot form the text, so the best candidate stands in. Without
+  // this, a user who sets "Full" on a form-code profile would have
+  // Unicode Mongolian inserted into their document as the composition
+  // while the candidates beside it are form code.
+  if (ReadPreeditFromEngineSetting()) {
+    return candidates_.empty() ? std::wstring() : candidates_.front().text;
+  }
   return ConvertBuffer();
 }
 
@@ -433,9 +458,13 @@ void TextService::RefreshCandidates() {
                      });
     if (candidates_.size() > 27) candidates_.resize(27);
   }
-  if (candidates_.empty() && !converted.empty()) {
+  const bool from_engine = ReadPreeditFromEngineSetting();
+  if (candidates_.empty() && !converted.empty() && !from_engine) {
     // Fallback so typing keeps working with the service down (mirrors
-    // EngineProxy's own fallback, applied after the merge).
+    // EngineProxy's own fallback, applied after the merge). Not for an
+    // engine profile: there `converted` is the Unicode key mapping's idea
+    // of the keys, which is the wrong script entirely, and offering it
+    // would let the user commit it.
     Candidate fallback;
     fallback.text = converted;
     candidates_.push_back(std::move(fallback));
@@ -445,7 +474,16 @@ void TextService::RefreshCandidates() {
   // The popup shows the preedit with the user's Mongolian font: the
   // inline composition is rendered by the HOST app with the host's own
   // font (TSF cannot set it) and may show isolated forms there.
-  window->SetPreedit(converted);
+  //
+  // Where it comes from depends on the profile. With a key mapping the
+  // host converts the keys itself. With an engine it cannot -- see
+  // ReadPreeditFromEngineSetting -- so the best candidate stands in,
+  // which also keeps the strip and the highlighted candidate showing the
+  // same thing instead of two different scripts.
+  window->SetPreedit(from_engine ? (candidates_.empty()
+                                        ? std::wstring()
+                                        : candidates_.front().text)
+                                 : converted);
   window->SetCandidates(candidates_);
 }
 
