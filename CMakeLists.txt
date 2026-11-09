@@ -182,6 +182,7 @@ if(WIN32)
     ${PAIZA_WIN}/ui/candidate_window.cc
     ${PAIZA_WIN}/ui/dropdown.cc
     ${PAIZA_WIN}/ui/event_dispatcher.cc
+    ${PAIZA_WIN}/ui/font_picker.cc
     ${PAIZA_WIN}/ui/image_view.cc
     ${PAIZA_WIN}/ui/label.cc
     ${PAIZA_WIN}/ui/render_context.cc

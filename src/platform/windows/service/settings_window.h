@@ -22,6 +22,7 @@
 #include "ui/button.h"
 #include "ui/checkbox.h"
 #include "ui/dropdown.h"
+#include "ui/font_picker.h"
 #include "ui/label.h"
 #include "ui/render_context.h"
 #include "ui/window.h"
@@ -72,6 +73,9 @@ class SettingsWindow : public ui::Window {
   // dropdown below the font button.
   void OpenFontPicker();
   void ApplyCandidateFont(const std::wstring& font);
+  // Removes this profile's own font choice, so it falls back to the font
+  // the profile declares. The picker's Space key reaches this.
+  void ClearCandidateFont();
   // The font in force for the profile the dialog is showing: that profile's
   // own choice if the user made one, else the font the profile declares,
   // else the built-in default. The stored setting holds one value per
@@ -123,7 +127,7 @@ class SettingsWindow : public ui::Window {
   ui::Checkbox* equiv_hg_check_ = nullptr;
   ui::Checkbox* equiv_td_check_ = nullptr;
   ui::Checkbox* equiv_ew_check_ = nullptr;
-  std::unique_ptr<ui::DropdownPopup> font_popup_;
+  std::unique_ptr<ui::FontPickerPopup> font_popup_;
   std::unique_ptr<ui::DropdownPopup> profile_popup_;
   std::unique_ptr<ui::DropdownPopup> inline_popup_;
   // Input profiles (docs/input-profiles.md); owned by the service.

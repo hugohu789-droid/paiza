@@ -35,6 +35,11 @@ struct UiStrings {
   const wchar_t* toggle_off;
   const wchar_t* language_label;
   const wchar_t* candidate_font_label;
+  // Font picker: the filter field's placeholder, and the reminder of the
+  // keys along its bottom edge. The list is a few hundred families long,
+  // so it is filtered and driven from the keyboard (ui/font_picker.h).
+  const wchar_t* font_filter_placeholder;
+  const wchar_t* font_picker_keys;
   // Input profile selector (text encoding + candidate engine); see
   // docs/input-profiles.md. The profile's own display_name is the value.
   const wchar_t* profile_label;

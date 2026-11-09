@@ -26,6 +26,7 @@ TEST(LocalizationTest, AllStringTablesComplete) {
           strings.section_general, strings.candidates_per_page,
           strings.cloud_candidates, strings.toggle_on, strings.toggle_off,
           strings.language_label, strings.candidate_font_label,
+          strings.font_filter_placeholder, strings.font_picker_keys,
           strings.profile_label,
           strings.inline_composition_label, strings.inline_full,
           strings.inline_placeholder, strings.inline_hidden,

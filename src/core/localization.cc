@@ -25,6 +25,10 @@ constexpr UiStrings kEnglishStrings = {
     /*toggle_off=*/L"Off",
     /*language_label=*/L"Language",
     /*candidate_font_label=*/L"Candidate window font",
+    /*font_filter_placeholder=*/L"Type to filter fonts",
+    /*font_picker_keys=*/
+    L"Tab: field \u2194 list  \u00b7  \u2191\u2193: move  \u00b7  "
+    L"Space: select / clear  \u00b7  Enter: apply  \u00b7  Esc: cancel",
     /*profile_label=*/L"Input profile",
     /*engine_problem_label=*/L"Candidate engine",
     /*inline_composition_label=*/L"Inline composition",
@@ -71,6 +75,10 @@ constexpr UiStrings kChineseStrings = {
     /*toggle_off=*/L"关",
     /*language_label=*/L"界面语言",
     /*candidate_font_label=*/L"候选框字体",
+    /*font_filter_placeholder=*/L"输入字体名筛选",
+    /*font_picker_keys=*/
+    L"Tab：切换焦点  \u00b7  \u2191\u2193：选择  \u00b7  "
+    L"空格：选中 / 取消  \u00b7  回车：应用  \u00b7  Esc：关闭",
     /*profile_label=*/L"输入方案",
     /*engine_problem_label=*/L"候选引擎",
     /*inline_composition_label=*/L"内联显示",
@@ -111,6 +119,13 @@ constexpr UiStrings kCyrillicStrings = {
     /*toggle_off=*/L"Идэвхгүй",
     /*language_label=*/L"Хэл",
     /*candidate_font_label=*/L"Үгийн фонт",
+    /*font_filter_placeholder=*/
+    L"Фонтын нэр бичиж шүүх",
+    /*font_picker_keys=*/
+    L"Tab: талбар \u2194 список  \u00b7  "
+    L"\u2191\u2193: сонгох  \u00b7  "
+    L"Space: сонгох / болих  \u00b7  "
+    L"Enter: хэрэглэх  \u00b7  Esc: хаах",
     /*profile_label=*/L"Оролтын горим",
     /*engine_problem_label=*/L"Нэр дэвшүүлэгч хөдөлгүүр",
     /*inline_composition_label=*/L"Шууд харуулах",

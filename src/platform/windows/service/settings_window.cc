@@ -637,25 +637,21 @@ void SettingsWindow::OpenFontPicker() {
     if (font_families_.empty()) return;
   }
   if (font_popup_ == nullptr) {
-    font_popup_ = std::make_unique<ui::DropdownPopup>();
-    font_popup_->SetOnSelect([this](size_t index) {
-      if (index < font_families_.size()) {
-        ApplyCandidateFont(font_families_[index].name);
-      }
-    });
+    font_popup_ = std::make_unique<ui::FontPickerPopup>();
+    font_popup_->SetOnSelect(
+        [this](const std::wstring& name) { ApplyCandidateFont(name); });
+    font_popup_->SetOnClear([this] { ClearCandidateFont(); });
   }
-
-  std::vector<ui::DropdownItem> items;
-  items.reserve(font_families_.size());
-  size_t selected = 0;
-  for (size_t i = 0; i < font_families_.size(); ++i) {
-    ui::DropdownItem item;
-    item.text = font_families_[i].name;
-    if (font_families_[i].supports_mongolian) item.badge = L"\x1820";
-    if (font_families_[i].name == EffectiveCandidateFont()) selected = i;
-    items.push_back(std::move(item));
-  }
-  font_popup_->SetItems(std::move(items), selected);
+  const UiStrings& strings = GetStrings(settings_.ui_language);
+  font_popup_->SetHints(strings.font_filter_placeholder,
+                        strings.font_picker_keys);
+  // "Chosen" and "effective" differ: a profile that has never been given a
+  // font of its own shows the one it declares, and Space must not then
+  // offer to clear a choice that was never made.
+  font_popup_->SetFamilies(
+      font_families_,
+      PerProfileValue(settings_.candidate_font, settings_.active_profile),
+      EffectiveCandidateFont());
 
   // Anchor rect of the font button in physical screen coordinates.
   POINT origin = {ToPhysical(font_button_->bounds().x),
@@ -684,6 +680,15 @@ void SettingsWindow::ApplyCandidateFont(const std::wstring& font) {
   // ZCode does not also change what the Unicode profile uses.
   settings_.candidate_font = SetPerProfileValue(
       settings_.candidate_font, settings_.active_profile, font);
+  RefreshLabels();
+}
+
+void SettingsWindow::ClearCandidateFont() {
+  // An empty value is how "this profile has no font of its own" is stored,
+  // and it is the only way back to the profile's declared font once a
+  // choice has been made (profile_settings.h).
+  settings_.candidate_font = SetPerProfileValue(
+      settings_.candidate_font, settings_.active_profile, L"");
   RefreshLabels();
 }
 
