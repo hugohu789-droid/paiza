@@ -144,7 +144,7 @@ void SettingsWindow::BuildWidgets() {
   y += 18 + 14;
 
   // ---- Card 1: General ------------------------------------------------
-  general_card_ = {kMargin, y, content_width, 230};
+  general_card_ = {kMargin, y, content_width, 0};  // Height derived below.
   const int card1_x = general_card_.x + kCardPadding;
   int row_y = general_card_.y + 12;
 
@@ -288,6 +288,11 @@ void SettingsWindow::BuildWidgets() {
       {card1_x, row_y, controls_right - card1_x, kRowHeight});
   engine_problem->set_visible(false);
   engine_problem_ = AddWidget(std::move(engine_problem));
+  // Its own row. The row is reserved whether or not the label is visible:
+  // the layout is computed once, so taking the space back when the engine
+  // is healthy would mean relaying the card out on every settings change,
+  // and an empty 38px gap is a smaller price than that.
+  row_y += kRowHeight + 8;
 
   // Row: how much of the composition the host shows inline.
   auto inline_label = std::make_unique<ui::Label>();
@@ -320,6 +325,12 @@ void SettingsWindow::BuildWidgets() {
   import_button->set_bounds({controls_right - 128, row_y, 128, kRowHeight});
   import_button->SetOnClick([this] { ImportUserDictionary(); });
   import_button_ = AddWidget(std::move(import_button));
+  row_y += kRowHeight;
+  // Derived from the rows, the way the card below already does it. The
+  // height used to be a constant, so adding a row made the last rows spill
+  // out of the card and draw on top of the next one -- which is exactly
+  // what happened when the engine-problem row arrived.
+  general_card_.height = row_y + 12 - general_card_.y;
   y = general_card_.bottom() + 14;
 
   // ---- Card 2: Soft equivalence (per-pair recall toggles) ---------------
