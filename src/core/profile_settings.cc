@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "common/string_utils.h"
+#include "core/input_profile.h"
 
 namespace paiza {
 namespace {
@@ -67,9 +68,18 @@ std::wstring PerProfileValue(std::wstring_view packed,
   bool legacy = false;
   const std::vector<Entry> entries = Unpack(packed, &legacy);
   // One value and no profile ids: what the user chose before the setting
-  // was per profile. It applies to whichever profile is asking, which is
-  // what they had until now.
-  if (legacy) return std::wstring(packed);
+  // was per profile. It answers for the **default** profile only, because
+  // that is the only profile that existed when they chose it.
+  //
+  // Letting it answer for every profile was wrong in a way that is worse
+  // than losing a preference: a ZCode profile would inherit a Unicode
+  // Mongolian font and override the form-code font it declares, and ZCode
+  // in a Unicode font renders as the Sibe and Manchu letters those code
+  // points are in Unicode. The wrong font there is wrong *text*.
+  if (legacy) {
+    return profile_id == kDefaultProfileId ? std::wstring(packed)
+                                           : std::wstring();
+  }
 
   const std::wstring wanted = Utf8ToWide(std::string(profile_id));
   for (const Entry& entry : entries) {
@@ -91,9 +101,13 @@ std::wstring SetPerProfileValue(std::wstring_view packed,
   bool legacy = false;
   std::vector<Entry> entries = Unpack(packed, &legacy);
   if (legacy) {
-    // Migrate: the old single value stays as this profile's, unless this
-    // write is what replaces it.
-    entries.push_back({wanted, std::wstring(packed)});
+    // Migrate: the old single value belonged to the default profile, which
+    // was the only one that existed when it was chosen, so that is where
+    // it goes -- not to whichever profile happens to be written first,
+    // which would silently lose it the moment someone picked a font for
+    // ZCode.
+    entries.push_back({Utf8ToWide(std::string(kDefaultProfileId)),
+                       std::wstring(packed)});
   }
   for (Entry& entry : entries) {
     if (entry.id == wanted) {

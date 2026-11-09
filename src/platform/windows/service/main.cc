@@ -73,6 +73,8 @@ void ApplySettings(const Settings& settings) {
         /*user_set=*/false, InlineComposition::kFull));
     PublishCandidateFont(g_profile_switch->active_candidate_font(
         settings.candidate_font, L"Noto Sans Mongolian"));
+    const InputProfile* active = g_profile_switch->active();
+    PublishPreeditFromEngine(active != nullptr && active->has_engine());
   }
   if (g_cloud_source != nullptr) {
     g_cloud_source->set_enabled(settings.cloud_source_enabled);

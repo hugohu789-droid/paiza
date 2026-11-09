@@ -95,6 +95,10 @@ class TextService final : public ITfTextInputProcessorEx,
   HRESULT StartComposition(ITfContext* context);
   HRESULT UpdateComposition(const std::wstring& display_text);
   HRESULT CommitText(const std::wstring& text);
+  // CommitText, except that an empty `text` ends the composition instead of
+  // replacing it with nothing: for the keys that mean "commit what I typed"
+  // there may be nothing to commit (see BufferCommitText).
+  HRESULT CommitBufferOrCancel(const std::wstring& text);
   HRESULT CancelComposition();
   // Applies (or clears) the input display attribute on `range`.
   void ApplyDisplayAttribute(TfEditCookie ec, ITfContext* context,
@@ -114,6 +118,12 @@ class TextService final : public ITfTextInputProcessorEx,
   // ConvertBuffer(), reduced to what the host should show inline per the
   // InlineComposition setting (docs/input-profiles.md).
   std::wstring InlineCompositionText();
+  // What "the text the user typed" commits to: the key mapping's conversion
+  // normally, the engine's best candidate under an engine profile, where
+  // the keys cannot be converted here at all. Empty when there is nothing
+  // to commit, which the caller must treat as a cancel rather than
+  // committing an empty string over the composition.
+  std::wstring BufferCommitText();
 
   // State -------------------------------------------------------------------
   LONG ref_count_ = 1;

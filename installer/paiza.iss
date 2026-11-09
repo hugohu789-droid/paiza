@@ -14,6 +14,7 @@
 ;
 ;   stage\            cmake --install of the x64 Release build
 ;   stage\x86\        PaizaTsf.dll (Win32) + its own fixed_sequences.txt
+;   stage\fonts\      Noto Sans Mongolian + its OFL licence
 ;   stage\zcode\      zcode_stdio.exe, zcode.txt, the font, the GPL notices
 ;
 ; The split matters: PaizaTsf.dll reads fixed_sequences.txt from *the
@@ -108,6 +109,20 @@ Source: "{#StageDir}\LICENSE"; DestDir: "{app}"; \
     Components: core; Flags: ignoreversion
 Source: "{#StageDir}\COMMERCIAL-LICENSE.md"; DestDir: "{app}"; \
     Components: core; Flags: ignoreversion
+
+; --- core, the Unicode Mongolian font ------------------------------------
+; Not optional, and not a component the user can untick: the unicode
+; profile *declares* this family (data/profiles/unicode.txt), so without it
+; the candidate window and the composition fall back to whatever the system
+; picks. Windows ships Mongolian Baiti, but a vertical Mongolian face is
+; not something to leave to chance on a machine that may have none.
+; OFL-1.1, so redistributing it is exactly what it is licensed for; the
+; licence travels with it.
+Source: "{#StageDir}\fonts\NotoSansMongolian-Regular.ttf"; \
+    DestDir: "{autofonts}"; FontInstall: "Noto Sans Mongolian"; \
+    Components: core; Flags: onlyifdoesntexist uninsneveruninstall
+Source: "{#StageDir}\fonts\NotoSansMongolian-OFL.txt"; \
+    DestDir: "{app}\fonts"; Components: core; Flags: ignoreversion
 
 ; --- core, 32-bit text service ------------------------------------------
 ; 32-bit host applications load the 32-bit TIP; without this, the IME is

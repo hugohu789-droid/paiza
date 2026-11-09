@@ -144,7 +144,7 @@ void SettingsWindow::BuildWidgets() {
   y += 18 + 14;
 
   // ---- Card 1: General ------------------------------------------------
-  general_card_ = {kMargin, y, content_width, 230};
+  general_card_ = {kMargin, y, content_width, 0};  // Height derived below.
   const int card1_x = general_card_.x + kCardPadding;
   int row_y = general_card_.y + 12;
 
@@ -288,6 +288,11 @@ void SettingsWindow::BuildWidgets() {
       {card1_x, row_y, controls_right - card1_x, kRowHeight});
   engine_problem->set_visible(false);
   engine_problem_ = AddWidget(std::move(engine_problem));
+  // Its own row. The row is reserved whether or not the label is visible:
+  // the layout is computed once, so taking the space back when the engine
+  // is healthy would mean relaying the card out on every settings change,
+  // and an empty 38px gap is a smaller price than that.
+  row_y += kRowHeight + 8;
 
   // Row: how much of the composition the host shows inline.
   auto inline_label = std::make_unique<ui::Label>();
@@ -320,6 +325,12 @@ void SettingsWindow::BuildWidgets() {
   import_button->set_bounds({controls_right - 128, row_y, 128, kRowHeight});
   import_button->SetOnClick([this] { ImportUserDictionary(); });
   import_button_ = AddWidget(std::move(import_button));
+  row_y += kRowHeight;
+  // Derived from the rows, the way the card below already does it. The
+  // height used to be a constant, so adding a row made the last rows spill
+  // out of the card and draw on top of the next one -- which is exactly
+  // what happened when the engine-problem row arrived.
+  general_card_.height = row_y + 12 - general_card_.y;
   y = general_card_.bottom() + 14;
 
   // ---- Card 2: Soft equivalence (per-pair recall toggles) ---------------
@@ -626,25 +637,21 @@ void SettingsWindow::OpenFontPicker() {
     if (font_families_.empty()) return;
   }
   if (font_popup_ == nullptr) {
-    font_popup_ = std::make_unique<ui::DropdownPopup>();
-    font_popup_->SetOnSelect([this](size_t index) {
-      if (index < font_families_.size()) {
-        ApplyCandidateFont(font_families_[index].name);
-      }
-    });
+    font_popup_ = std::make_unique<ui::FontPickerPopup>();
+    font_popup_->SetOnSelect(
+        [this](const std::wstring& name) { ApplyCandidateFont(name); });
+    font_popup_->SetOnClear([this] { ClearCandidateFont(); });
   }
-
-  std::vector<ui::DropdownItem> items;
-  items.reserve(font_families_.size());
-  size_t selected = 0;
-  for (size_t i = 0; i < font_families_.size(); ++i) {
-    ui::DropdownItem item;
-    item.text = font_families_[i].name;
-    if (font_families_[i].supports_mongolian) item.badge = L"\x1820";
-    if (font_families_[i].name == EffectiveCandidateFont()) selected = i;
-    items.push_back(std::move(item));
-  }
-  font_popup_->SetItems(std::move(items), selected);
+  const UiStrings& strings = GetStrings(settings_.ui_language);
+  font_popup_->SetHints(strings.font_filter_placeholder,
+                        strings.font_picker_keys);
+  // "Chosen" and "effective" differ: a profile that has never been given a
+  // font of its own shows the one it declares, and Space must not then
+  // offer to clear a choice that was never made.
+  font_popup_->SetFamilies(
+      font_families_,
+      PerProfileValue(settings_.candidate_font, settings_.active_profile),
+      EffectiveCandidateFont());
 
   // Anchor rect of the font button in physical screen coordinates.
   POINT origin = {ToPhysical(font_button_->bounds().x),
@@ -673,6 +680,15 @@ void SettingsWindow::ApplyCandidateFont(const std::wstring& font) {
   // ZCode does not also change what the Unicode profile uses.
   settings_.candidate_font = SetPerProfileValue(
       settings_.candidate_font, settings_.active_profile, font);
+  RefreshLabels();
+}
+
+void SettingsWindow::ClearCandidateFont() {
+  // An empty value is how "this profile has no font of its own" is stored,
+  // and it is the only way back to the profile's declared font once a
+  // choice has been made (profile_settings.h).
+  settings_.candidate_font = SetPerProfileValue(
+      settings_.candidate_font, settings_.active_profile, L"");
   RefreshLabels();
 }
 

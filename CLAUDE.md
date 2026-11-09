@@ -30,11 +30,23 @@ install directory only and never searches `PATH`.
 
 ## Where things stand
 
-Increments 1–7 of `docs/input-profiles.md` are done and merged to `main`:
-input profiles, the external-engine contract, the ZCode profile, dictionary
+Increments 1–7 of `docs/input-profiles.md` are implemented: input
+profiles, the external-engine contract, the ZCode profile, dictionary
 modes, the user's own words with a time-decayed habit model, and the
 per-profile behaviour fields. `README.md` has the overview;
 `docs/input-profiles.md` §8 has the rollout record.
+
+**Two of them are not on every platform, and the reason is one fact worth
+knowing before touching either: the Windows TSF does not use
+`InputSession`.** It is a parallel implementation of the key policy, so a
+change to `InputSession` reaches Linux and macOS only, and a change under
+`src/platform/windows/tsf/` reaches Windows only. Consequently 6c (preedit
+from the engine) is done in the TSF and not in `InputSession`, and 7b
+(`romanize_query`, `skeleton_input`, `vowel_keys`) is the other way round.
+What crosses the gap today is the registry: the service publishes
+`InlineCompositionDefault`, `CandidateFontEffective` and
+`PreeditFromEngine` under `HKCU\Software\PaizaIME`, and the TSF reads
+them. `docs/input-profiles.md` §8 has the table.
 
 ## What is verified, and where — read this before claiming anything works
 

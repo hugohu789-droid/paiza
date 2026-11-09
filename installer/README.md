@@ -35,6 +35,8 @@ missing rather than silently producing no candidates.
   dictionary.txt            read by the service from its own directory
   lexicon.bin               compiled lexicon; the service copes without it
   profiles\unicode.txt
+  fonts\
+    NotoSansMongolian-OFL.txt   the OFL-1.1 licence of that font
   x86\
     PaizaTsf.dll            32-bit text service
     fixed_sequences.txt     its own copy — ModuleDirectory() is this folder
@@ -52,6 +54,12 @@ Two of those placements are easy to get wrong and silent when wrong:
   The host resolves an engine named by a profile inside the executable's
   directory and never searches `PATH` — a profile file that could name a
   path would be arbitrary code execution.
+* **The fonts go to `{autofonts}`, not into the install directory.**
+  Both are installed with `FontInstall`, which is what registers the
+  family name a profile names its font by: `Noto Sans Mongolian` for
+  Unicode (part of `core`, OFL-1.1) and `Z52 Hara Tig` for ZCode.
+  Both carry `onlyifdoesntexist uninsneveruninstall`: a font another
+  application may also be using is not ours to replace or take away.
 
 Both architectures are registered with `regsvr32` (64-bit from `{sys}`,
 32-bit from `{syswow64}`) and unregistered on uninstall. 32-bit host
@@ -72,11 +80,12 @@ cmake -S . -B build32 -A Win32
 cmake --build build32 --config Release --target PaizaTsf
 ```
 
-Then assemble the two staged subdirectories the workflow builds — `stage\x86`
-(the 32-bit DLL and a copy of `fixed_sequences.txt`) and `stage\zcode`
-(`zcode_stdio.exe`, `data\profiles\zcode.txt`, and from the zcode-cpp
-checkout its `LICENSE`, `NOTICE.md` and `third_party\fonts\z52haratig.ttf`)
-— and compile:
+Then assemble the three staged subdirectories the workflow builds —
+`stage\x86` (the 32-bit DLL and a copy of `fixed_sequences.txt`),
+`stage\fonts` (both files from this repository's `third_party\fonts\`)
+and `stage\zcode` (`zcode_stdio.exe`, `data\profiles\zcode.txt`, and from
+the zcode-cpp checkout its `LICENSE`, `NOTICE.md` and
+`third_party\fonts\z52haratig.ttf`) — and compile:
 
 ```bat
 "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=0.1.0-local /DStageDir=..\stage installer\paiza.iss
