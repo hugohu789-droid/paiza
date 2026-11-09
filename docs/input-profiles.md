@@ -3,7 +3,8 @@
 Design record for making Paiza support more than one Mongolian text encoding and
 more than one candidate engine inside a **single codebase**, selected at runtime.
 
-Status: design agreed; increments 1 to 5 and 6a-6b implemented (see "Rollout" at the end).
+Status: design agreed; increments 1 to 7 implemented, with two gaps that
+are per-platform rather than per-increment — see "Rollout" at the end.
 
 ---
 
@@ -415,7 +416,7 @@ Each additional engine multiplies, not adds:
 | 5 | `UserDictionary::set_enabled` plus per-profile registration. | 2 |
 | 6a | The engine contract's host side: executable resolution, the two transports, `ExternalEngineSource`. | external port |
 | 6b | Construct the engine source per profile in all three front-ends and gate it through `ProfileSwitch`. | 6a |
-| 6c | Source the preedit from the engine rather than a key mapping (§2.5). Touches `InputSession`, so it is split out. | 6b |
+| 6c | Source the preedit from the engine rather than a key mapping (§2.5). Touches `InputSession`, so it is split out. **Done on Windows only** (see below). | 6b |
 | 7a | Add `data/profiles/zcode.txt`; make `paiza_query` drive a profile and its engine, and verify end to end against the real engine. | 6b |
 | 7b | Honour the fields a non-Unicode profile needs: `romanize_query`, `skeleton_input`, `vowel_keys`, `inline_default`. All four are parsed and none is consumed. Touches `InputSession`, so it belongs with 6c. | 6c |
 | 7c | Per-profile candidate font in the three settings stores, and show `active_engine_error()` in the three dialogs. | 7a |
@@ -605,4 +606,24 @@ incidental:
 | macOS | inside the input controller, likewise | asks it directly |
 | Linux | a **separate process** from the ibus engine | the engine writes the reason to `engine-status` beside `settings.ini` on every profile switch; the dialog reads it |
 
-Still open: nothing from increments 1–7.
+Still open, and both for the same structural reason: **the Windows TSF
+does not use `InputSession`.** It is a parallel implementation of the key
+policy that predates the cross-platform one, so a change to `InputSession`
+reaches Linux and macOS and nothing else, and a change to the TSF reaches
+Windows and nothing else.
+
+| | Windows (TSF) | Linux / macOS (`InputSession`) |
+|---|---|---|
+| **6c** preedit from the engine | **done** — `TextService::BufferCommitText`, gated on the `PreeditFromEngine` value the service publishes; the composition, the candidate window's strip and what Enter commits all come from the engine's best candidate | not done — the preedit is still the key mapping's conversion |
+| **7b** `romanize_query`, `skeleton_input`, `vowel_keys` | **no effect** — the TSF never consults them | done — applied by `ProfileSwitch` |
+
+`inline_default` is the exception in that row: it reaches Windows, because
+the service publishes it to `HKCU\Software\PaizaIME` and the TSF reads it
+there rather than through `InputSession`. The same mechanism is what 6c
+uses, and it is the cheap way to close 7b on Windows too — the expensive
+and correct way is for the TSF to use `InputSession` like the other two.
+
+Until then, "implemented" in the table above means *on the platforms that
+share `InputSession`*, and the ZCode profile is only fully exercised on
+Windows, which is the one platform the IME has actually been run on
+(`CLAUDE.md`).

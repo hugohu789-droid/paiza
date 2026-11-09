@@ -131,7 +131,11 @@ romanize_query   no
 # Consonant-skeleton input relies on the Unicode lexicon's vowels.
 skeleton_input   no
 
-# Nothing inline for now: with no keymap there is no preedit to show until the
-# host sources it from the engine's best candidate (docs/input-profiles.md,
-# increment 6c). Showing a stale or empty composition would be worse.
+# Nothing inline. The host now does source the preedit from the engine's best
+# candidate on Windows (docs/input-profiles.md, increment 6c), so the
+# candidate window's strip shows real form code -- but the *document* would
+# render it in the application's own font, which TSF cannot set and which is
+# not a Z52 font, so inline it would be Sibe and Manchu letters. The
+# candidate window, which does use the profile's font, is the right place
+# for it.
 inline_default   hidden

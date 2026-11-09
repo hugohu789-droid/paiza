@@ -524,7 +524,7 @@ popups never steal focus (`WS_EX_NOACTIVATE` + `MA_NOACTIVATE`).
 | `- _ @ # $ % *`| MVS, NNBSP, FVS1–4, Birga (user-mappable; any key in keymap.txt composes) |
 | `1`–`9`        | commit that candidate on the current page (unshifted) |
 | `Space`        | commit highlighted candidate                      |
-| `Enter`        | commit raw transliteration                        |
+| `Enter`        | commit the composition as it stands (see below)   |
 | `Esc`          | cancel composition                                |
 | `Backspace`    | delete last letter                                |
 | `PgDn`         | next candidate page                               |
@@ -532,17 +532,58 @@ popups never steal focus (`WS_EX_NOACTIVATE` + `MA_NOACTIVATE`).
 | arrows         | move candidate highlight                          |
 | `Ctrl+Alt+P`   | open settings dialog (global)                     |
 
+Two of those depend on the active profile, because what "what I typed"
+means does:
+
+* **The first candidate** is the key mapping's own conversion of the keys,
+  always, whatever the dictionary thinks is likelier. It is the one
+  candidate predictable from the keys alone, and it is how a word the
+  lexicon does not have gets entered at all. Under a profile with an
+  **engine** and no key mapping (ZCode) there is no such conversion to
+  offer -- converting the keys there would produce Unicode Mongolian
+  beside form-code candidates -- so the list is the engine's, unaltered.
+* **`Enter`** commits that same text: the key mapping's conversion, or,
+  under an engine profile, the engine's best candidate, which is what the
+  candidate window's preedit strip is showing. With nothing to commit it
+  ends the composition instead of inserting an empty string.
+
 ## Candidate window font
 
 The Mongolian font used in the candidate window is user-selectable. The
-settings dialog's *Candidate window font* row opens a dropdown of installed
-font families (`RenderContext::EnumerateFontFamilies`), with Mongolian-
-capable fonts — those with a glyph for U+1820 — listed first and marked
-with a ᠠ badge. The default is Google's **Noto Sans Mongolian**
-(`kDefaultCandidateFont`). The choice is stored as
-`HKCU\Software\PaizaIME\CandidateFont` (REG_SZ); the TSF module reads it on
-every candidate refresh, so a saved change takes effect on the next
-keystroke.
+settings dialog's *Candidate window font* row opens a **font picker**
+(`ui/font_picker.h`): a filter field over the installed families
+(`RenderContext::EnumerateFontFamilies`), with Mongolian-capable fonts —
+those with a glyph for U+1820 — listed first and marked with a ᠠ badge.
+
+The picker is the one popup in this process that **takes focus**. Every
+other one is `WS_EX_NOACTIVATE`, because an IME popup must never steal
+focus from the host application; this one is in the settings dialog, where
+there is nothing to steal from, and focus is what makes `WM_KEYDOWN`,
+`WM_CHAR` and `WM_MOUSEWHEEL` arrive at all. A few hundred font families
+is too many to reach by scrolling, so it has to be typed at:
+
+| | |
+|---|---|
+| type | filters the list |
+| `Tab` | filter field ↔ list |
+| `↑` `↓` `PgUp` `PgDn` | move the highlight (and leave the filter field) |
+| `Space` | choose the highlighted family, or, on the one already chosen, **clear** the choice — back to the font the profile declares |
+| `Enter` | choose the highlighted family |
+| `Esc` | close, changing nothing |
+| wheel, scrollbar | scroll; the scrollbar thumb is draggable and its track pages |
+
+Losing activation closes the picker, which is also how a click outside
+dismisses it.
+
+The default is Google's **Noto Sans Mongolian** (`kDefaultCandidateFont`),
+and the Windows installer installs that font (OFL-1.1, vendored in
+`third_party/fonts/`) as part of the input method itself — the Unicode
+profile *names* that family, so it cannot be left to chance. The choice is
+stored as `HKCU\Software\PaizaIME\CandidateFont` (REG_SZ), **one value per
+profile** (`profile=family;profile=family`); the service resolves the
+active profile's font into `CandidateFontEffective`, which is what the TSF
+module reads on every candidate refresh, so a saved change takes effect on
+the next keystroke.
 
 ## Vertical Mongolian rendering (stem alignment + uniform strokes)
 
