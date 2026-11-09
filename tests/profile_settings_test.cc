@@ -12,6 +12,8 @@
 
 #include <string>
 
+#include "core/input_profile.h"
+
 namespace paiza {
 namespace {
 
@@ -56,12 +58,22 @@ TEST(ProfileSettingsTest, AnEmptyValueRemovesTheEntry) {
   EXPECT_EQ(PerProfileValue(packed, "unicode"), L"B");
 }
 
-// What a user already had before the setting was per profile.
-TEST(ProfileSettingsTest, AnOldSingleValueAnswersForEveryProfile) {
+// What a user already had before the setting was per profile. It answers
+// for the default profile only: that is the one it was chosen for, since
+// it is the only one that existed then.
+//
+// Answering for every profile was the first version of this, and it was
+// wrong in a way worse than losing a preference -- the ZCode profile
+// inherited a Unicode Mongolian font and it overrode the form-code font
+// ZCode declares, so the candidates rendered as the Sibe and Manchu
+// letters those code points are in Unicode. Wrong font there is wrong
+// text.
+TEST(ProfileSettingsTest, AnOldSingleValueAnswersForTheDefaultProfileOnly) {
   const std::wstring legacy = L"Noto Sans Mongolian";
-  EXPECT_EQ(PerProfileValue(legacy, "unicode"), legacy);
-  EXPECT_EQ(PerProfileValue(legacy, "zcode"), legacy);
-  EXPECT_EQ(PerProfileValue(legacy, "anything"), legacy);
+  EXPECT_EQ(PerProfileValue(legacy, kDefaultProfileId), legacy);
+  EXPECT_TRUE(PerProfileValue(legacy, "zcode").empty())
+      << "so the caller falls back to the font that profile declares";
+  EXPECT_TRUE(PerProfileValue(legacy, "anything").empty());
 }
 
 TEST(ProfileSettingsTest, WritingMigratesAnOldSingleValue) {
@@ -71,8 +83,9 @@ TEST(ProfileSettingsTest, WritingMigratesAnOldSingleValue) {
   const std::wstring packed =
       SetPerProfileValue(legacy, "zcode", L"Z52 Hara Tig");
   EXPECT_EQ(PerProfileValue(packed, "zcode"), L"Z52 Hara Tig");
-  EXPECT_EQ(PerProfileValue(packed, "unicode"), L"")
-      << "nothing stored for it, so it falls back to what it declares";
+  EXPECT_EQ(PerProfileValue(packed, kDefaultProfileId), legacy)
+      << "the old value belonged to the default profile and is kept there, "
+         "rather than being lost to the profile written first";
 }
 
 TEST(ProfileSettingsTest, WritingTheSameProfileMigratesWithoutDuplicating) {

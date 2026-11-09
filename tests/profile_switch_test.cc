@@ -421,5 +421,44 @@ TEST_F(ProfileSwitchTest, TheShippedZCodeProfileGetsWhatItDeclares) {
             InlineComposition::kFull);
 }
 
+// A font the user chose before the setting was per profile applies to the
+// profile they chose it for -- which can only have been the default one,
+// since it is the only profile that existed. It must NOT override the font
+// another profile declares: ZCode in a Unicode Mongolian font renders as
+// the Sibe and Manchu letters those code points are in Unicode, so the
+// wrong font there is wrong *text*, not a different look.
+TEST_F(ProfileSwitchTest, ALegacyFontDoesNotOverrideWhatAProfileDeclares) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(
+      registry.LoadFromString("id unicode\nfont Noto Sans Mongolian\n"));
+  ASSERT_TRUE(registry.LoadFromString("id zcode\nfont Z52 Hara Tig\n"));
+  ProfileSwitch sw(&registry, /*session=*/nullptr);
+  sw.Bind("unicode", ProfileBinding());
+  sw.Bind("zcode", ProfileBinding());
+
+  // What a fresh install has: one unpacked value, no profile ids in it.
+  const std::wstring legacy = L"Noto Sans Mongolian";
+
+  ASSERT_TRUE(sw.Activate("unicode"));
+  EXPECT_EQ(sw.active_candidate_font(legacy, L"Fallback"),
+            L"Noto Sans Mongolian");
+
+  ASSERT_TRUE(sw.Activate("zcode"));
+  EXPECT_EQ(sw.active_candidate_font(legacy, L"Fallback"), L"Z52 Hara Tig")
+      << "the profile's own font must win over a value from before the "
+         "setting was per profile";
+}
+
+// And an explicit per-profile choice still beats the declaration.
+TEST_F(ProfileSwitchTest, AnExplicitChoiceBeatsTheProfilesDeclaration) {
+  InputProfileRegistry registry;
+  ASSERT_TRUE(registry.LoadFromString("id zcode\nfont Z52 Hara Tig\n"));
+  ProfileSwitch sw(&registry, /*session=*/nullptr);
+  sw.Bind("zcode", ProfileBinding());
+  ASSERT_TRUE(sw.Activate("zcode"));
+  EXPECT_EQ(sw.active_candidate_font(L"zcode=Z52 Galt Tig", L"Fallback"),
+            L"Z52 Galt Tig");
+}
+
 }  // namespace
 }  // namespace paiza
